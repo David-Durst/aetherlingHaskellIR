@@ -22,6 +22,7 @@ description:         Please see the README on GitHub at <https://github.com/Davi
 dependencies:
 - base >= 4.7 && < 5
 - pretty-simple >= 2.1.0.0 && < 2.2.0.0
+- HUnit >= 1.6.0.0 && < 2.0.0.0
 
 library:
   source-dirs: src/lib/
@@ -38,8 +39,8 @@ executables:
     - AetherlingSTIR
 
 tests:
-  AetherlingSTIR-test:
-    main:                Spec.hs
+  AetherlingSTIR-Examples-test:
+    main:                TestExamples.hs
     source-dirs:         test
     ghc-options:
     - -threaded
@@ -47,3 +48,4 @@ tests:
     - -with-rtsopts=-N
     dependencies:
     - AetherlingSTIR
+    - AetherlingSTIR-Example-exe
