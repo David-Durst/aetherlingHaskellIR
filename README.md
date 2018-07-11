@@ -1,54 +1,25 @@
-# Aetherling
-
-## Overview
-Aetherling is a library for creating data-parallel pipelines in hardware. Aetherling will eventually offer two APIs:
-1. Auto-scheduled - The user declares high-level operations like map and reduce. Aetherling optimally maps these to parallel or sequential implementations in hardware compiler transformations that are proven to be optimal.
-1. Manually-scheduled  - The user creates pipelines using Aetherlings low-level primitives for a hand-crafted, artisanal data pipeline that is parallelized exactly the desired amount.
-
-## Documentation
-1. Read the [documentation of the stack Aetherling is built on top of](https://github.com/phanrahan/magma/blob/docs/doc/overview.md)
-1. The following document provides a description of how much space on hardware and how much time in clock cycles each operation takes: https://github.com/David-Durst/aetherling/blob/master/applied/spacetime.txt
-1. aetherling/modules contains the currently implemented modules
-1. tests contains a list of unit tests that show how to create Aetherling pipelines.
-    1. Run the tests with the following command:
+# Aetherling's SpaceTime Intermediate Representation
+To build this part of the project:
+1. Install the latest version of [stack](https://docs.haskellstack.org/en/stable/README/)
+2. Clone the entire [Aetherling repository](https://github.com/David-Durst/aetherling)
+3. Move to the subfolder for the Haskell IR:
+```
+cd theory/AetherlingSTIR/
+```
+3. Build the project:
+```
+stack build
+```
+4. Look at the examples in [src/examples/Main.hs](src/examples/Main.hs). The output of running this file is at [src/examples/Main.output](src/examples/Main.output).
+5. Either 
+    1. Run the produced binary to see all the examples and their space/time requirements. You can find the binary by looking at the output of the build command
+    2. Load the package in the Haskell interpreter and try out your own examples. This can be done by running:
     ```
-    pytest -s tests
-    ```
-
-## Installation
-1. Install the following components in the proscribed order:
-    1. [CoreIR](https://github.com/rdaly525/coreir/tree/master) - use the dev branch
-        1. This is the IR used to represent the components.
-        1. How to install: https://github.com/rdaly525/coreir/blob/master/INSTALL.md
-            1. Install from source
-            1. After checking the repo out, switch to the dev branch before installing.
-            1. Be sure to follow the instructions under the "to build" and "install to /usr or /usr/bin" heading
-    1. [PyCoreIR](https://github.com/leonardt/pycoreir)
-        1. This provides the Python API for interfacing with CoreIR.
-        1. How to install: https://github.com/leonardt/pycoreir#development-setup
-            1. After checking the repo out, switch to the dev branch before installing.
-            1. Follow the development installation instructions.
-    1. [Magma](https://github.com/phanrahan/magma) - use the coreir-dev branch
-        1. This provides the Python API for creating circuits and basic computer architecture components.
-        1. How to install: https://github.com/phanrahan/magma#installation
-            1. After checking the repo out, switch to the coreir-dev branch before installing.
-    1. [Mantle](https://github.com/phanrahan/mantle)
-        1. This is a library of useful Magma components.
-        1. How to install: https://github.com/phanrahan/mantle#setup
-            1. After checking the repo out, switch to the coreir-dev branch before installing.
-1. Install Aetherling:
-    ```
-    git clone https://github.com/David-Durst/aetherling/
-    cd aetherling
-    pip install -r requirements.txt
-    pip install -e .
-    ```
-1. Set the following environment variable (if you didn't already do so in the Mantle installation):
-    ```
-    export MANTLE=coreir
-    ```
-1. Run the unit tests:
-    ```
-    pytest -s tests
+    stack ghci
     ```
 
+# Notes:
+run with the following to get profiling for debugging and memory analysis:
+```
+AetherlingSTIR-Example-exe +RTS -xc
+```
