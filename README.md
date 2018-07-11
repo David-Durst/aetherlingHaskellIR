@@ -1,4 +1,4 @@
-# Aetherling's SpaceTime Intermediate Representation
+# Aetherling's Haskell SpaceTime Intermediate Representation
 To build this part of the project:
 1. Install the latest version of [stack](https://docs.haskellstack.org/en/stable/README/)
 2. Clone the entire [Aetherling repository](https://github.com/David-Durst/aetherling)
