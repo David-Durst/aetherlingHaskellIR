@@ -29,7 +29,9 @@ library:
 executables:
   AetherlingSTIR-Example-exe:
     main:                Main.hs
-    source-dirs:         src/examples/
+    source-dirs:
+    - src/examples/
+    - src/examplesExe/
     ghc-options:
     - -threaded
     - -rtsopts
