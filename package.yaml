@@ -1,3 +1,4 @@
+# see docs at https://docs.haskellstack.org/en/stable/yaml_configuration/
 name:                AetherlingSTIR
 version:             0.1.0.0
 github:              "David-Durst/Aetherling/theory/AetherlingSTIR"
@@ -22,6 +23,10 @@ description:         Please see the README on GitHub at <https://github.com/Davi
 dependencies:
 - base >= 4.7 && < 5
 - pretty-simple >= 2.1.0.0 && < 2.2.0.0
+
+ghc-options:
+- -fwarn-incomplete-patterns 
+    #- -Wall - comeback to this, too many warnings right now to handle
 
 library:
   source-dirs: src/lib/
