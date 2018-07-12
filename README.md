@@ -1,4 +1,5 @@
 # Aetherling's Haskell SpaceTime Intermediate Representation
+[![Build Status](https://travis-ci.com/David-Durst/aetherlingHaskellIR.svg?branch=master)](https://travis-ci.com/David-Durst/aetherlingHaskellIR)
 To build this part of the project:
 1. Install the latest version of [stack](https://docs.haskellstack.org/en/stable/README/)
 2. Clone the entire [Aetherling repository](https://github.com/David-Durst/aetherling)
