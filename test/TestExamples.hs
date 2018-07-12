@@ -26,8 +26,8 @@ unitTests = testGroup "Verifying Examples Aren't ComposeFailures"
     testCase "back-to-back 1 pixel per clock, 3 pixel stencil linebuffers" $ isSuccess lbChain @?= True,
     testCase "basic memory reading one int per clock" $ isSuccess memReadInt @?= True,
     testCase "basic memory writing one int per clock" $ isSuccess memWriteInt @?= True,
-    testCase "a SequenceArrayController converting int[2]{1} to int{2} every two clocks" $ isSuccess sac2Int @?= True,
-    testCase "a SequenceArrayController converting int[2]{1} to int{2} every two clocks and a an underuitilized constant generator to feed it" $ isSuccess constantToSAC @?= True,
+    testCase "A reshape converting int[2]{1} to int{2} every two clocks" $ isSuccess spaceAndTimeReshape @?= True,
+    testCase "Reshape converting int[3]{1} to int{3} every three clocks and a an underuitilized constant generator to feed it" $ isSuccess constantSpaceTimeReshape @?= True,
     testCase "duplicating the outputs but not the inputs of an adder" $ isSuccess duplicateAdd @?= True,
     testCase "1 pixel per clock 3 pixel stencil convolution" $ isSuccess conv1PxPerClock @?= True
   ]

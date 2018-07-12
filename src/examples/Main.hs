@@ -13,7 +13,7 @@ main = do
   describeMethod "back-to-back 1 pixel per clock, 3 pixel stencil linebuffers" lbChain
   describeMethod "basic memory reading one int per clock" memReadInt
   describeMethod "basic memory writing one int per clock" memWriteInt
-  describeMethod "a SequenceArrayController converting int[2]{1} to int{2} every two clocks" sac2Int
-  describeMethod "a SequenceArrayController converting int[2]{1} to int{2} every two clocks and a an underuitilized constant generator to feed it" constantToSAC
+  describeMethod "A reshape converting int[2]{1} to int{2} every two clocks" spaceAndTimeReshape
+  describeMethod "Reshape converting int[3]{1} to int{3} every three clocks and a an underuitilized constant generator to feed it" constantSpaceTimeReshape
   describeMethod "duplicating the outputs but not the inputs of an adder" duplicateAdd
   describeMethod "1 pixel per clock 3 pixel stencil convolution" conv1PxPerClock
