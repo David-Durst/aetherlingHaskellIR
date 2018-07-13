@@ -12,7 +12,7 @@ import Data.List
 -- Useful for verifying that the logic of the circuit is correct, but
 -- doesn't simulate the actual hardware implementation.
 --
--- Input: list of lists of ValueType. Each list entry of the outer
+-- Second Argument: Port Inputs: list of lists of ValueType. Each list entry of the outer
 -- list corresponds (in order) to one input port. These inner list
 -- entries are a sequence of input values for said port, with each
 -- value corresponding to one input on a "meaningful" clock
@@ -23,7 +23,7 @@ import Data.List
 -- NOTE: Be careful if some ports have a longer/shorter sequence of
 -- inputs than expected.
 --
--- Memory input: list of lists of ValueType. The inner lists are
+-- Third Argument: Memory input: list of lists of ValueType. The inner lists are
 -- "tapes" of input corresponding to one MemRead, which outputs the
 -- tape's values sequentially. Index i of the outer list corresponds
 -- to the input for the ith MemRead, which are numbered in the order
@@ -39,8 +39,8 @@ import Data.List
 --
 -- TODO: More convenient error messages?
 -- TODO: Warnings when input sequence lengths don't match.
-simulateHighLevel :: Op -> [[ValueType]] -> [[ValueType]]
-                  -> ( [[ValueType]], [[ValueType]] )
+simulateHighLevel ::
+     Op -> [[ValueType]] -> [[ValueType]] -> ([[ValueType]], [[ValueType]])
 -- Check that the types match, then delegate to simhl implementation.
 simulateHighLevel op portInputs memoryInputs =
     if simhlCheckInputs 0 (inPorts op) portInputs
@@ -126,6 +126,7 @@ simhl Lt inSeqs state = (simhlCombinational simhlLt inSeqs, state)
 simhl Leq inSeqs state = (simhlCombinational simhlLeq inSeqs, state)
 simhl Gt inSeqs state = (simhlCombinational simhlGt inSeqs, state)
 simhl Geq inSeqs state = (simhlCombinational simhlGeq inSeqs, state)
+simhl (LUT table) inSeqs state = (simhlCombinational (simhlLUT table) inSeqs, state)
 
 -- HACK the constant generators don't really know how long their
 -- output sequences should be, so they look at the simhlConstSeqLen
@@ -203,19 +204,18 @@ simhl (ComposeFailure foo bar) _ _ =
 -- with entries corresponding to input ports' inputs in 1 cycle and
 -- produces list of output ports' outputs.
 simhlCombinational :: ([ValueType]->[ValueType]) -> [[ValueType]] -> [[ValueType]]
+simhlCombinational impl inSeqs | any null inSeqs = []
 simhlCombinational impl inSeqs =
-    if any null inSeqs -- inefficient??? Note that we silently ignore
-    then []            -- sequence length mismatches for now.
-    else do { let inputsNow = map head inSeqs
-            ; let inputsL8r = map tail inSeqs
-            ; let outputsNow = impl inputsNow
-            ; let outputsL8r = simhlCombinational impl inputsL8r
-            ; if null outputsL8r
-              then [[outputNow] | outputNow <- outputsNow] -- 1-seq output case
-              else                                         -- N-seq output case
-              [outputNow:outputL8r
-              |(outputNow, outputL8r) <- zip outputsNow outputsL8r]
-            }
+  let
+    inputsNow = map head inSeqs
+    inputsLater = map tail inSeqs
+    outputsNow = impl inputsNow
+    outputsLater = simhlCombinational impl inputsLater
+  in if null outputsLater
+  then [[outputNow] | outputNow <- outputsNow] -- 1-seq output case
+  else                                         -- N-seq output case
+    [outputNow:outputLater
+    |(outputNow, outputLater) <- zip outputsNow outputsLater]
 
 -- Given implementations for Ints and Bools, create a [ValueType] -> [ValueType]
 -- function suitable for simhlCombinational.
@@ -304,6 +304,15 @@ simhlGt = simhlIntCmpOp (>)
 
 simhlGeq :: [ValueType] -> [ValueType]
 simhlGeq = simhlIntCmpOp (>=)
+
+-- this will be used above by passing in the lookup table as first argument
+-- list of ints. This will partially evaulated then handed to 
+-- simhlCombinational
+simhlLUT :: [Int] -> [ValueType] -> [ValueType]
+simhlLUT table [V_Int i] | i < length table = [V_Int $ table !! i]
+simhlLUT table [V_Int i] = [V_Int 0]
+simhlLUT _ [V_Unit] = [V_Unit]
+simhlLUT _ _ = error "Aetherling internal error: non-unit garbage LUT input"
 
 -- Reshape sequence of arrays through space and time.
 simhlRepack :: (Int,Int) -> (Int,Int) -> TokenType -> [[ValueType]]
