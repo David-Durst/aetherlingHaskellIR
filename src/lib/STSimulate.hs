@@ -126,7 +126,7 @@ simhl Lt inSeqs state = (simhlCombinational simhlLt inSeqs, state)
 simhl Leq inSeqs state = (simhlCombinational simhlLeq inSeqs, state)
 simhl Gt inSeqs state = (simhlCombinational simhlGt inSeqs, state)
 simhl Geq inSeqs state = (simhlCombinational simhlGeq inSeqs, state)
---simhl LUT inSeqs state = (simhlCombinational simhlLut inSeqs, state)
+simhl (LUT i) inSeqs state = (simhlCombinational (simhlLUT i) inSeqs, state)
 
 -- HACK the constant generators don't really know how long their
 -- output sequences should be, so they look at the simhlConstSeqLen
@@ -304,6 +304,15 @@ simhlGt = simhlIntCmpOp (>)
 
 simhlGeq :: [ValueType] -> [ValueType]
 simhlGeq = simhlIntCmpOp (>=)
+
+-- this will be used above by passing in the lookup table as first argument
+-- list of ints. This will partially evaulated then handed to 
+-- simhlCombinational
+simhlLUT :: [Int] -> [ValueType] -> [ValueType]
+simhlLUT table [V_Int i] | i < length table = [V_Int $ table !! i]
+simhlLUT table [V_Int i] = [V_Int 0]
+simhlLUT _ [V_Unit] = [V_Unit]
+simhlLUT _ _ = error "Aetherling internal error: non-unit garbage LUT input"
 
 -- Reshape sequence of arrays through space and time.
 simhlRepack :: (Int,Int) -> (Int,Int) -> TokenType -> [[ValueType]]
