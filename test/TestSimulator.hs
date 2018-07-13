@@ -36,7 +36,7 @@ simhlRandInt (SimhlRand state) =
      ; let x2 = (shiftR x1 17) `xor` x1
      ; let x3 = (shiftL x2 5)  `xor` x2
      ; let x32bits = x3 .&. 0xFFFFFFFF
-     ; (SimhlRand x32bits, x32bits)
+     ; (SimhlRand x32bits, x32bits .&. 0x000000FF)
   }
 
 simhlRandBool :: SimhlRand -> (SimhlRand, Bool)
@@ -148,9 +148,9 @@ simhlCase0 = SimhlTestCase
 -- modified it to deal with the extra memory argument. As explained,
 -- the last test case should have ensured simhlCombinational works
 -- correctly.
-simhlCombinational2 :: ([ValueType]->[ValueType]) -> [[ValueType]] -> [[ValueType]]
+simhlCombinationalIgnoreMem :: ([ValueType]->[ValueType]) -> [[ValueType]] -> [[ValueType]]
                     -> ( [[ValueType]], [[ValueType]] )
-simhlCombinational2 impl inSeqs _ =
+simhlCombinationalIgnoreMem impl inSeqs _ =
   if any null inSeqs
   then ([], [])
   else do { let inputsNow = map head inSeqs
@@ -178,7 +178,7 @@ simhlCase1Combinational [V_Int a, V_Int b, V_Int c] =
 simhlCase1 = SimhlTestCase
   "((a xor b) / (c | 100)). (Tests XOr, Or, Div)"
   simhlCase1Op
-  (simhlCombinational2 simhlCase1Combinational)
+  (simhlCombinationalIgnoreMem simhlCase1Combinational)
   133
   []
 
@@ -194,7 +194,7 @@ simhlParityMatchCombinational [V_Int a, V_Int b] =
 simhlCase2 = SimhlTestCase
   "Check matching parity (Tests And, Eq, ArrayReshape)"
   simhlParityMatchOp
-  (simhlCombinational2 simhlParityMatchCombinational)
+  (simhlCombinationalIgnoreMem simhlParityMatchCombinational)
   144
   []
 
@@ -211,9 +211,26 @@ simhlAllEvenCombinational [V_Array [V_Int a, V_Int b, V_Int c, V_Int d, V_Int e]
 simhlCase3 = SimhlTestCase
   "Check that 5-array has only even numbers (Tests Constant_Int, ReduceOp, Or, Neq)"
   simhlAllEvenOp
-  (simhlCombinational2 simhlAllEvenCombinational)
+  (simhlCombinationalIgnoreMem simhlAllEvenCombinational)
   101
   []
+
+lutTable = [0, 2, 4, 6, 1]
+simhlLUTTestOp = LUT lutTable
+simhlLUTTestCombinational :: [ValueType] -> [ValueType]
+-- manually implementing index here, not doing lookup
+-- no way to parameterize this by parameters of Op
+simhlLUTTestCombinational [V_Int i] | i < length lutTable = [V_Int $ lutTable !! i]
+simhlLUTTestCombinational [V_Int i] = [V_Int 0]
+simhlLUTTestCombinational [V_Unit] = [V_Unit]
+simhlLUTTestCombinational _ = [V_Unit]
+simhlCase4 = SimhlTestCase
+  "Check that LUT actually does lookup"
+  simhlLUTTestOp
+  (simhlCombinationalIgnoreMem simhlLUTTestCombinational)
+  100
+  []
+
 
 simhlSeed = 1337
 
@@ -222,5 +239,6 @@ simulatorTests = testGroup ("High level simulator tests, seed " ++ show simhlSee
       simhlCase0,
       simhlCase1,
       simhlCase2,
-      simhlCase3
+      simhlCase3,
+      simhlCase4
     ]

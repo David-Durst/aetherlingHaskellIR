@@ -126,7 +126,7 @@ simhl Lt inSeqs state = (simhlCombinational simhlLt inSeqs, state)
 simhl Leq inSeqs state = (simhlCombinational simhlLeq inSeqs, state)
 simhl Gt inSeqs state = (simhlCombinational simhlGt inSeqs, state)
 simhl Geq inSeqs state = (simhlCombinational simhlGeq inSeqs, state)
-simhl (LUT i) inSeqs state = (simhlCombinational (simhlLUT i) inSeqs, state)
+simhl (LUT table) inSeqs state = (simhlCombinational (simhlLUT table) inSeqs, state)
 
 -- HACK the constant generators don't really know how long their
 -- output sequences should be, so they look at the simhlConstSeqLen
