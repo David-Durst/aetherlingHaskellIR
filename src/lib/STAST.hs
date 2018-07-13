@@ -24,6 +24,8 @@ data Op =
   | Leq
   | Gt
   | Geq
+  -- Ints are the entries in the table. First entry is index 0
+  | LUT [Int]
   | MemRead TokenType
   | MemWrite TokenType
   -- first arg is pixels per clock in each dimension. First value in list is outer 

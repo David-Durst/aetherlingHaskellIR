@@ -420,6 +420,7 @@ inPorts Lt = twoInSimplePorts T_Int
 inPorts Leq = twoInSimplePorts T_Int
 inPorts Gt = twoInSimplePorts T_Int
 inPorts Geq = twoInSimplePorts T_Int
+inPorts (LUT _) = oneInSimplePort T_Int
 
 inPorts (MemRead _) = []
 inPorts (MemWrite t) = [T_Port "I" baseWithNoWarmupSequenceLen t 1]
@@ -493,6 +494,7 @@ outPorts Lt = oneOutSimplePort T_Bit
 outPorts Leq = oneOutSimplePort T_Bit
 outPorts Gt = oneOutSimplePort T_Bit
 outPorts Geq = oneOutSimplePort T_Bit
+outPorts (LUT _) = oneOutSimplePort T_Int
 
 outPorts (MemRead t) = oneOutSimplePort t
 outPorts (MemWrite _) = []
