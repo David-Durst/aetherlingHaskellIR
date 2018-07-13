@@ -42,14 +42,17 @@ import Data.List
 simulateHighLevel :: Op -> [[ValueType]] -> [[ValueType]]
                   -> ( [[ValueType]], [[ValueType]] )
 -- Check that the types match, then delegate to simhl implementation.
-simulateHighLevel op portInputs memoryInputs = do {
-        let portOutputsAndState = simhl op portInputs
-                (SimhlState (simhlCheckInputs 0 (inPorts op) portInputs)
-                    memoryInputs 0 []
-                )
-       ;
-       (fst portOutputsAndState, simhlMemoryOut $ snd portOutputsAndState)
-}
+simulateHighLevel op portInputs memoryInputs =
+    if simhlCheckInputs 0 (inPorts op) portInputs
+    then do { let maxSeqLen =
+                    maximum $ map length (portInputs++memoryInputs++[[V_Unit]])
+            ; let inState = SimhlState maxSeqLen memoryInputs 0 []
+            ; let portOutAndState = simhl op portInputs inState
+            ; (fst portOutAndState, simhlMemoryOut $ snd portOutAndState)
+         }
+    else
+      error("Aetherling internal error: Something's wrong with the inputs,\n"
+         ++ "but no error was reported by type-checker.")
 
 -- Inspect the inPorts of op and see if they match the sequences of ValueType
 -- passed by the user. (Integer argument used to keep track of which
@@ -80,9 +83,9 @@ simhlCheckInputs portIndex (portT:portTs) (valSeq:valSeqs) =
 -- all its outputs through time in one step given all inputs through time).
 -- This is bookkeeping stuff for type checking and handling memory.
 data SimhlState = SimhlState {
-    simhlTypesMatch :: Bool,
+    simhlConstSeqLen :: Int,        -- For constant generator seq len.
     simhlMemoryIn :: [[ValueType]],
-    simhlMemoryIndex :: Int,           -- For error messages.
+    simhlMemoryIndex :: Int,        -- For error messages.
     simhlMemoryOut :: [[ValueType]]
 }
 
@@ -102,9 +105,6 @@ data SimhlState = SimhlState {
 -- Output is a tuple of [[ValueType]] and SimhlState, which is how the memory
 -- state changes explained above are carried on through the recursion.
 simhl :: Op -> [[ValueType]] -> SimhlState -> ([[ValueType]], SimhlState)
-simhl _ _ (SimhlState False _ _ _) =
-    error "Aetherling internal error: simhl function got False Bool value"
-    -- If simhlCheckInputs were false, should have gotten proper error message.
 simhl (Add t) inSeqs state = (simhlCombinational simhlAdd inSeqs, state)
 simhl (Sub t) inSeqs state = (simhlCombinational simhlSub inSeqs, state)
 simhl (Mul t) inSeqs state = (simhlCombinational simhlMul inSeqs, state)
@@ -127,10 +127,15 @@ simhl Leq inSeqs state = (simhlCombinational simhlLeq inSeqs, state)
 simhl Gt inSeqs state = (simhlCombinational simhlGt inSeqs, state)
 simhl Geq inSeqs state = (simhlCombinational simhlGeq inSeqs, state)
 
+-- HACK the constant generators don't really know how long their
+-- output sequences should be, so they look at the simhlConstSeqLen
+-- field, which is the maximum (at time of writing) of every input
+-- port and every MemRead's input sequence.
+
 simhl (Constant_Int a) inSeqs state =
-    (simhlCombinational (simhlInt a) inSeqs, state)
+    ([replicate (simhlConstSeqLen state) (vIntArray a)], state)
 simhl (Constant_Bit a) inSeqs state =
-    (simhlCombinational (simhlBit a) inSeqs, state)    
+    ([replicate (simhlConstSeqLen state) (vBitArray a)], state)
 
 simhl (SequenceArrayRepack (a,b) (c,d) t) inSeqs state =
     (simhlRepack (a,b) (c,d) t inSeqs, state)
@@ -300,12 +305,6 @@ simhlGt = simhlIntCmpOp (>)
 simhlGeq :: [ValueType] -> [ValueType]
 simhlGeq = simhlIntCmpOp (>=)
 
-simhlInt :: [Int] -> [ValueType] -> [ValueType]
-simhlInt ints _ = [V_Array [V_Int i | i <- ints]]
-
-simhlBit :: [Bool] -> [ValueType] -> [ValueType]
-simhlBit bools _ = [V_Array [V_Bit b | b <- bools]]
-
 -- Reshape sequence of arrays through space and time.
 simhlRepack :: (Int,Int) -> (Int,Int) -> TokenType -> [[ValueType]]
             -> [[ValueType]]
@@ -433,9 +432,9 @@ simhlRead _ _ (SimhlState _ [] memIdx _) =
            ++ show memIdx
            ++ " (numbered using DFS starting at 0)."
     )
-simhlRead t inputs (SimhlState ok (inTape:inTapes) memIdx memOut) =
+simhlRead t inputs (SimhlState maxSeqLen (inTape:inTapes) memIdx memOut) =
     if all (tvTypesMatch t) inTape
-    then ([inTape], (SimhlState ok inTapes (memIdx+1) memOut))
+    then ([inTape], (SimhlState maxSeqLen inTapes (memIdx+1) memOut))
     else error("At MemRead number " ++ show memIdx
             ++ " (numbered using DFS, starting from 0), input "
             ++ show inTape
@@ -444,8 +443,8 @@ simhlRead t inputs (SimhlState ok (inTape:inTapes) memIdx memOut) =
   
 simhlWrite :: [[ValueType]] -> SimhlState
            -> ( [[ValueType]], SimhlState )
-simhlWrite inputs (SimhlState ok memIn memIdx memOut) =
-    ( [], (SimhlState ok memIn memIdx (memOut ++ inputs)) )
+simhlWrite inputs (SimhlState maxSeqLen memIn memIdx memOut) =
+    ( [], (SimhlState maxSeqLen memIn memIdx (memOut ++ inputs)) )
 
 -- Implementation of simhl MapOp
 
@@ -613,7 +612,7 @@ simhlReduceReg par numComb theReducedOp treeOutSeq =
   where reduceList valList =
           foldl
           (\x y -> head $ head $ fst $
-                   simhl theReducedOp [[x],[y]] (SimhlState True [] 0 [])
+                   simhl theReducedOp [[x],[y]] (SimhlState 1 [] 0 [])
           )
           (head valList)
           (tail valList)
