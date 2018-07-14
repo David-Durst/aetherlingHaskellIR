@@ -1,3 +1,4 @@
+{-# OPTIONS_GHC -fwarn-incomplete-patterns #-}
 module STAST where
 import STTypes
 import STMetrics
@@ -85,10 +86,26 @@ data ComposeResult =
 -- get the ops contained inside other ops, for going down ComposeFailure trees
 getChildOp n op = getChildOps op !! n
 getChildOps :: Op -> [Op]
-getChildOps (Add t) = []
-getChildOps (Sub t) = []
-getChildOps (Mul t) = []
-getChildOps (Div t) = []
+getChildOps (Add _) = []
+getChildOps (Sub _) = []
+getChildOps (Mul _) = []
+getChildOps (Div _) = []
+getChildOps (Max _) = []
+getChildOps (Min _) = []
+getChildOps (Ashr _ _) = []
+getChildOps (Shl  _ _) = []
+getChildOps (Abs _) = []
+getChildOps (Not _) = []
+getChildOps (And _) = []
+getChildOps (Or _) = []
+getChildOps (XOr _) = []
+getChildOps (Eq) = []
+getChildOps (Neq) = []
+getChildOps (Lt) = []
+getChildOps (Leq) = []
+getChildOps (Gt) = []
+getChildOps (Geq) = []
+getChildOps (LUT _) = []
 getChildOps (MemRead _) = []
 getChildOps (MemWrite _) = []
 getChildOps (LineBuffer _ _ _ _) = []
@@ -96,6 +113,7 @@ getChildOps (Constant_Int _) = []
 getChildOps (Constant_Bit _) = []
 getChildOps (SequenceArrayRepack _ _ _) = []
 getChildOps (ArrayReshape _ _) = []
+getChildOps (DuplicateOutputs _ op) = [op]
 getChildOps (MapOp _ op) = [op]
 getChildOps (ReduceOp _ _ op) = [op]
 getChildOps (Underutil _ op) = [op]

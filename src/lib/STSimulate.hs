@@ -12,22 +12,25 @@ import Data.List
 -- Useful for verifying that the logic of the circuit is correct, but
 -- doesn't simulate the actual hardware implementation.
 --
--- Second Argument: Port Inputs: list of lists of ValueType. Each list entry of the outer
--- list corresponds (in order) to one input port. These inner list
--- entries are a sequence of input values for said port, with each
--- value corresponding to one input on a "meaningful" clock
--- cycle. (i.e.  skip garbage inputs -- for devices that aren't
--- underutilized and have no warmup, this corresponds to a list of
--- inputs on each clock cycle).
+-- First Argument - Simulated Operator.
+--
+-- Second Argument - Port Inputs: list of lists of ValueType. Each list
+-- entry of the outer list corresponds (in order) to one input
+-- port. These inner list entries are a sequence of input values for
+-- said port, with each value corresponding to one input on a
+-- "meaningful" clock cycle. (i.e.  skip garbage inputs -- for devices
+-- that aren't underutilized and have no warmup, this corresponds to a
+-- list of inputs on each clock cycle).
 --
 -- NOTE: Be careful if some ports have a longer/shorter sequence of
 -- inputs than expected.
 --
--- Third Argument: Memory input: list of lists of ValueType. The inner lists are
--- "tapes" of input corresponding to one MemRead, which outputs the
--- tape's values sequentially. Index i of the outer list corresponds
--- to the input for the ith MemRead, which are numbered in the order
--- they would be visited by a depth-first search (DFS) of the AST.
+-- Third Argument - Memory input: list of lists of ValueType. The
+-- inner lists are "tapes" of input corresponding to one MemRead,
+-- which outputs the tape's values sequentially. Index i of the outer
+-- list corresponds to the input for the ith MemRead, which are
+-- numbered in the order they would be visited by a depth-first search
+-- (DFS) of the AST.
 --
 -- NOTE: At time of writing, DFS order may not be well-defined by some
 -- ops like ReduceOp.
@@ -42,6 +45,8 @@ import Data.List
 simulateHighLevel ::
      Op -> [[ValueType]] -> [[ValueType]] -> ([[ValueType]], [[ValueType]])
 -- Check that the types match, then delegate to simhl implementation.
+simulateHighLevel op _ _ | hasChildWithError op || isFailure op =
+  error $ "Op has error: " ++ show op
 simulateHighLevel op portInputs memoryInputs =
     if simhlCheckInputs 0 (inPorts op) portInputs
     then do { let maxSeqLen =
