@@ -9,36 +9,22 @@ import STAnalysis
 -- Returns the new pxPerClock (in reverse order of LB) and the amount sped up
 -- NOTE: Unlike for a LB, here the pxPerClock and img dimensions must have the inner most dimension come first
 -- this is the reverse of what it is on the linebuffer
-increaseLBPxPerClock :: [Int] -> [Int] -> Int -> [Int]
+increaseLBPxPerClock :: [Int] -> [Int] -> Int -> ([Int], Int)
 -- if mult is down to 1 or no more dimensions to speed up, return remaining pxPerClock 
 increaseLBPxPerClock [] _ _ = ([], 1)
 increaseLBPxPerClock p img mult | mult == 1 = (p, 1)
--- if can still speed this up in this dimension, do so
-increaseLBPxPerClock (pInner:pTl) (imgInner:imgTl) mult = (newPxPerClockThisDim : pOuter, multThisDim * multOuter)
-  where
-    -- imgInner must always be a multiple of pInner, so the result of this must be a multiple of pInner
-    newPxPerClockThisDim = gcd imgInner (pInner * mult)
-    -- this must be <= mult as newPxPerClockThisDim can increase by at most mult relative to pInner
-    -- rounding not an issue here as newPxPerClockThisDim multiple of pInner
-    multThisDim = newPxPerClockThisDim `ceilDiv` pInner
-    -- if can't cleanly divide multThisDim into mult, then stop as just going to make more of a mess
-    remainingMultForOuterDims = if mult `mod` multThisDim == 0
-      then mult `ceilDiv` multThisDim
-      else 1
-    -- if filled out this dimension, go onto next, otherwise stop
-    (pOuter, multOuter) = if imgInner == newPxPerClockThisDim
-      then increaseLBPxPerClock pTl imgTl remainingMultForOuterDims
-      else (pTl, 1)
-
 -- if not filling out this dimension, pInner * mult must divide into imgInner
+-- no need to recurse further as done filling out dimensions
 increaseLBPxPerClock (pInner:pTl) (imgInner:imgTl) mult |
   imgInner > pInner * mult && (imgInner `mod` (pInner * mult) == 0) = ((pInner * mult) : pTl, mult)
--- if filling out this dimension, imgInner must divide into mult
+-- if filling out this dimension, imgInner must divide into mult * pInner cleanly
 increaseLBPxPerClock (pInner:pTl) (imgInner:imgTl) mult |
-  imgInner <= pInner * mult && (mult `mod` imgInner == 0) = ((pInner * mult) : pTl, mult)
+  imgInner <= pInner * mult && ((mult * pInner) `mod` imgInner == 0) = (imgInner : pTl, mult * multOuter)
   where
-    remainingMultForOuterDims = mult `ceilDiv` multThisDim
+    -- since requiring pInner to always divide into imgInner, this is ok
+    remainingMultForOuterDims = mult `ceilDiv` (imgInner `ceilDiv` pInner)
     (pOuter, multOuter) = increaseLBPxPerClock pTl imgTl remainingMultForOuterDims
+increaseLBPxPerClock p _ _ = (p, 1)
 
 -- helper function for linebuffer speedUpIfPossible, goes through, increasing parallelism of each component
 -- take an op and make it run x times faster without wrapping it, where x is the second argument
@@ -69,18 +55,20 @@ speedUpIfPossible op@Geq throughMult = (op, 1)
 -- no, can't speed this up or slow it down as don't want to change the meaning of the data it
 -- reads every clock. Always reading a token each clock, map to speed up
 speedUpIfPossible op@(MemRead _) throughMult = (op, 1) 
-speedUpIfPossible op@(MemRead _) throughMult = (op, 1)
+speedUpIfPossible op@(MemWrite _) throughMult = (op, 1)
 -- NOTE: assuming that all pxPerClock are 1 unless inner dims pxPerClock == inner img dims
--- NOTE: If not choosing a multiple such that the (product of all pxPerClock * throuhgMult) % (product of full throuhgput dims) == 0 and
--- (first not full throuhgput dim) % ((product of all pxPerClock * throuhgMult) / (product of full throuhgput dims)) == 0, then no guarantees
--- this works
-speedUpIfPossible op@(LineBuffer p w _ _) throughMult = (op, 1)
+-- NOTE: for all dimensions, img dimension % pxPerClock == 0
+-- NOTE: This works by speeding up inner dimensions before outer ones. Only works if throughMult satisfies two conditions:
+-- 1. Amount to make each full throuhgput dimension go from current pxPerClock to full throughput divides cleanly into the throughputMult
+-- Stated rigorously: all i where i is number of full throuhgput dimensions:
+--    ((\Pi_(0 to i-1) pxPerClock dim i) * throuhgMult) % (\Pi_(0 to i-1) product of full throuhgput dims) == 0
+-- 2. After making all inner dimensions full throuhgput, the first dimension not made full throughput must
+-- consume the rest of throuhgputMult and result in a new pxPerClock that cleanly divides into that dimension.
+-- Stated rigorously:
+--    (first not full throuhgput dim) % ((product of all pxPerClock * throuhgMult) / (product of full throuhgput dims)) == 0
+speedUpIfPossible (LineBuffer p w img t) throughMult = (LineBuffer (reverse reversedNewP) w img t, actualMult)
   where
-    -- from inner most to outer most, speed up and move on to next when saturate whole dimension
-    newP = foldr (\(oldPEl, wEl) (newPList, throughMultRemaining) ->
-                    speedUpAndRemainder oldPEl wEl throughMultRemaining )
-    -- speed up one dimesnion as much as possible
-    speedUpOneDim oldPEl wEl throughMultRemaining = throughMultRemaining `ceilDiv` (wEl `ceilDiv` pEl)
-    -- get one dim sped up as much as possible and the remainig amount of speedup
-    speedUpAndRemainder oldPEl wEl throughMultRemaining =
-      (speedUpOneDim oldPEl wEl throughMultRemaining, throughMultRemaining `ceilDiv` speedUpOneDim oldPEl wEl throughMultRemaining
+    (reversedNewP, actualMult) = increaseLBPxPerClock (reverse p) (reverse img) throughMult
+speedUpIfPossible (Constant_Int _) = (op, 1)
+speedUpIfPossible (Constant_Bit _) = (op, 1)
+
