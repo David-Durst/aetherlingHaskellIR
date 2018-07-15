@@ -126,7 +126,7 @@ speedUpIfPossible throughMult (ReduceOp par numComb innerOp) =
   let (spedUpInnerOp, actualMult) = speedUpIfPossible throughMult innerOp
   in (ReduceOp par numComb spedUpInnerOp, actualMult)
 
--- only speed up if mult divides cleanly into underutil's denominator
+-- modify underutil if mult divides cleanly into underutil's denominator
 -- or if removing underutil and the denominator divides cleanly into mult
 speedUpIfPossible throughMult (Underutil denom op) |
   (denom `mod` throughMult) == 0 =
@@ -137,6 +137,7 @@ speedUpIfPossible throughMult (Underutil denom op) |
   where
     remainingMult = throughMult `ceilDiv` denom
     (spedUpOp, innerMult) = speedUpIfPossible remainingMult op 
+speedUpIfPossible throughMult op@(Underutil _ _) = speedUpIfPossible throughMult op
 
 -- NOTE: what to do if mapping over a reg delay? Nothing? its sequential but,
 -- unlike other sequential things like reduce, linebuffer its cool to duplicate
@@ -162,5 +163,5 @@ speedUpIfPossible _ op@(ComposeFailure _ _) = (op, 1)
 
 speedUp throughMult op | actualMult == throughMult = spedUpOp
   where (spedUpOp, actualMult) = speedUpIfPossible throughMult op
-speedUp throughMult op = ComposeFailure (BadThroughputMultiplier throughMult actualMult) (op, op)
+speedUp throughMult op = ComposeFailure (BadThroughputMultiplier throughMult actualMult) (op, ComposeSeq [])
   where (spedUpOp, actualMult) = speedUpIfPossible throughMult op
