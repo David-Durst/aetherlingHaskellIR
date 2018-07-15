@@ -106,16 +106,25 @@ speedUpIfPossible throughMult op@(ArrayReshape _ _) =
 speedUpIfPossible throughMult op@(DuplicateOutputs _ _) =
   (MapOp throughMult op, throughMult)
 
-speedUpIfPossible throughMult (MapOp par op) =
-  (MapOp (par*throughMult) op, throughMult)
+-- is this an ok inverse of our decision to only underutil for slowdown of seq operators?
+speedUpIfPossible throughMult (MapOp par innerOp) | isComb innerOp =
+  (MapOp (par*throughMult) innerOp, throughMult)
+speedUpIfPossible throughMult (MapOp par innerOp) =
+  let (spedUpInnerOp, actualMult) = speedUpIfPossible throughMult innerOp
+  in (MapOp par spedUpInnerOp, actualMult)
+
 -- only do it if less than full parallel and numComb % par == 0 or
 -- more than paralle and par % numComb == 0
-speedUpIfPossible throughMult (ReduceOp par numComb op) |
-  ((newPar <= numComb) && ((numComb `mod` newPar) == 0)) ||
-  ((newPar > numComb) && ((newPar `mod` numComb) == 0)) =
-  (ReduceOp newPar numComb op, throughMult)
+-- and if everything inside is comb, otherwise just speed up inside
+speedUpIfPossible throughMult (ReduceOp par numComb innerOp) | isComb innerOp &&
+  (((newPar <= numComb) && ((numComb `mod` newPar) == 0)) ||
+  ((newPar > numComb) && ((newPar `mod` numComb) == 0))) =
+  (ReduceOp newPar numComb innerOp, throughMult)
   where newPar = par*throughMult
-speedUpIfPossible _ op@(ReduceOp _ _ _) = (op, 1)
+speedUpIfPossible throughMult (ReduceOp par numComb innerOp) =
+  let (spedUpInnerOp, actualMult) = speedUpIfPossible throughMult innerOp
+  in (ReduceOp par numComb spedUpInnerOp, actualMult)
+
 -- only speed up if mult divides cleanly into underutil's denominator
 -- or if removing underutil and the denominator divides cleanly into mult
 speedUpIfPossible throughMult (Underutil denom op) |
@@ -149,3 +158,5 @@ speedUpIfPossible throughMult (ComposeSeq ops) =
   -- ports still match 
   in (foldl (|>>=|) hdSpedUpOps tlSpedUpOps, minimum actualMults)
 speedUpIfPossible _ op@(ComposeFailure _ _) = (op, 1)
+
+speedUp throughMult op = kkkkkkkkkkkk
