@@ -33,26 +33,29 @@ increaseLBPxPerClock p _ _ = (p, 1)
 -- without wrapping it, where x is the second argument.
 -- This may not be possible for some ops without wrapping them in a map
 -- so the pair returns a best effort speed up op and the amount it was sped up
-speedUpIfPossible :: Op -> Int -> (Op, Int)
-speedUpIfPossible op@(Add _) throughMult = (MapOp throughMult op, throughMult)
-speedUpIfPossible op@(Sub _) throughMult = (MapOp throughMult op, throughMult)
-speedUpIfPossible op@(Mul _) throughMult = (MapOp throughMult op, throughMult)
-speedUpIfPossible op@(Div _) throughMult = (MapOp throughMult op, throughMult)
-speedUpIfPossible op@(Max _) throughMult = (MapOp throughMult op, throughMult)
-speedUpIfPossible op@(Min _) throughMult = (MapOp throughMult op, throughMult)
-speedUpIfPossible op@(Ashr _ _) throughMult = (MapOp throughMult op, throughMult)
-speedUpIfPossible op@(Shl _ _) throughMult = (MapOp throughMult op, throughMult)
-speedUpIfPossible op@(Abs _) throughMult = (MapOp throughMult op, throughMult)
-speedUpIfPossible op@(Not _) throughMult = (MapOp throughMult op, throughMult)
-speedUpIfPossible op@(And _) throughMult = (MapOp throughMult op, throughMult)
-speedUpIfPossible op@(Or  _) throughMult = (MapOp throughMult op, throughMult)
-speedUpIfPossible op@(XOr _) throughMult = (MapOp throughMult op, throughMult)
-speedUpIfPossible op@Eq throughMult = (MapOp throughMult op, throughMult)
-speedUpIfPossible op@Neq throughMult = (MapOp throughMult op, throughMult)
-speedUpIfPossible op@Lt throughMult = (MapOp throughMult op, throughMult)
-speedUpIfPossible op@Leq throughMult = (MapOp throughMult op, throughMult)
-speedUpIfPossible op@Gt throughMult = (MapOp throughMult op, throughMult)
-speedUpIfPossible op@Geq throughMult = (MapOp throughMult op, throughMult)
+--
+-- If its combinational, pretty much always just wrap it in map, as if later
+-- speed up again, will just increase multiple on map, never see this again
+speedUpIfPossible :: Int -> Op -> (Op, Int)
+speedUpIfPossible throughMult op@(Add _) = (MapOp throughMult op, throughMult)
+speedUpIfPossible throughMult op@(Sub _) = (MapOp throughMult op, throughMult)
+speedUpIfPossible throughMult op@(Mul _) = (MapOp throughMult op, throughMult)
+speedUpIfPossible throughMult op@(Div _) = (MapOp throughMult op, throughMult)
+speedUpIfPossible throughMult op@(Max _) = (MapOp throughMult op, throughMult)
+speedUpIfPossible throughMult op@(Min _) = (MapOp throughMult op, throughMult)
+speedUpIfPossible throughMult op@(Ashr _ _) = (MapOp throughMult op, throughMult)
+speedUpIfPossible throughMult op@(Shl _ _) = (MapOp throughMult op, throughMult)
+speedUpIfPossible throughMult op@(Abs _) = (MapOp throughMult op, throughMult)
+speedUpIfPossible throughMult op@(Not _) = (MapOp throughMult op, throughMult)
+speedUpIfPossible throughMult op@(And _) = (MapOp throughMult op, throughMult)
+speedUpIfPossible throughMult op@(Or  _) = (MapOp throughMult op, throughMult)
+speedUpIfPossible throughMult op@(XOr _) = (MapOp throughMult op, throughMult)
+speedUpIfPossible throughMult op@Eq = (MapOp throughMult op, throughMult)
+speedUpIfPossible throughMult op@Neq = (MapOp throughMult op, throughMult)
+speedUpIfPossible throughMult op@Lt = (MapOp throughMult op, throughMult)
+speedUpIfPossible throughMult op@Leq = (MapOp throughMult op, throughMult)
+speedUpIfPossible throughMult op@Gt = (MapOp throughMult op, throughMult)
+speedUpIfPossible throughMult op@Geq = (MapOp throughMult op, throughMult)
 -- should it be possible to speed this up? Should I always just speed up by
 -- wrapping in an array instead of increasing a wrapping array length if it exists?
 -- OLD REASONING - no, can't speed this up or slow it down as don't want to
@@ -61,13 +64,13 @@ speedUpIfPossible op@Geq throughMult = (MapOp throughMult op, throughMult)
 -- NEW REASONING - the no is wrong. Going to change this to just reading in
 -- arrays of ints or bits, as that is what memory is. memory is a 1d array,
 -- so these will just make parent array longer or wrap int/bit in array
-speedUpIfPossible op@(MemRead (T_Array n t)) throughMult =
+speedUpIfPossible throughMult op@(MemRead (T_Array n t)) =
   (MemRead (T_Array (n*throughMult) t), throughMult)
-speedUpIfPossible op@(MemRead t) throughMult =
+speedUpIfPossible throughMult op@(MemRead t) =
   (MemRead (T_Array throughMult t), throughMult)
-speedUpIfPossible op@(MemWrite (T_Array n t)) throughMult =
+speedUpIfPossible throughMult op@(MemWrite (T_Array n t)) =
   (MemWrite (T_Array (n*throughMult) t), throughMult)
-speedUpIfPossible op@(MemWrite t) throughMult =
+speedUpIfPossible throughMult op@(MemWrite t) =
   (MemWrite (T_Array throughMult t), throughMult)
 -- NOTE: assuming that all pxPerClock are 1 unless inner dims pxPerClock ==
 -- inner img dims
@@ -83,14 +86,66 @@ speedUpIfPossible op@(MemWrite t) throughMult =
 -- new pxPerClock that cleanly divides into that dimension.
 -- Stated rigorously:
 --    (first not full throuhgput dim) % ((product of all pxPerClock * throuhgMult) / (product of full throuhgput dims)) == 0
-speedUpIfPossible (LineBuffer p w img t) throughMult =
+speedUpIfPossible throughMult (LineBuffer p w img t) =
   (LineBuffer (reverse reversedNewP) w img t, actualMult)
   where
     (reversedNewP, actualMult) =
       increaseLBPxPerClock (reverse p) (reverse img) throughMult
-speedUpIfPossible (Constant_Int constArr) throughMult =
+speedUpIfPossible throughMult (Constant_Int constArr) =
   (Constant_Int $ foldl (++) [] $ replicate throughMult constArr, throughMult)
-speedUpIfPossible (Constant_Bit constArr) throughMult =
+speedUpIfPossible throughMult (Constant_Bit constArr) =
   (Constant_Bit $ foldl (++) [] $ replicate throughMult constArr, throughMult)
--- if going to speed 
-speedUpIfPossible (SequenceArrayRepack ())
+-- not going to change SLen in as, if 1, don't want to cause it to become
+-- fractional
+speedUpIfPossible throughMult (SequenceArrayRepack (sLenIn, oldArrLenIn)
+                              (sLenOut, oldArrLenOut) t) =
+  (SequenceArrayRepack (sLenIn, oldArrLenOut * throughMult)
+    (sLenOut, oldArrLenOut * throughMult) t, throughMult)
+speedUpIfPossible throughMult op@(ArrayReshape _ _) =
+  (MapOp throughMult op, throughMult)
+speedUpIfPossible throughMult op@(DuplicateOutputs _ _) =
+  (MapOp throughMult op, throughMult)
+
+speedUpIfPossible throughMult (MapOp par op) =
+  (MapOp (par*throughMult) op, throughMult)
+-- only do it if less than full parallel and numComb % par == 0 or
+-- more than paralle and par % numComb == 0
+speedUpIfPossible throughMult (ReduceOp par numComb op) |
+  ((newPar <= numComb) && ((numComb `mod` newPar) == 0)) ||
+  ((newPar > numComb) && ((newPar `mod` numComb) == 0)) =
+  (ReduceOp newPar numComb op, throughMult)
+  where newPar = par*throughMult
+speedUpIfPossible _ op@(ReduceOp _ _ _) = (op, 1)
+-- only speed up if mult divides cleanly into underutil's denominator
+-- or if removing underutil and the denominator divides cleanly into mult
+speedUpIfPossible throughMult (Underutil denom op) |
+  (denom `mod` throughMult) == 0 =
+  (Underutil (denom `ceilDiv` throughMult) op, throughMult)
+speedUpIfPossible throughMult (Underutil denom op) |
+  (throughMult `mod` denom) == 0 =
+  (spedUpOp, denom*innerMult)
+  where
+    remainingMult = throughMult `ceilDiv` denom
+    (spedUpOp, innerMult) = speedUpIfPossible remainingMult op 
+
+-- NOTE: what to do if mapping over a reg delay? Nothing? its sequential but,
+-- unlike other sequential things like reduce, linebuffer its cool to duplicate
+speedUpIfPossible throughMult (RegDelay d innerOp) =
+  (RegDelay d spedUpInnerOp, innerMult)
+  where (spedUpInnerOp, innerMult) = speedUpIfPossible throughMult innerOp 
+
+speedUpIfPossible throughMult (ComposePar ops) = 
+  let
+    spedUpOpsAndMults = map (speedUpIfPossible throughMult) ops
+    spedUpOps = map fst spedUpOpsAndMults
+    actualMults = map snd spedUpOpsAndMults
+  in (ComposePar spedUpOps, minimum actualMults)
+speedUpIfPossible throughMult (ComposeSeq ops) = 
+  let
+    spedUpOpsAndMults = map (speedUpIfPossible throughMult) ops
+    (hdSpedUpOps:tlSpedUpOps) = map fst spedUpOpsAndMults
+    actualMults = map snd spedUpOpsAndMults
+  -- doing a fold here instead of just making another composeSeq to make sure all
+  -- ports still match 
+  in (foldl (|>>=|) hdSpedUpOps tlSpedUpOps, minimum actualMults)
+speedUpIfPossible _ op@(ComposeFailure _ _) = (op, 1)
