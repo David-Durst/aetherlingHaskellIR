@@ -3,6 +3,7 @@ import STTypes
 import STAST
 import STMetrics
 import STAnalysis
+import STComposeOps
 
 -- given a LB's pxPerClock, its image dimesions, and a multiple to speed up,
 -- speed up the pxPerCLock from inner most to outer most.
@@ -159,4 +160,7 @@ speedUpIfPossible throughMult (ComposeSeq ops) =
   in (foldl (|>>=|) hdSpedUpOps tlSpedUpOps, minimum actualMults)
 speedUpIfPossible _ op@(ComposeFailure _ _) = (op, 1)
 
-speedUp throughMult op = kkkkkkkkkkkk
+speedUp throughMult op | actualMult == throughMult = spedUpOp
+  where (spedUpOp, actualMult) = speedUpIfPossible throughMult op
+speedUp throughMult op = ComposeFailure (BadThroughputMultiplier throughMult actualMult) (op, op)
+  where (spedUpOp, actualMult) = speedUpIfPossible throughMult op

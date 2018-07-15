@@ -78,7 +78,7 @@ data Op =
 data ComposeResult = 
   PriorFailure 
   | SeqPortMismatch {outPortsThroughput :: [PortThroughput], inPortsThroughput :: [PortThroughput]}
-  | ParLatencyMismash 
+  | BadThroughputMultiplier {attemptedMult :: Int, actualMult :: Int}
   | ComposeSuccess
   deriving (Eq, Show)
 
