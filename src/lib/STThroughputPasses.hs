@@ -81,12 +81,14 @@ speedUpIfPossible throughMult op@(MemWrite t) =
 -- 1. Amount to make each full throuhgput dimension go from current pxPerClock
 -- to full throughput divides cleanly into the throughputMult.
 -- Stated rigorously: all i where i is number of full throuhgput dimensions:
---    ((\Pi_(0 to i-1) pxPerClock dim i) * throuhgMult) % (\Pi_(0 to i-1) product of full throuhgput dims) == 0
+--    ((\Pi_(0 to i-1) pxPerClock dim i) * throuhgMult) %
+--     (\Pi_(0 to i-1) product of full throuhgput dims) == 0
 -- 2. After making all inner dimensions full throuhgput, the first dimension not
 -- made full throughput must consume the rest of throuhgputMult and result in a
 -- new pxPerClock that cleanly divides into that dimension.
 -- Stated rigorously:
---    (first not full throuhgput dim) % ((product of all pxPerClock * throuhgMult) / (product of full throuhgput dims)) == 0
+--    (first not full throuhgput dim) % (throuhgMult) / (product of inner px
+--     per clock increases) == 0
 speedUpIfPossible throughMult (LineBuffer p w img t) =
   (LineBuffer (reverse reversedNewP) w img t, actualMult)
   where
@@ -162,31 +164,32 @@ speedUpIfPossible _ op@(ComposeFailure _ _) = (op, 1)
 
 speedUp throughMult op | actualMult == throughMult = spedUpOp
   where (spedUpOp, actualMult) = speedUpIfPossible throughMult op
-speedUp throughMult op = ComposeFailure (BadThroughputMultiplier throughMult actualMult) (op, ComposeSeq [])
+speedUp throughMult op = ComposeFailure
+  (BadThroughputMultiplier throughMult actualMult) (op, ComposeSeq [])
   where (spedUpOp, actualMult) = speedUpIfPossible throughMult op
 
 -- If its combinational, pretty much always just wrap it in underutil, as if later
 -- slow down again, will just increase multiple on underutil, never see this again
 slowDownIfPossible :: Int -> Op -> (Op, Int)
-slowDownIfPossible throughMult op@(Add _) = (Underutil throughMult op, throughMult)
-slowDownIfPossible throughMult op@(Sub _) = (Underutil throughMult op, throughMult)
-slowDownIfPossible throughMult op@(Mul _) = (Underutil throughMult op, throughMult)
-slowDownIfPossible throughMult op@(Div _) = (Underutil throughMult op, throughMult)
-slowDownIfPossible throughMult op@(Max _) = (Underutil throughMult op, throughMult)
-slowDownIfPossible throughMult op@(Min _) = (Underutil throughMult op, throughMult)
-slowDownIfPossible throughMult op@(Ashr _ _) = (Underutil throughMult op, throughMult)
-slowDownIfPossible throughMult op@(Shl _ _) = (Underutil throughMult op, throughMult)
-slowDownIfPossible throughMult op@(Abs _) = (Underutil throughMult op, throughMult)
-slowDownIfPossible throughMult op@(Not _) = (Underutil throughMult op, throughMult)
-slowDownIfPossible throughMult op@(And _) = (Underutil throughMult op, throughMult)
-slowDownIfPossible throughMult op@(Or  _) = (Underutil throughMult op, throughMult)
-slowDownIfPossible throughMult op@(XOr _) = (Underutil throughMult op, throughMult)
-slowDownIfPossible throughMult op@Eq = (Underutil throughMult op, throughMult)
-slowDownIfPossible throughMult op@Neq = (Underutil throughMult op, throughMult)
-slowDownIfPossible throughMult op@Lt = (Underutil throughMult op, throughMult)
-slowDownIfPossible throughMult op@Leq = (Underutil throughMult op, throughMult)
-slowDownIfPossible throughMult op@Gt = (Underutil throughMult op, throughMult)
-slowDownIfPossible throughMult op@Geq = (Underutil throughMult op, throughMult)
+slowDownIfPossible throughDiv op@(Add _) = (Underutil throughDiv op, throughDiv)
+slowDownIfPossible throughDiv op@(Sub _) = (Underutil throughDiv op, throughDiv)
+slowDownIfPossible throughDiv op@(Mul _) = (Underutil throughDiv op, throughDiv)
+slowDownIfPossible throughDiv op@(Div _) = (Underutil throughDiv op, throughDiv)
+slowDownIfPossible throughDiv op@(Max _) = (Underutil throughDiv op, throughDiv)
+slowDownIfPossible throughDiv op@(Min _) = (Underutil throughDiv op, throughDiv)
+slowDownIfPossible throughDiv op@(Ashr _ _) = (Underutil throughDiv op, throughDiv)
+slowDownIfPossible throughDiv op@(Shl _ _) = (Underutil throughDiv op, throughDiv)
+slowDownIfPossible throughDiv op@(Abs _) = (Underutil throughDiv op, throughDiv)
+slowDownIfPossible throughDiv op@(Not _) = (Underutil throughDiv op, throughDiv)
+slowDownIfPossible throughDiv op@(And _) = (Underutil throughDiv op, throughDiv)
+slowDownIfPossible throughDiv op@(Or  _) = (Underutil throughDiv op, throughDiv)
+slowDownIfPossible throughDiv op@(XOr _) = (Underutil throughDiv op, throughDiv)
+slowDownIfPossible throughDiv op@Eq = (Underutil throughDiv op, throughDiv)
+slowDownIfPossible throughDiv op@Neq = (Underutil throughDiv op, throughDiv)
+slowDownIfPossible throughDiv op@Lt = (Underutil throughDiv op, throughDiv)
+slowDownIfPossible throughDiv op@Leq = (Underutil throughDiv op, throughDiv)
+slowDownIfPossible throughDiv op@Gt = (Underutil throughDiv op, throughDiv)
+slowDownIfPossible throughDiv op@Geq = (Underutil throughDiv op, throughDiv)
 -- should it be possible to speed this up? Should I always just speed up by
 -- wrapping in an array instead of increasing a wrapping array length if it exists?
 -- OLD REASONING - no, can't speed this up or slow it down as don't want to
@@ -195,96 +198,99 @@ slowDownIfPossible throughMult op@Geq = (Underutil throughMult op, throughMult)
 -- NEW REASONING - the no is wrong. Going to change this to just reading in
 -- arrays of ints or bits, as that is what memory is. memory is a 1d array,
 -- so these will just make parent array longer or wrap int/bit in array
-slowDownIfPossible throughMult op@(MemRead (T_Array n t)) =
-  (MemRead (T_Array (n*throughMult) t), throughMult)
-slowDownIfPossible throughMult op@(MemRead t) =
-  (MemRead (T_Array throughMult t), throughMult)
-slowDownIfPossible throughMult op@(MemWrite (T_Array n t)) =
-  (MemWrite (T_Array (n*throughMult) t), throughMult)
-slowDownIfPossible throughMult op@(MemWrite t) =
-  (MemWrite (T_Array throughMult t), throughMult)
+slowDownIfPossible throughDiv op@(MemRead (T_Array n t)) |
+  n `mod` throughDiv == 0 =
+  (MemRead (T_Array (n `ceilDiv` throughDiv) t), throughDiv)
+slowDownIfPossible throughDiv op@(MemRead t) =
+  (Underutil throughDiv op, throughDiv)
+slowDownIfPossible throughDiv op@(MemWrite (T_Array n t)) |
+  n `mod` throughDiv == 0 =
+  (MemWrite (T_Array (n `ceilDiv` throughDiv) t), throughDiv)
+slowDownIfPossible throughDiv op@(MemWrite t) =
+  (Underutil throughDiv op, throughDiv)
 -- NOTE: assuming that all pxPerClock are 1 unless inner dims pxPerClock ==
 -- inner img dims
 -- NOTE: for all dimensions, img dimension % pxPerClock == 0
--- NOTE: This works by speeding up inner dimensions before outer ones. Only
--- works if throughMult satisfies two conditions:
--- 1. Amount to make each full throuhgput dimension go from current pxPerClock
--- to full throughput divides cleanly into the throughputMult.
--- Stated rigorously: all i where i is number of full throuhgput dimensions:
---    ((\Pi_(0 to i-1) pxPerClock dim i) * throuhgMult) % (\Pi_(0 to i-1) product of full throuhgput dims) == 0
--- 2. After making all inner dimensions full throuhgput, the first dimension not
--- made full throughput must consume the rest of throuhgputMult and result in a
+-- NOTE: This works by slowing down outer dimensions before inner ones. Only
+-- works if throughDiv satisfies two conditions:
+-- 1. Amount to make each non-full throuhgput dimension go from current pxPerClock
+-- to 1 divides cleanly into the throughputMult.
+-- Stated rigorously: all i where i is number of non-full throuhgput dimensions:
+--    ((\Pi_(0 to i-1) pxPerClock dim i) * throuhgMult) % (\Pi_(0 to i-1) product of non-full throuhgput dims) == 0
+-- 2. After making all outer dimensions 1 px per clock, the first dimension not
+-- made 1 px per clock must consume the rest of throuhgputMult and result in a
 -- new pxPerClock that cleanly divides into that dimension.
 -- Stated rigorously:
---    (first not full throuhgput dim) % ((product of all pxPerClock * throuhgMult) / (product of full throuhgput dims)) == 0
-slowDownIfPossible throughMult (LineBuffer p w img t) =
+--    (first not 1 px per clock dim) % (throuhgMult / (product of px per clock
+--     decreases to all outer dimensions)) == 0
+slowDownIfPossible throughDiv (LineBuffer p w img t) =
   (LineBuffer (reverse reversedNewP) w img t, actualMult)
   where
     (reversedNewP, actualMult) =
-      increaseLBPxPerClock (reverse p) (reverse img) throughMult
+      increaseLBPxPerClock (reverse p) (reverse img) throughDiv
 -- can't shrink this, have to underutil
-slowDownIfPossible throughMult op@(Constant_Int _) =
-  (Underutil throughMult op, throughMult)
-slowDownIfPossible throughMult op@(Constant_Bit _) =
-  (Underutil throughMult op, throughMult)
+slowDownIfPossible throughDiv op@(Constant_Int _) =
+  (Underutil throughDiv op, throughDiv)
+slowDownIfPossible throughDiv op@(Constant_Bit _) =
+  (Underutil throughDiv op, throughDiv)
 -- not going to change SLen in as, if 1, don't want to cause it to become
 -- fractional
-slowDownIfPossible throughMult (SequenceArrayRepack (sLenIn, oldArrLenIn)
+slowDownIfPossible throughDiv (SequenceArrayRepack (sLenIn, oldArrLenIn)
                               (sLenOut, oldArrLenOut) t) =
-  (SequenceArrayRepack (sLenIn, oldArrLenOut * throughMult)
-    (sLenOut, oldArrLenOut * throughMult) t, throughMult)
-slowDownIfPossible throughMult op@(ArrayReshape _ _) =
-  (Underutil throughMult op, throughMult)
-slowDownIfPossible throughMult op@(DuplicateOutputs _ _) =
-  (Underutil throughMult op, throughMult)
+  (SequenceArrayRepack (sLenIn, oldArrLenOut * throughDiv)
+    (sLenOut, oldArrLenOut * throughDiv) t, throughDiv)
+slowDownIfPossible throughDiv op@(ArrayReshape _ _) =
+  (Underutil throughDiv op, throughDiv)
+slowDownIfPossible throughDiv op@(DuplicateOutputs _ _) =
+  (Underutil throughDiv op, throughDiv)
 
 -- is this an ok inverse of our decision to only underutil for slowdown of seq operators?
-slowDownIfPossible throughMult (MapOp par innerOp) | isComb innerOp =
-  (MapOp (par*throughMult) innerOp, throughMult)
-slowDownIfPossible throughMult (MapOp par innerOp) =
-  let (spedUpInnerOp, actualMult) = slowDownIfPossible throughMult innerOp
+slowDownIfPossible throughDiv (MapOp par innerOp) | isComb innerOp =
+  (MapOp (par*throughDiv) innerOp, throughDiv)
+slowDownIfPossible throughDiv (MapOp par innerOp) =
+  let (spedUpInnerOp, actualMult) = slowDownIfPossible throughDiv innerOp
   in (MapOp par spedUpInnerOp, actualMult)
 
 -- only do it if less than full parallel and numComb % par == 0 or
 -- more than paralle and par % numComb == 0
 -- and if everything inside is comb, otherwise just speed up inside
-slowDownIfPossible throughMult (ReduceOp par numComb innerOp) | isComb innerOp &&
+slowDownIfPossible throughDiv (ReduceOp par numComb innerOp) | isComb innerOp &&
   (((newPar <= numComb) && ((numComb `mod` newPar) == 0)) ||
   ((newPar > numComb) && ((newPar `mod` numComb) == 0))) =
-  (ReduceOp newPar numComb innerOp, throughMult)
-  where newPar = par*throughMult
-slowDownIfPossible throughMult (ReduceOp par numComb innerOp) =
-  let (spedUpInnerOp, actualMult) = slowDownIfPossible throughMult innerOp
+  (ReduceOp newPar numComb innerOp, throughDiv)
+  where newPar = par*throughDiv
+slowDownIfPossible throughDiv (ReduceOp par numComb innerOp) =
+  let (spedUpInnerOp, actualMult) = slowDownIfPossible throughDiv innerOp
   in (ReduceOp par numComb spedUpInnerOp, actualMult)
 
 -- modify underutil if mult divides cleanly into underutil's denominator
 -- or if removing underutil and the denominator divides cleanly into mult
-slowDownIfPossible throughMult (Underutil denom op) |
-  (denom `mod` throughMult) == 0 =
-  (Underutil (denom `ceilDiv` throughMult) op, throughMult)
-slowDownIfPossible throughMult (Underutil denom op) |
-  (throughMult `mod` denom) == 0 =
+slowDownIfPossible throughDiv (Underutil denom op) |
+  (denom `mod` throughDiv) == 0 =
+  (Underutil (denom `ceilDiv` throughDiv) op, throughDiv)
+slowDownIfPossible throughDiv (Underutil denom op) |
+  (throughDiv `mod` denom) == 0 =
   (spedUpOp, denom*innerMult)
   where
-    remainingMult = throughMult `ceilDiv` denom
+    remainingMult = throughDiv `ceilDiv` denom
     (spedUpOp, innerMult) = slowDownIfPossible remainingMult op 
-slowDownIfPossible throughMult op@(Underutil _ _) = slowDownIfPossible throughMult op
+slowDownIfPossible throughDiv op@(Underutil _ _) = slowDownIfPossible throughDiv op
 
 -- NOTE: what to do if mapping over a reg delay? Nothing? its sequential but,
 -- unlike other sequential things like reduce, linebuffer its cool to duplicate
-slowDownIfPossible throughMult (RegDelay d innerOp) =
+slowDownIfPossible throughDiv (RegDelay d innerOp) =
   (RegDelay d spedUpInnerOp, innerMult)
-  where (spedUpInnerOp, innerMult) = slowDownIfPossible throughMult innerOp 
+  where (spedUpInnerOp, innerMult) = slowDownIfPossible throughDiv innerOp 
 
-slowDownIfPossible throughMult (ComposePar ops) = 
+slowDownIfPossible throughDiv (ComposePar ops) = 
   let
-    spedUpOpsAndMults = map (slowDownIfPossible throughMult) ops
+    spedUpOpsAndMults = map (slowDownIfPossible throughDiv) ops
     spedUpOps = map fst spedUpOpsAndMults
     actualMults = map snd spedUpOpsAndMults
   in (ComposePar spedUpOps, minimum actualMults)
-slowDownIfPossible throughMult (ComposeSeq ops) = 
+slowDownIfPossible throughDiv (ComposeSeq ops) = 
   let
-    spedUpOpsAndMults = map (slowDownIfPossible throughMult) ops
+    spedUpOpsAndMults = map (slowDownIfPossible throughDiv) ops
     (hdSpedUpOps:tlSpedUpOps) = map fst spedUpOpsAndMults
     actualMults = map snd spedUpOpsAndMults
   -- doing a fold here instead of just making another composeSeq to make sure all
@@ -292,7 +298,7 @@ slowDownIfPossible throughMult (ComposeSeq ops) =
   in (foldl (|>>=|) hdSpedUpOps tlSpedUpOps, minimum actualMults)
 slowDownIfPossible _ op@(ComposeFailure _ _) = (op, 1)
 
-slowDown throughMult op | actualMult == throughMult = spedUpOp
-  where (spedUpOp, actualMult) = slowDownIfPossible throughMult op
-slowDown throughMult op = ComposeFailure (BadThroughputMultiplier throughMult actualMult) (op, ComposeSeq [])
-  where (spedUpOp, actualMult) = slowDownIfPossible throughMult op
+slowDown throughDiv op | actualMult == throughDiv = spedUpOp
+  where (spedUpOp, actualMult) = slowDownIfPossible throughDiv op
+slowDown throughDiv op = ComposeFailure (BadThroughputMultiplier throughDiv actualMult) (op, ComposeSeq [])
+  where (spedUpOp, actualMult) = slowDownIfPossible throughDiv op
