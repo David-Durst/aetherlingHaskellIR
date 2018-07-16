@@ -5,6 +5,9 @@ import STMetrics
 import STAnalysis
 import STComposeOps
 
+-- NOTE: AM I PUSHING TOO MUCH LOGIC INTO THE LEAVES BY HAVING THEM
+-- UNDERUTIL THEMSELVES? SHOULD THE COMPOSESEQs DO UNDERUTIL WHEN CHILDREN CAN'T?
+
 -- given a LB's pxPerClock, its image dimesions, and a multiple to speed up,
 -- speed up the pxPerCLock from inner most to outer most.
 -- Returns the new pxPerClock (in reverse order of LB) and the amount sped up
@@ -124,7 +127,7 @@ speedUpIfPossible throughMult op@(Constant_Bit _) = (MapOp throughMult op, throu
 -- fractional
 speedUpIfPossible throughMult (SequenceArrayRepack (sLenIn, oldArrLenIn)
                               (sLenOut, oldArrLenOut) t) =
-  (SequenceArrayRepack (sLenIn, oldArrLenOut * throughMult)
+  (SequenceArrayRepack (sLenIn, oldArrLenIn * throughMult)
     (sLenOut, oldArrLenOut * throughMult) t, throughMult)
 speedUpIfPossible throughMult op@(ArrayReshape _ _) =
   (MapOp throughMult op, throughMult)
@@ -132,6 +135,7 @@ speedUpIfPossible throughMult op@(DuplicateOutputs _ _) =
   (MapOp throughMult op, throughMult)
 
 -- is this an ok inverse of our decision to only underutil for slowdown of seq operators?
+-- should this try to speed up children before itself?
 speedUpIfPossible throughMult (MapOp par innerOp) | isComb innerOp =
   (MapOp (par*throughMult) innerOp, throughMult)
 speedUpIfPossible throughMult (MapOp par innerOp) =
@@ -161,7 +165,9 @@ speedUpIfPossible throughMult (Underutil denom op) |
   where
     remainingMult = throughMult `ceilDiv` denom
     (spedUpOp, innerMult) = speedUpIfPossible remainingMult op 
-speedUpIfPossible throughMult op@(Underutil _ _) = speedUpIfPossible throughMult op
+speedUpIfPossible throughMult op@(Underutil denom innerOp) =
+  (Underutil denom, innerSpedUpOp, innerMult)
+  where (innerSpedUpOp, innerMult) = speedUpIfPossible throughMult innerOp
 
 -- NOTE: what to do if mapping over a reg delay? Nothing? its sequential but,
 -- unlike other sequential things like reduce, linebuffer its cool to duplicate
@@ -256,23 +262,26 @@ slowDownIfPossible throughDiv op@(Constant_Int _) =
   (Underutil throughDiv op, throughDiv)
 slowDownIfPossible throughDiv op@(Constant_Bit _) =
   (Underutil throughDiv op, throughDiv)
--- not going to change SLen in as, if 1, don't want to cause it to become
--- fractional
+-- not going to change SLen in consistency with speed up
+-- can only slow down if divisible
 slowDownIfPossible throughDiv (SequenceArrayRepack (sLenIn, oldArrLenIn)
-                              (sLenOut, oldArrLenOut) t) =
-  (SequenceArrayRepack (sLenIn, oldArrLenOut * throughDiv)
-    (sLenOut, oldArrLenOut * throughDiv) t, throughDiv)
+                              (sLenOut, oldArrLenOut) t) |
+  (oldArrLenIn `mod` throughDiv == 0) && (oldArrLenOut `mod` throughDiv == 0) =
+  (SequenceArrayRepack (sLenIn, oldArrLenIn `ceilDiv` throughDiv)
+    (sLenOut, oldArrLenOut `ceilDiv` throughDiv) t, throughDiv)
+slowDownIfPossible throughDiv op@(SequenceArrayRepack _ _ _) _ = (op, 1)
 slowDownIfPossible throughDiv op@(ArrayReshape _ _) =
   (Underutil throughDiv op, throughDiv)
 slowDownIfPossible throughDiv op@(DuplicateOutputs _ _) =
   (Underutil throughDiv op, throughDiv)
 
--- is this an ok inverse of our decision to only underutil for slowdown of seq operators?
-slowDownIfPossible throughDiv (MapOp par innerOp) | isComb innerOp =
-  (MapOp (par*throughDiv) innerOp, throughDiv)
+-- NOTE: should I not be pushing down here? Should I give up if div doesn't work?
+slowDownIfPossible throughDiv (MapOp par innerOp) | isComb innerOp &&
+  (par `mod` throughDiv == 0) =
+  (MapOp (par `ceilDiv` throughDiv) innerOp, throughDiv)
 slowDownIfPossible throughDiv (MapOp par innerOp) =
-  let (spedUpInnerOp, actualMult) = slowDownIfPossible throughDiv innerOp
-  in (MapOp par spedUpInnerOp, actualMult)
+  let (slowedInnerOp, actualMult) = slowDownIfPossible throughDiv innerOp
+  in (MapOp par slowedInnerOp, actualMult)
 
 -- only do it if less than full parallel and numComb % par == 0 or
 -- more than paralle and par % numComb == 0
@@ -286,18 +295,8 @@ slowDownIfPossible throughDiv (ReduceOp par numComb innerOp) =
   let (spedUpInnerOp, actualMult) = slowDownIfPossible throughDiv innerOp
   in (ReduceOp par numComb spedUpInnerOp, actualMult)
 
--- modify underutil if mult divides cleanly into underutil's denominator
--- or if removing underutil and the denominator divides cleanly into mult
 slowDownIfPossible throughDiv (Underutil denom op) |
-  (denom `mod` throughDiv) == 0 =
-  (Underutil (denom `ceilDiv` throughDiv) op, throughDiv)
-slowDownIfPossible throughDiv (Underutil denom op) |
-  (throughDiv `mod` denom) == 0 =
-  (spedUpOp, denom*innerMult)
-  where
-    remainingMult = throughDiv `ceilDiv` denom
-    (spedUpOp, innerMult) = slowDownIfPossible remainingMult op 
-slowDownIfPossible throughDiv op@(Underutil _ _) = slowDownIfPossible throughDiv op
+  (Underutil (denom * throughDiv) op, throughDiv)
 
 -- NOTE: what to do if mapping over a reg delay? Nothing? its sequential but,
 -- unlike other sequential things like reduce, linebuffer its cool to duplicate
