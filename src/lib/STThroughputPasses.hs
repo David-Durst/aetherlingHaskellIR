@@ -22,12 +22,35 @@ increaseLBPxPerClock (pInner:pTl) (imgInner:imgTl) mult |
 -- if filling out this dimension, imgInner must divide into mult * pInner cleanly
 increaseLBPxPerClock (pInner:pTl) (imgInner:imgTl) mult |
   imgInner <= pInner * mult && ((mult * pInner) `mod` imgInner == 0) =
-  (imgInner : pTl, mult * multOuter)
+  (imgInner : pOuter, mult * multOuter)
   where
     -- since requiring pInner to always divide into imgInner, this is ok
-    remainingMultForOuterDims = mult `ceilDiv` (imgInner `ceilDiv` pInner)
+    remainingMultForOuterDims = (mult * pInner) `ceilDiv` imgInner
     (pOuter, multOuter) = increaseLBPxPerClock pTl imgTl remainingMultForOuterDims
 increaseLBPxPerClock p _ _ = (p, 1)
+
+-- given a LB's pxPerClock, its image dimesions, and a divisor to slow down,
+-- speed up the pxPerCLock from inner most to outer most.
+-- Returns the new pxPerClock (in reverse order of LB) and the amount sped up
+-- NOTE: pxPerClcok and imgDimensions come in same order as for LB
+decreaseLBPxPerClock :: [Int] -> [Int] -> Int -> ([Int], Int)
+-- if no more dimensions to speed up, return remaining pxPerClock 
+decreaseLBPxPerClock [] _ _ = ([], 1)
+-- if not reducing to 1 out this dimension, pOuter / div must divide into imgOuter
+-- and div must divide into pOuter.
+-- no need to recurse further as done filling out dimensions
+decreaseLBPxPerClock (pOuter:pTl) (imgOuter:imgTl) div |
+  div < pOuter && (pOuter `mod` div == 0) &&
+  ((imgOuter * div) `mod` pOuter == 0) = ((pOuter `ceilDiv` div) : pTl, div)
+-- if reducing dim to 1 px per clock, pOuter must must divide into div  cleanly
+decreaseLBPxPerClock (pOuter:pTl) (imgOuter:imgTl) div |
+  div >= pOuter && (div `mod` pOuter == 0) = 
+  (1 : pInner, div * divInner)
+  where
+    -- since requiring pOuter to always divide into imgOuter, this is ok
+    remainingDivForInnerDims = div `ceilDiv` pOuter
+    (pInner, divInner) = decreaseLBPxPerClock pTl imgTl remainingDivForInnerDims
+decreaseLBPxPerClock p _ _ = (p, 1)
 
 -- helper function for linebuffer speedUpIfPossible, goes through, increasing
 -- parallelism of each component take an op and make it run x times faster
@@ -214,9 +237,10 @@ slowDownIfPossible throughDiv op@(MemWrite t) =
 -- NOTE: This works by slowing down outer dimensions before inner ones. Only
 -- works if throughDiv satisfies two conditions:
 -- 1. Amount to make each non-full throuhgput dimension go from current pxPerClock
--- to 1 divides cleanly into the throughputMult.
+-- to 1 divides cleanly into the throughputDiv.
 -- Stated rigorously: all i where i is number of non-full throuhgput dimensions:
---    ((\Pi_(0 to i-1) pxPerClock dim i) * throuhgMult) % (\Pi_(0 to i-1) product of non-full throuhgput dims) == 0
+--    ((\Pi_(0 to i-1) pxPerClock dim i) * throuhgMult) %
+--     (\Pi_(0 to i-1) product of non-full throuhgput dims) == 0
 -- 2. After making all outer dimensions 1 px per clock, the first dimension not
 -- made 1 px per clock must consume the rest of throuhgputMult and result in a
 -- new pxPerClock that cleanly divides into that dimension.
@@ -224,10 +248,9 @@ slowDownIfPossible throughDiv op@(MemWrite t) =
 --    (first not 1 px per clock dim) % (throuhgMult / (product of px per clock
 --     decreases to all outer dimensions)) == 0
 slowDownIfPossible throughDiv (LineBuffer p w img t) =
-  (LineBuffer (reverse reversedNewP) w img t, actualMult)
+  (LineBuffer newP w img t, actualMult)
   where
-    (reversedNewP, actualMult) =
-      increaseLBPxPerClock (reverse p) (reverse img) throughDiv
+    (newP, actualMult) = decreaseLBPxPerClock p img throughDiv
 -- can't shrink this, have to underutil
 slowDownIfPossible throughDiv op@(Constant_Int _) =
   (Underutil throughDiv op, throughDiv)
