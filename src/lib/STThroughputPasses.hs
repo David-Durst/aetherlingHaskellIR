@@ -83,6 +83,7 @@ speedUpIfPossible throughMult op@Lt = (MapOp throughMult op, throughMult)
 speedUpIfPossible throughMult op@Leq = (MapOp throughMult op, throughMult)
 speedUpIfPossible throughMult op@Gt = (MapOp throughMult op, throughMult)
 speedUpIfPossible throughMult op@Geq = (MapOp throughMult op, throughMult)
+speedUpIfPossible throughMult op@(LUT _) = (MapOp throughMult op, throughMult)
 -- should it be possible to speed this up? Should I always just speed up by
 -- wrapping in an array instead of increasing a wrapping array length if it exists?
 -- OLD REASONING - no, can't speed this up or slow it down as don't want to
@@ -222,6 +223,7 @@ slowDownIfPossible throughDiv op@Lt = (Underutil throughDiv op, throughDiv)
 slowDownIfPossible throughDiv op@Leq = (Underutil throughDiv op, throughDiv)
 slowDownIfPossible throughDiv op@Gt = (Underutil throughDiv op, throughDiv)
 slowDownIfPossible throughDiv op@Geq = (Underutil throughDiv op, throughDiv)
+slowDownIfPossible throughDiv op@(LUT _) = (MapOp throughDiv op, throughDiv)
 -- should it be possible to speed this up? Should I always just speed up by
 -- wrapping in an array instead of increasing a wrapping array length if it exists?
 -- OLD REASONING - no, can't speed this up or slow it down as don't want to
