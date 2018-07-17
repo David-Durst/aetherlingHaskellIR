@@ -29,7 +29,7 @@ space Lt = space (Add T_Int)
 space Leq = space (Add T_Int)
 space Gt = space (Add T_Int)
 space Geq = space (Add T_Int)
-
+space (LUT table) = OWA (len T_Int) (length table * len T_Int)
 
 space (MemRead t) = OWA (len t) (len t)
 space (MemWrite t) = OWA (len t) (len t)
@@ -114,6 +114,7 @@ clocksPerSequence Lt = baseWithNoWarmupSequenceLen
 clocksPerSequence Leq = baseWithNoWarmupSequenceLen
 clocksPerSequence Gt = baseWithNoWarmupSequenceLen
 clocksPerSequence Geq = baseWithNoWarmupSequenceLen
+clocksPerSequence (LUT _) = baseWithNoWarmupSequenceLen
 
 -- to what degree can we pipeline MemRead and MemWrite
 clocksPerSequence (MemRead _) = baseWithNoWarmupSequenceLen
@@ -184,6 +185,7 @@ initialLatency Lt = 1
 initialLatency Leq = 1
 initialLatency Gt = 1
 initialLatency Geq = 1
+initialLatency (LUT _) = 1
 
 initialLatency (MemRead _) = 1
 initialLatency (MemWrite _) = 1
@@ -273,6 +275,7 @@ maxCombPath Lt = 1
 maxCombPath Leq = 1
 maxCombPath Gt = 1
 maxCombPath Geq = 1
+maxCombPath (LUT _) = 1
 
 maxCombPath (MemRead _) = 1
 maxCombPath (MemWrite _) = 1
@@ -328,6 +331,7 @@ util Lt = 1
 util Leq = 1
 util Gt = 1
 util Geq = 1
+util (LUT _) = 1
 
 util (MemRead _) = 1
 util (MemWrite _) = 1
@@ -420,6 +424,7 @@ inPorts Lt = twoInSimplePorts T_Int
 inPorts Leq = twoInSimplePorts T_Int
 inPorts Gt = twoInSimplePorts T_Int
 inPorts Geq = twoInSimplePorts T_Int
+inPorts (LUT _) = oneInSimplePort T_Int
 
 inPorts (MemRead _) = []
 inPorts (MemWrite t) = [T_Port "I" baseWithNoWarmupSequenceLen t 1]
@@ -493,6 +498,7 @@ outPorts Lt = oneOutSimplePort T_Bit
 outPorts Leq = oneOutSimplePort T_Bit
 outPorts Gt = oneOutSimplePort T_Bit
 outPorts Geq = oneOutSimplePort T_Bit
+outPorts (LUT _) = oneOutSimplePort T_Int
 
 outPorts (MemRead t) = oneOutSimplePort t
 outPorts (MemWrite _) = []
@@ -559,6 +565,7 @@ isComb Lt = True
 isComb Leq = True
 isComb Gt = True
 isComb Geq = True
+isComb (LUT _) = True
 
 -- this is meaningless for this units that don't have both and input and output
 isComb (MemRead _) = True

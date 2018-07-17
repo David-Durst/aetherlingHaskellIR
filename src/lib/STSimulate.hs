@@ -12,22 +12,25 @@ import Data.List
 -- Useful for verifying that the logic of the circuit is correct, but
 -- doesn't simulate the actual hardware implementation.
 --
--- Input: list of lists of ValueType. Each list entry of the outer
--- list corresponds (in order) to one input port. These inner list
--- entries are a sequence of input values for said port, with each
--- value corresponding to one input on a "meaningful" clock
--- cycle. (i.e.  skip garbage inputs -- for devices that aren't
--- underutilized and have no warmup, this corresponds to a list of
--- inputs on each clock cycle).
+-- First Argument - Simulated Operator.
+--
+-- Second Argument - Port Inputs: list of lists of ValueType. Each list
+-- entry of the outer list corresponds (in order) to one input
+-- port. These inner list entries are a sequence of input values for
+-- said port, with each value corresponding to one input on a
+-- "meaningful" clock cycle. (i.e.  skip garbage inputs -- for devices
+-- that aren't underutilized and have no warmup, this corresponds to a
+-- list of inputs on each clock cycle).
 --
 -- NOTE: Be careful if some ports have a longer/shorter sequence of
 -- inputs than expected.
 --
--- Memory input: list of lists of ValueType. The inner lists are
--- "tapes" of input corresponding to one MemRead, which outputs the
--- tape's values sequentially. Index i of the outer list corresponds
--- to the input for the ith MemRead, which are numbered in the order
--- they would be visited by a depth-first search (DFS) of the AST.
+-- Third Argument - Memory input: list of lists of ValueType. The
+-- inner lists are "tapes" of input corresponding to one MemRead,
+-- which outputs the tape's values sequentially. Index i of the outer
+-- list corresponds to the input for the ith MemRead, which are
+-- numbered in the order they would be visited by a depth-first search
+-- (DFS) of the AST.
 --
 -- NOTE: At time of writing, DFS order may not be well-defined by some
 -- ops like ReduceOp.
@@ -39,17 +42,23 @@ import Data.List
 --
 -- TODO: More convenient error messages?
 -- TODO: Warnings when input sequence lengths don't match.
-simulateHighLevel :: Op -> [[ValueType]] -> [[ValueType]]
-                  -> ( [[ValueType]], [[ValueType]] )
+simulateHighLevel ::
+     Op -> [[ValueType]] -> [[ValueType]] -> ([[ValueType]], [[ValueType]])
 -- Check that the types match, then delegate to simhl implementation.
-simulateHighLevel op portInputs memoryInputs = do {
-        let portOutputsAndState = simhl op portInputs
-                (SimhlState (simhlCheckInputs 0 (inPorts op) portInputs)
-                    memoryInputs 0 []
-                )
-       ;
-       (fst portOutputsAndState, simhlMemoryOut $ snd portOutputsAndState)
-}
+simulateHighLevel op _ _ | hasChildWithError op || isFailure op =
+  error $ "Op has error: " ++ show op
+simulateHighLevel op portInputs memoryInputs =
+    if simhlCheckInputs 0 (inPorts op) portInputs
+    then
+      let
+        maxSeqLen = maximum $ map length (portInputs++memoryInputs++[[V_Unit]])
+        inState = SimhlState maxSeqLen memoryInputs 0 []
+        portOutAndState = simhl op portInputs inState
+      in
+        (fst portOutAndState, simhlMemoryOut $ snd portOutAndState)
+    else
+      error("Aetherling internal error: Something's wrong with the inputs,\n"
+         ++ "but no error was reported by type-checker.")
 
 -- Inspect the inPorts of op and see if they match the sequences of ValueType
 -- passed by the user. (Integer argument used to keep track of which
@@ -80,9 +89,9 @@ simhlCheckInputs portIndex (portT:portTs) (valSeq:valSeqs) =
 -- all its outputs through time in one step given all inputs through time).
 -- This is bookkeeping stuff for type checking and handling memory.
 data SimhlState = SimhlState {
-    simhlTypesMatch :: Bool,
+    simhlConstSeqLen :: Int,        -- For constant generator seq len.
     simhlMemoryIn :: [[ValueType]],
-    simhlMemoryIndex :: Int,           -- For error messages.
+    simhlMemoryIndex :: Int,        -- For error messages.
     simhlMemoryOut :: [[ValueType]]
 }
 
@@ -102,9 +111,6 @@ data SimhlState = SimhlState {
 -- Output is a tuple of [[ValueType]] and SimhlState, which is how the memory
 -- state changes explained above are carried on through the recursion.
 simhl :: Op -> [[ValueType]] -> SimhlState -> ([[ValueType]], SimhlState)
-simhl _ _ (SimhlState False _ _ _) =
-    error "Aetherling internal error: simhl function got False Bool value"
-    -- If simhlCheckInputs were false, should have gotten proper error message.
 simhl (Add t) inSeqs state = (simhlCombinational simhlAdd inSeqs, state)
 simhl (Sub t) inSeqs state = (simhlCombinational simhlSub inSeqs, state)
 simhl (Mul t) inSeqs state = (simhlCombinational simhlMul inSeqs, state)
@@ -126,11 +132,23 @@ simhl Lt inSeqs state = (simhlCombinational simhlLt inSeqs, state)
 simhl Leq inSeqs state = (simhlCombinational simhlLeq inSeqs, state)
 simhl Gt inSeqs state = (simhlCombinational simhlGt inSeqs, state)
 simhl Geq inSeqs state = (simhlCombinational simhlGeq inSeqs, state)
+simhl (LUT table) inSeqs state = (simhlCombinational (simhlLUT table) inSeqs, state)
 
+-- HACK the constant generators don't really know how long their
+-- output sequences should be, so they look at the simhlConstSeqLen
+-- field, which is the maximum (at time of writing) of every input
+-- port and every MemRead's input sequence. (Might this not be enough
+-- for some non-obvious reason???)
+--
+-- Note: Naively it may seem that an infinite list would be the ideal
+-- representation (actually not so naive, this is functional
+-- programming after all), but unfortunately other parts of this
+-- simulator try to work on the whole list at once so lazy evaluation
+-- won't work as we hope.
 simhl (Constant_Int a) inSeqs state =
-    (simhlCombinational (simhlInt a) inSeqs, state)
+    ([replicate (simhlConstSeqLen state) (vIntArray a)], state)
 simhl (Constant_Bit a) inSeqs state =
-    (simhlCombinational (simhlBit a) inSeqs, state)    
+    ([replicate (simhlConstSeqLen state) (vBitArray a)], state)
 
 simhl (SequenceArrayRepack (a,b) (c,d) t) inSeqs state =
     (simhlRepack (a,b) (c,d) t inSeqs, state)
@@ -144,9 +162,8 @@ simhl (MemRead t) inSeqs state = simhlRead t inSeqs state
 simhl (MemWrite t) inSeqs state = simhlWrite inSeqs state
 
 simhl (DuplicateOutputs n op) inSeqs inState =
-    do { let (rawOutSeqs, outState) = simhl op inSeqs inState
-       ; (concat $ replicate n rawOutSeqs, outState)
-    }
+    let (rawOutSeqs, outState) = simhl op inSeqs inState
+    in (concat $ replicate n rawOutSeqs, outState)
 
 simhl (MapOp par op) inSeqs state = simhlMap par op inSeqs state
 
@@ -176,18 +193,17 @@ simhl (RegDelay delay op) inSeqs state = simhl op inSeqs state
 simhl (ComposeSeq []) inSeqs state = error "ComposeSeq with empty [Op]"
 simhl (ComposeSeq [op]) inSeqs state = simhl op inSeqs state
 simhl (ComposeSeq (op:ops)) inSeqs inState =
-    do { let (nextInput, nextState) = simhl op inSeqs inState
-       ; simhl (ComposeSeq ops) nextInput nextState
-    }
+    let (nextInput, nextState) = simhl op inSeqs inState
+    in simhl (ComposeSeq ops) nextInput nextState
 
 simhl (ComposePar []) inSeqs state = ([], state)
 simhl (ComposePar (op:moreOps)) inSeqs inState =
-    do { let (opInSeqs, moreInSeqs) = splitAt (length $ inPorts op) inSeqs
-       ; let (opOutSeqs, nextState) = simhl op opInSeqs inState
-       ; let (moreOutSeqs, endState) =
-               simhl (ComposePar moreOps) moreInSeqs nextState
-       ; (opOutSeqs ++ moreOutSeqs, endState)
-    }
+    let
+      (opInSeqs, moreInSeqs) = splitAt (length $ inPorts op) inSeqs
+      (opOutSeqs, nextState) = simhl op opInSeqs inState
+      (moreOutSeqs, endState) = simhl (ComposePar moreOps) moreInSeqs nextState
+    in
+      (opOutSeqs ++ moreOutSeqs, endState)
 
 simhl (ComposeFailure foo bar) _ _ =
     error $ "Cannot simulate ComposeFaliure " ++ show (ComposeFailure foo bar)
@@ -198,19 +214,18 @@ simhl (ComposeFailure foo bar) _ _ =
 -- with entries corresponding to input ports' inputs in 1 cycle and
 -- produces list of output ports' outputs.
 simhlCombinational :: ([ValueType]->[ValueType]) -> [[ValueType]] -> [[ValueType]]
+simhlCombinational impl inSeqs | any null inSeqs = []
 simhlCombinational impl inSeqs =
-    if any null inSeqs -- inefficient??? Note that we silently ignore
-    then []            -- sequence length mismatches for now.
-    else do { let inputsNow = map head inSeqs
-            ; let inputsL8r = map tail inSeqs
-            ; let outputsNow = impl inputsNow
-            ; let outputsL8r = simhlCombinational impl inputsL8r
-            ; if null outputsL8r
-              then [[outputNow] | outputNow <- outputsNow] -- 1-seq output case
-              else                                         -- N-seq output case
-              [outputNow:outputL8r
-              |(outputNow, outputL8r) <- zip outputsNow outputsL8r]
-            }
+  let
+    inputsNow = map head inSeqs
+    inputsLater = map tail inSeqs
+    outputsNow = impl inputsNow
+    outputsLater = simhlCombinational impl inputsLater
+  in if null outputsLater
+  then [[outputNow] | outputNow <- outputsNow] -- 1-seq output case
+  else                                         -- N-seq output case
+    [outputNow:outputLater
+    |(outputNow, outputLater) <- zip outputsNow outputsLater]
 
 -- Given implementations for Ints and Bools, create a [ValueType] -> [ValueType]
 -- function suitable for simhlCombinational.
@@ -300,11 +315,14 @@ simhlGt = simhlIntCmpOp (>)
 simhlGeq :: [ValueType] -> [ValueType]
 simhlGeq = simhlIntCmpOp (>=)
 
-simhlInt :: [Int] -> [ValueType] -> [ValueType]
-simhlInt ints _ = [V_Array [V_Int i | i <- ints]]
-
-simhlBit :: [Bool] -> [ValueType] -> [ValueType]
-simhlBit bools _ = [V_Array [V_Bit b | b <- bools]]
+-- this will be used above by passing in the lookup table as first argument
+-- list of ints. This will partially evaulated then handed to 
+-- simhlCombinational
+simhlLUT :: [Int] -> [ValueType] -> [ValueType]
+simhlLUT table [V_Int i] | i < length table = [V_Int $ table !! i]
+simhlLUT table [V_Int i] = [V_Int 0]
+simhlLUT _ [V_Unit] = [V_Unit]
+simhlLUT _ _ = error "Aetherling internal error: non-unit garbage LUT input"
 
 -- Reshape sequence of arrays through space and time.
 simhlRepack :: (Int,Int) -> (Int,Int) -> TokenType -> [[ValueType]]
@@ -314,9 +332,10 @@ simhlRepack (inSeqLen, inWidth) (outSeqLen, outWidth) t [inSeq] =
     then error("Need product of sequence length and array width to be nonzero "
            ++  "and equal in input and output. Simulating "
            ++ show (SequenceArrayRepack (inSeqLen, inWidth) (outSeqLen, outWidth) t))
-    else do { let allInputs = simhlRepackUnpack inWidth inSeq
-            ; [simhlRepackRepack outWidth allInputs]
-         }
+    else
+      let allInputs = simhlRepackUnpack inWidth inSeq
+      in [simhlRepackRepack outWidth allInputs]
+
 simhlRepack _ _ _ _ = error "Aetherling internal error: broken array repack."
 
 -- Glue together all inputs, ordered by time then by left-to-right.
@@ -334,11 +353,11 @@ simhlRepackUnpack _ _ = error "Aetherling internal error: broken array unpack."
 -- of length outSeqLen. Truncate leftover output.
 simhlRepackRepack :: Int -> [ValueType] -> [ValueType]
 simhlRepackRepack outWidth values =
-    do { let (nowArray, futureValues) = splitAt outWidth values
-       ; if length nowArray == outWidth
-         then (V_Array nowArray):(simhlRepackRepack outWidth futureValues)
-         else []
-    }
+    let (nowArray, futureValues) = splitAt outWidth values
+    in
+      if length nowArray == outWidth
+      then (V_Array nowArray):(simhlRepackRepack outWidth futureValues)
+      else []
 
 -- Combinational device that decomposes arrays into fundamental types
 -- and puts them back together in a different order. This function
@@ -347,10 +366,10 @@ simhlRepackRepack outWidth values =
 -- clock -> out port values in one clock).
 simhlReshape :: Op -> [ValueType] -> [ValueType]
 simhlReshape (ArrayReshape inTypes outTypes) nowInputs =
-    do { let serial = concat $ map (uncurry simhlSerializeArray)
+    let serial = concat $ map (uncurry simhlSerializeArray)
                                    (zip inTypes nowInputs)
-       ; simhlDeserializeArrays (ArrayReshape inTypes outTypes) serial
-    }
+    in simhlDeserializeArrays (ArrayReshape inTypes outTypes) serial
+
 simhlReshape _ _ =
     error "Aetherling internal error: expected ArrayReshape Op."
 
@@ -373,10 +392,12 @@ simhlSerializeArray t value = [value]
 simhlDeserializeArrays :: Op -> [ValueType]
                        -> [ValueType]
 simhlDeserializeArrays (ArrayReshape inTypes outTypes) serialValues =
-    do { let initTuple = (ArrayReshape inTypes outTypes, [], serialValues)
-       ; let (_, result, _) = foldl simhlDeserializeLambda initTuple outTypes
-       ; result
-    }
+    let
+      initTuple = (ArrayReshape inTypes outTypes, [], serialValues)
+      (_, result, _) = foldl simhlDeserializeLambda initTuple outTypes
+    in
+      result
+
 simhlDeserializeArrays _ _ =
     error "Aetherling internal error: expected ArrayReshape Op."
 
@@ -389,10 +410,8 @@ simhlDeserializeArrays _ _ =
 simhlDeserializeLambda :: (Op, [ValueType], [ValueType]) -> TokenType
                            -> (Op, [ValueType], [ValueType])
 simhlDeserializeLambda (op, packedValues, serialValues) t =
-    do { let (packedValue, leftover) = simhlMunchArray op t serialValues
-       ; (op, packedValues ++ [packedValue], leftover)
-    }
-
+    let (packedValue, leftover) = simhlMunchArray op t serialValues
+    in (op, packedValues ++ [packedValue], leftover)
 
 -- Take some of the start of the [ValueType] input and construct a V_Array
 -- (or scalar type) based on TokenType. Return the constructed value and
@@ -400,11 +419,13 @@ simhlDeserializeLambda (op, packedValues, serialValues) t =
 simhlMunchArray :: Op -> TokenType -> [ValueType] -> (ValueType, [ValueType])
 simhlMunchArray op (T_Array 0 t) values = (V_Array [], values)
 simhlMunchArray op (T_Array n t) values =
-    do { let (oneEntry, oneLeftover) = simhlMunchArray op t values
-       ; let (V_Array otherEntries, otherLeftover) =
+    let
+      (oneEntry, oneLeftover) = simhlMunchArray op t values
+      (V_Array otherEntries, otherLeftover) =
                simhlMunchArray op (T_Array (n-1) t) oneLeftover
-       ; (V_Array (oneEntry:otherEntries), otherLeftover)
-    }
+    in
+      (V_Array (oneEntry:otherEntries), otherLeftover)
+
 simhlMunchArray op t (value:values) =
     if vtTypesMatch value t
     then (value, values)
@@ -433,9 +454,9 @@ simhlRead _ _ (SimhlState _ [] memIdx _) =
            ++ show memIdx
            ++ " (numbered using DFS starting at 0)."
     )
-simhlRead t inputs (SimhlState ok (inTape:inTapes) memIdx memOut) =
+simhlRead t inputs (SimhlState maxSeqLen (inTape:inTapes) memIdx memOut) =
     if all (tvTypesMatch t) inTape
-    then ([inTape], (SimhlState ok inTapes (memIdx+1) memOut))
+    then ([inTape], (SimhlState maxSeqLen inTapes (memIdx+1) memOut))
     else error("At MemRead number " ++ show memIdx
             ++ " (numbered using DFS, starting from 0), input "
             ++ show inTape
@@ -444,8 +465,8 @@ simhlRead t inputs (SimhlState ok (inTape:inTapes) memIdx memOut) =
   
 simhlWrite :: [[ValueType]] -> SimhlState
            -> ( [[ValueType]], SimhlState )
-simhlWrite inputs (SimhlState ok memIn memIdx memOut) =
-    ( [], (SimhlState ok memIn memIdx (memOut ++ inputs)) )
+simhlWrite inputs (SimhlState maxSeqLen memIn memIdx memOut) =
+    ( [], (SimhlState maxSeqLen memIn memIdx (memOut ++ inputs)) )
 
 -- Implementation of simhl MapOp
 
@@ -481,14 +502,13 @@ simhlJoinMapOutputs 1 [lastLaneValues] =
     ]
 simhlJoinMapOutputs _ [] = error "Aetherling internal error: broken map join."
 simhlJoinMapOutputs par (thisLane:rightLanes) =
-    do { let rightJoined = simhlJoinMapOutputs (par-1) rightLanes
-       ; [
-             [V_Array (nowValue:moreNowValues)
-             |(nowValue, V_Array moreNowValues) <- zip portSeq morePortSeqs
-             ]
-         |(portSeq, morePortSeqs) <- zip thisLane rightJoined
+    let rightJoined = simhlJoinMapOutputs (par-1) rightLanes
+    in [
+         [V_Array (nowValue:moreNowValues)
+         |(nowValue, V_Array moreNowValues) <- zip portSeq morePortSeqs
          ]
-    }
+       |(portSeq, morePortSeqs) <- zip thisLane rightJoined
+       ]
 
 -- Fold strategy for Map: We need to get one set of inputs in and one
 -- set of outputs to each Op in the map. However, the state must go
@@ -502,21 +522,20 @@ simhlMapFoldLambda :: (Op, [[[ValueType]]], SimhlState)
                    -> [[ValueType]]
                    -> (Op, [[[ValueType]]], SimhlState)
 simhlMapFoldLambda lastTuple laneInput =
-    do { let (theMappedOp, lastOutputs, lastState) = lastTuple
-       ; let (thisOpOutputs, nextState) = simhl theMappedOp laneInput lastState
-       ; (theMappedOp, lastOutputs ++ [thisOpOutputs], nextState)
-    }
+    let
+      (theMappedOp, lastOutputs, lastState) = lastTuple
+      (thisOpOutputs, nextState) = simhl theMappedOp laneInput lastState
+    in
+      (theMappedOp, lastOutputs ++ [thisOpOutputs], nextState)
 
 -- Glue together the above 3 things to get the map operator simulated.
 simhlMap :: Int -> Op -> [[ValueType]] -> SimhlState
          -> ( [[ValueType]], SimhlState )
 simhlMap par theMappedOp inSeqs inState =
-    do { let (_, mapOutputs, endState) = foldl simhlMapFoldLambda
-                                               (theMappedOp, [], inState)
-                                               (simhlSplitMapInputs par inSeqs)
-       ; (simhlJoinMapOutputs par mapOutputs, endState)
-    }
-
+    let (_, mapOutputs, endState) = foldl simhlMapFoldLambda
+                                          (theMappedOp, [], inState)
+                                          (simhlSplitMapInputs par inSeqs)
+    in (simhlJoinMapOutputs par mapOutputs, endState)
 
 -- Implementation of simhl ReduceOp
 -- A Reduce circuit has 2 parts generally.
@@ -549,10 +568,9 @@ simhlMap par theMappedOp inSeqs inState =
 simhlReduceTree :: Op -> [[[ValueType]]] -> SimhlState
                 -> ( [ValueType], SimhlState )
 simhlReduceTree theReducedOp laneInSeqs inState =
-    do { let ([[treeOutputs]], outState) =
-               simhlReduceRecurse theReducedOp laneInSeqs inState
-       ; (treeOutputs, outState)
-    }
+    let ([[treeOutputs]], outState) =
+          simhlReduceRecurse theReducedOp laneInSeqs inState
+    in (treeOutputs, outState)
 
 -- Each level of recursion corresponds to one level of the the ecircuit,
 -- in which the number of inputs in halved.
@@ -562,22 +580,23 @@ simhlReduceRecurse theReducedOp [] state =
     error "Aetherling internal error: 0-input reduce in simulator."
 simhlReduceRecurse theReducedOp [oneInput] state = ([oneInput], state)
 simhlReduceRecurse theReducedOp splitInputs inState =
-    do { let (halfInputs, halfState) =
-               simhlReduceTreeLevel theReducedOp splitInputs inState
-       ; simhlReduceRecurse theReducedOp halfInputs halfState
-    }
+    let (halfInputs, halfState) =
+          simhlReduceTreeLevel theReducedOp splitInputs inState
+    in simhlReduceRecurse theReducedOp halfInputs halfState
 
 simhlReduceTreeLevel :: Op -> [[[ValueType]]] -> SimhlState
                      -> ( [[[ValueType]]], SimhlState )
 simhlReduceTreeLevel theReducedOp [] state = ([], state)
 simhlReduceTreeLevel theReducedOp [oneInput] state = ([oneInput], state)
 simhlReduceTreeLevel theReducedOp ([inSeq0]:[inSeq1]:moreInSeqs) inState =
-    do { let twoInSeqs = [inSeq0, inSeq1]
-       ; let (oneOutSeq, nextState) = simhl theReducedOp twoInSeqs inState
-       ; let (outputsBeyond, outState) =
-               simhlReduceTreeLevel theReducedOp moreInSeqs inState
-       ; (oneOutSeq:outputsBeyond, outState)
-    }
+    let
+      twoInSeqs = [inSeq0, inSeq1]
+      (oneOutSeq, nextState) = simhl theReducedOp twoInSeqs inState
+      (outputsBeyond, outState) =
+          simhlReduceTreeLevel theReducedOp moreInSeqs inState
+    in
+      (oneOutSeq:outputsBeyond, outState)
+
 simhlReduceTreeLevel theReducedOp inLanes _ = error(
         "Aethering internal error: broken reduce tree "
         ++ show theReducedOp
@@ -599,13 +618,14 @@ simhlReduceReg par numComb theReducedOp treeOutSeq =
     if par == 0 || numComb == 0 || numComb `mod` par /= 0
     then error "Aetherling internal error: check reduce par/numComb."
     else
-      do { let cyclesNeeded = numComb `div` par
-         ; let (nowReduce, laterReduce) = splitAt cyclesNeeded treeOutSeq
-         ; if length nowReduce < cyclesNeeded
-           then []
-           else (reduceList nowReduce):
-                (simhlReduceReg par numComb theReducedOp laterReduce)
-      }
+      let
+        cyclesNeeded = numComb `div` par
+        (nowReduce, laterReduce) = splitAt cyclesNeeded treeOutSeq
+      in
+        if length nowReduce < cyclesNeeded
+        then []
+        else (reduceList nowReduce):
+             (simhlReduceReg par numComb theReducedOp laterReduce)
   -- Reduce a subsequence of the tree output sequence (subseq length =
   -- cycles needed per output) into one output. Use foldl since it's
   -- the same order the actual circuit will evaluate the outputs
@@ -613,7 +633,7 @@ simhlReduceReg par numComb theReducedOp treeOutSeq =
   where reduceList valList =
           foldl
           (\x y -> head $ head $ fst $
-                   simhl theReducedOp [[x],[y]] (SimhlState True [] 0 [])
+                   simhl theReducedOp [[x],[y]] (SimhlState 1 [] 0 [])
           )
           (head valList)
           (tail valList)
@@ -621,15 +641,16 @@ simhlReduceReg par numComb theReducedOp treeOutSeq =
 simhlReduce :: Int -> Int -> Op -> [[ValueType]] -> SimhlState
             -> ( [[ValueType]], SimhlState )
 simhlReduce par numComb theReducedOp inSeqs inState =
-    do { let laneInSeqs = simhlSplitMapInputs par inSeqs
-       ; let (treeOutSeq, outState)
-               = simhlReduceTree theReducedOp laneInSeqs inState
-       ; if par == numComb
-         then ([treeOutSeq], outState) -- Part 2 device unused.
-         else ([simhlReduceReg par numComb theReducedOp treeOutSeq], outState)
-         -- We have to put the output sequence in a 1-list for the 1
-         -- output port of ReduceOp.
-    }
+    let
+      laneInSeqs = simhlSplitMapInputs par inSeqs
+      (treeOutSeq, outState)
+          = simhlReduceTree theReducedOp laneInSeqs inState
+    in
+      if par == numComb
+      then ([treeOutSeq], outState) -- Part 2 device unused.
+      else ([simhlReduceReg par numComb theReducedOp treeOutSeq], outState)
+      -- We have to put the output sequence in a 1-list for the 1
+      -- output port of ReduceOp.
 
 -- Helper functions for making it easier to create ValueType instances.
 vBits :: [Bool] -> [ValueType]

@@ -2,12 +2,13 @@ import Test.Tasty
 import Test.Tasty.HUnit
 import STAST
 import Examples
+import TestSimulator
 
 main :: IO ()
 main = defaultMain tests
 
 tests :: TestTree
-tests = testGroup "Example Tests" [unitTests]
+tests = testGroup "Example Tests" [unitTests, simulatorTests]
 
 isSuccess :: Op -> Bool
 isSuccess (ComposeFailure _ _) = False
