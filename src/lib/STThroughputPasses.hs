@@ -142,9 +142,12 @@ speedUpIfPossible throughMult (MapOp par innerOp) =
   let (spedUpInnerOp, actualMult) = speedUpIfPossible throughMult innerOp
   in (MapOp par spedUpInnerOp, actualMult)
 
--- only do it if less than full parallel and numComb % par == 0 or
--- more than paralle and par % numComb == 0
--- and if everything inside is comb, otherwise just speed up inside
+-- only do it
+-- 2. less than full parallel and numComb % newPar == 0 or
+-- 3. more than parallel and newPar % numComb == 0
+-- 4. everything inside is comb,
+-- otherwise just speed up inside
+-- NOTE: should I not be pushing down here? Should I give up if div doesn't work?
 speedUpIfPossible throughMult (ReduceOp par numComb innerOp) | isComb innerOp &&
   (((newPar <= numComb) && ((numComb `mod` newPar) == 0)) ||
   ((newPar > numComb) && ((newPar `mod` numComb) == 0))) =
@@ -166,7 +169,7 @@ speedUpIfPossible throughMult (Underutil denom op) |
     remainingMult = throughMult `ceilDiv` denom
     (spedUpOp, innerMult) = speedUpIfPossible remainingMult op 
 speedUpIfPossible throughMult op@(Underutil denom innerOp) =
-  (Underutil denom, innerSpedUpOp, innerMult)
+  (Underutil denom innerSpedUpOp, innerMult)
   where (innerSpedUpOp, innerMult) = speedUpIfPossible throughMult innerOp
 
 -- NOTE: what to do if mapping over a reg delay? Nothing? its sequential but,
@@ -254,9 +257,9 @@ slowDownIfPossible throughDiv op@(MemWrite t) =
 --    (first not 1 px per clock dim) % (throuhgMult / (product of px per clock
 --     decreases to all outer dimensions)) == 0
 slowDownIfPossible throughDiv (LineBuffer p w img t) =
-  (LineBuffer newP w img t, actualMult)
+  (LineBuffer newP w img t, actualDiv)
   where
-    (newP, actualMult) = decreaseLBPxPerClock p img throughDiv
+    (newP, actualDiv) = decreaseLBPxPerClock p img throughDiv
 -- can't shrink this, have to underutil
 slowDownIfPossible throughDiv op@(Constant_Int _) =
   (Underutil throughDiv op, throughDiv)
@@ -269,7 +272,7 @@ slowDownIfPossible throughDiv (SequenceArrayRepack (sLenIn, oldArrLenIn)
   (oldArrLenIn `mod` throughDiv == 0) && (oldArrLenOut `mod` throughDiv == 0) =
   (SequenceArrayRepack (sLenIn, oldArrLenIn `ceilDiv` throughDiv)
     (sLenOut, oldArrLenOut `ceilDiv` throughDiv) t, throughDiv)
-slowDownIfPossible throughDiv op@(SequenceArrayRepack _ _ _) _ = (op, 1)
+slowDownIfPossible throughDiv op@(SequenceArrayRepack _ _ _) = (op, 1)
 slowDownIfPossible throughDiv op@(ArrayReshape _ _) =
   (Underutil throughDiv op, throughDiv)
 slowDownIfPossible throughDiv op@(DuplicateOutputs _ _) =
@@ -280,47 +283,54 @@ slowDownIfPossible throughDiv (MapOp par innerOp) | isComb innerOp &&
   (par `mod` throughDiv == 0) =
   (MapOp (par `ceilDiv` throughDiv) innerOp, throughDiv)
 slowDownIfPossible throughDiv (MapOp par innerOp) =
-  let (slowedInnerOp, actualMult) = slowDownIfPossible throughDiv innerOp
-  in (MapOp par slowedInnerOp, actualMult)
+  let (slowedInnerOp, actualDiv) = slowDownIfPossible throughDiv innerOp
+  in (MapOp par slowedInnerOp, actualDiv)
 
--- only do it if less than full parallel and numComb % par == 0 or
--- more than paralle and par % numComb == 0
--- and if everything inside is comb, otherwise just speed up inside
-slowDownIfPossible throughDiv (ReduceOp par numComb innerOp) | isComb innerOp &&
-  (((newPar <= numComb) && ((numComb `mod` newPar) == 0)) ||
-  ((newPar > numComb) && ((newPar `mod` numComb) == 0))) =
+-- only do it
+-- 1. par divisible by throughDiv,
+-- 2. less than full parallel and numComb % newPar == 0 or
+-- 3. more than parallel and newPar % numComb == 0
+-- 4. everything inside is comb,
+-- otherwise just speed up inside
+-- NOTE: should I not be pushing down here? Should I give up if div doesn't work?
+slowDownIfPossible throughDiv (ReduceOp par numComb innerOp) |
+  isComb innerOp &&
+  (par `mod` throughDiv == 0) &&
+  (((newPar <= numComb) && (numComb `mod` newPar == 0)) ||
+  ((newPar > numComb) && (newPar `mod` numComb == 0))) =
   (ReduceOp newPar numComb innerOp, throughDiv)
-  where newPar = par*throughDiv
+  where newPar = par `ceilDiv` throughDiv
 slowDownIfPossible throughDiv (ReduceOp par numComb innerOp) =
-  let (spedUpInnerOp, actualMult) = slowDownIfPossible throughDiv innerOp
-  in (ReduceOp par numComb spedUpInnerOp, actualMult)
+  let (slowedInnerOp, actualDiv) = slowDownIfPossible throughDiv innerOp
+  in (ReduceOp par numComb slowedInnerOp, actualDiv)
 
-slowDownIfPossible throughDiv (Underutil denom op) |
+slowDownIfPossible throughDiv (Underutil denom op) =
   (Underutil (denom * throughDiv) op, throughDiv)
 
 -- NOTE: what to do if mapping over a reg delay? Nothing? its sequential but,
 -- unlike other sequential things like reduce, linebuffer its cool to duplicate
 slowDownIfPossible throughDiv (RegDelay d innerOp) =
-  (RegDelay d spedUpInnerOp, innerMult)
-  where (spedUpInnerOp, innerMult) = slowDownIfPossible throughDiv innerOp 
+  (RegDelay d slowedInnerOp, innerMult)
+  where (slowedInnerOp, innerMult) = slowDownIfPossible throughDiv innerOp 
 
 slowDownIfPossible throughDiv (ComposePar ops) = 
   let
-    spedUpOpsAndMults = map (slowDownIfPossible throughDiv) ops
-    spedUpOps = map fst spedUpOpsAndMults
-    actualMults = map snd spedUpOpsAndMults
-  in (ComposePar spedUpOps, minimum actualMults)
+    slowedOpsAndMults = map (slowDownIfPossible throughDiv) ops
+    slowedOps = map fst slowedOpsAndMults
+    actualDivs = map snd slowedOpsAndMults
+  in (ComposePar slowedOps, maximum actualDivs)
 slowDownIfPossible throughDiv (ComposeSeq ops) = 
   let
-    spedUpOpsAndMults = map (slowDownIfPossible throughDiv) ops
-    (hdSpedUpOps:tlSpedUpOps) = map fst spedUpOpsAndMults
-    actualMults = map snd spedUpOpsAndMults
+    slowedOpsAndMults = map (slowDownIfPossible throughDiv) ops
+    (hdSlowedOps:tlSlowedOps) = map fst slowedOpsAndMults
+    actualDivs = map snd slowedOpsAndMults
   -- doing a fold here instead of just making another composeSeq to make sure all
   -- ports still match 
-  in (foldl (|>>=|) hdSpedUpOps tlSpedUpOps, minimum actualMults)
+  in (foldl (|>>=|) hdSlowedOps tlSlowedOps, maximum actualDivs)
 slowDownIfPossible _ op@(ComposeFailure _ _) = (op, 1)
 
-slowDown throughDiv op | actualMult == throughDiv = spedUpOp
-  where (spedUpOp, actualMult) = slowDownIfPossible throughDiv op
-slowDown throughDiv op = ComposeFailure (BadThroughputMultiplier throughDiv actualMult) (op, ComposeSeq [])
-  where (spedUpOp, actualMult) = slowDownIfPossible throughDiv op
+slowDown throughDiv op | actualDiv == throughDiv = spedUpOp
+  where (spedUpOp, actualDiv) = slowDownIfPossible throughDiv op
+slowDown throughDiv op =
+  ComposeFailure (BadThroughputMultiplier throughDiv actualDiv) (op, ComposeSeq [])
+  where (spedUpOp, actualDiv) = slowDownIfPossible throughDiv op
