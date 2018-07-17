@@ -352,6 +352,77 @@ simhlCase9 = SimhlTestCase
   180
   [(180, T_Int), (180, T_Int)]
 
+-- Outputs true iff each 4-sequence input (entered as 2 inputs over 2 cycles)
+-- is strictly increasing. Better test for SequenceArrayReshape and Lt.
+simhlStrictlyIncreasingOp =
+  SequenceArrayRepack (2,2) (1,4) T_Int |>>=|
+  Underutil 2 (
+    ArrayReshape [T_Array 4 T_Int] [T_Int, T_Int, T_Int, T_Int] |>>=|
+    (simhlNoOp [T_Int] |&| DuplicateOutputs 2 (simhlNoOp [T_Int])
+    |&| DuplicateOutputs 2 (simhlNoOp [T_Int]) |&| simhlNoOp [T_Int]) |>>=|
+    (Lt |&| Lt |&| Lt) |>>=|
+    ArrayReshape [T_Bit, T_Bit, T_Bit] [T_Array 3 T_Bit] |>>=|
+    ReduceOp 3 3 (And T_Bit)
+  )
+simhlStrictlyIncreasingImpl :: [[ValueType]] -> [[ValueType]]
+                            -> ( [[ValueType]], [[ValueType]] )
+simhlStrictlyIncreasingImpl [inSeq] _ | length inSeq <= 1 = ([[]], [])
+simhlStrictlyIncreasingImpl
+  [V_Array [V_Int a, V_Int b]: V_Array [V_Int c, V_Int d]:arrays] _ =
+  let
+    thisResult = V_Bit (a < b && b < c && c < d)
+    ([moreResults], _) = simhlStrictlyIncreasingImpl [arrays] []
+  in
+    ([thisResult:moreResults], [])
+simhlStrictlyIncreasingImpl _ _ = error "Aetherling test internal error: case 10"
+simhlCase10 = SimhlTestCase
+  "Read in 4-sequences of ints (2 at a time) and output true for every \
+  \sequence that is strictly increasing, false otherwise. (Tests Lt, \
+  \SequenceArrayReshape)."
+  simhlStrictlyIncreasingOp
+  simhlStrictlyIncreasingImpl
+  403 -- Not divisible by 2 on purpose -- should truncate extra input.
+  []
+
+-- Compare 4 lanes of port inputs with 4 lanes of memory input.
+-- Write comparison result for each lane to its own output memory tape
+-- (4 tapes in total). For tapes 0 and 2, comparison is <=, 1 and 3, >.
+simhl4LaneCmpOp =
+  (ArrayReshape [T_Int, T_Int, T_Int, T_Int] [T_Array 4 T_Int]
+  |&| MapOp 4 (MemRead T_Int)) |>>=|
+  (MapOp 4 (Leq) |&| Constant_Bit [False, True, False, True]) |>>=|
+  (MapOp 4 (XOr T_Bit |>>=| MemWrite T_Bit))
+simhl4LaneCmpImpl :: [[ValueType]] -> [[ValueType]]
+                  -> ( [[ValueType]], [[ValueType]] )
+simhl4LaneCmpImpl [in0, in1, in2, in3] [mem0, mem1, mem2, mem3] =
+  if any null [in0, in1, in2, in3, mem0, mem1, mem2, mem3]
+  then ([], [[], [], [], []])
+  else
+    let
+      V_Int a0 = head in0
+      V_Int a1 = head in1
+      V_Int a2 = head in2
+      V_Int a3 = head in3
+      V_Int b0 = head mem0
+      V_Int b1 = head mem1
+      V_Int b2 = head mem2
+      V_Int b3 = head mem3
+      (_, [rest0, rest1, rest2, rest3]) = simhl4LaneCmpImpl
+          [tail in0, tail in1, tail in2, tail in3]
+          [tail mem0, tail mem1, tail mem2, tail mem3]
+    in
+      ([], [V_Bit(a0 <= b0):rest0, V_Bit(a1 > b1):rest1,
+            V_Bit(a2 <= b2):rest2, V_Bit(a3 > b3):rest3])
+simhl4LaneCmpImpl _ _ = error "Aetherling test internal error: case 11"
+simhlCase11 = SimhlTestCase
+  "Read from 4 ports and 4 memory tapes. Output 4 comparison results \
+  \to 4 output memory tapes (lanes 0 & 2: <=, 1 & 3, >). \
+  \(Tests MemRead, MemWrite, Constant_Bit, Leq)."
+  simhl4LaneCmpOp
+  simhl4LaneCmpImpl
+  280
+  [(280, T_Int), (280, T_Int), (260, T_Int), (288, T_Int)] -- mismatch intended.
+
 simhlSeed = 1337
 
 simulatorTests = testGroup ("High level simulator tests, seed " ++ show simhlSeed)
@@ -365,5 +436,7 @@ simulatorTests = testGroup ("High level simulator tests, seed " ++ show simhlSee
       simhlCase6,
       simhlCase7,
       simhlCase8,
-      simhlCase9
+      simhlCase9,
+      simhlCase10,
+      simhlCase11
     ]
