@@ -140,10 +140,9 @@ clocksPerSequence (ReduceOp par numComb op) |
 -- Putting inputs in every clock where can accept inputs.
 -- Just reset register every numComb/par if not fully parallel.
 -- What does it mean to reduce a linebuffer?
--- you can't since it only has one input port. But for any other module with
--- warmup, reduce will need to run for a multiple of total seq len, including
--- warmup, so inner module will handle its warmup and reduce doesn't need
--- to think about it
+-- can't. Can't reduce anything with a warmup as this will create
+-- an asymmetry between inputs and outputs leading to horrific tree
+-- structure
 clocksPerSequence (ReduceOp par numComb op) = cps op * (numComb `ceilDiv` par)
 
 clocksPerSequence (Underutil denom op) = denom * cps op
@@ -385,17 +384,15 @@ getSSScalingsForEachPortOfEachOp containerOp ops portGetter = ssScalings
     -- scaling factors for all ports of all ops
     ssScalings = foldl (++) [] $ map ssScaleFactorsForOp ops
 
--- update the sequence lengths of a list of ports, where all must have
--- same warmup and can be scaled to different sequence lengths
-scalePorts :: [Int] -> Int -> [PortType] -> [PortType]
-scalePorts ssScalings newWarmup ports = map updatePort $ zip ports ssScalings
+-- update the sequence lengths of a list of ports
+scalePorts :: [Int] -> [PortType] -> [PortType]
+scalePorts sLenScalings ports = map updatePort $ zip ports sLenScalings
   where
-    updatePort (T_Port name (SWLen origSteadyState _) tType pct, ssScaling) = 
-      T_Port name (SWLen (origSteadyState * ssScaling) newWarmup) tType pct
+    updatePort (T_Port name origSLen tType pct, sLenScaling) = 
+      T_Port name (origSLen * sLenScaling) tType pct
 
-oneInSimplePort t = [T_Port "I" baseWithNoWarmupSequenceLen t 1]
-twoInSimplePorts t = [T_Port "I0" baseWithNoWarmupSequenceLen t 1, 
-  T_Port "I1" baseWithNoWarmupSequenceLen t 1]
+oneInSimplePort t = [T_Port "I" 1 t 1]
+twoInSimplePorts t = [T_Port "I0" 1 t 1,  T_Port "I1" 1 t 1]
 
 -- inPorts and outPorts handle the sequence lengths because each port can 
 -- have its own
@@ -422,15 +419,12 @@ inPorts Geq = twoInSimplePorts T_Int
 inPorts (LUT _) = oneInSimplePort T_Int
 
 inPorts (MemRead _) = []
-inPorts (MemWrite t) = [T_Port "I" baseWithNoWarmupSequenceLen t 1]
--- 2 as it goes straight through LB
-inPorts lb@(LineBuffer p _ img t) = [T_Port "I" (SWLen numInputs warmup) parallelType 1]
+inPorts (MemWrite t) = [T_Port "I" 1 t 1]
+-- since CPS includes both emitting and non-emitting times, and taking in
+-- one input per clock, input sequence length equal to CPS
+inPorts lb@(LineBuffer p _ img t) = [T_Port "I" (cps lb) parallelType 1]
   where
     parallelType = foldr (\pDim innerType -> T_Array pDim innerType) t p
-    -- need the number of inputs equal to product of all dimensions divided by
-    -- parallelism in each dimension
-    numInputs = foldr (\(pDim, imgDim) numSoFar -> numSoFar * (imgDim `ceilDiv` pDim)) 1 (zip p img)
-    warmup = warmupSub $ cps lb
 inPorts (Constant_Int _) = []
 inPorts (Constant_Bit _) = []
 
@@ -441,17 +435,15 @@ inPorts (ArrayReshape inTypes _) = renamePorts "I" $ map makePort inTypes
 -- for in ports, no duplicates
 inPorts (DuplicateOutputs _ op) = inPorts op
 
-inPorts (MapOp par op) = renamePorts "I" $ duplicatePorts par (inPorts op)
+inPorts (MapOp par op) = renamePorts "I" $ liftPortsTypes par (inPorts op)
 -- take the first port of the op and duplicate it par times, don't duplicate both
 -- ports of reducer as reducing numComb things in total, not per port
-inPorts (ReduceOp par numComb op) = renamePorts "I" $ map scaleSSForReduce $ duplicatePorts par $
-  portToDuplicate $ inPorts op
+inPorts (ReduceOp par numComb op) = renamePorts "I" $ map scaleSeqLen $
+  liftPortsTypes par $ portToDuplicate $ inPorts op
   where 
-    scaleSSForReduce (T_Port name (SWLen origMultSS wSub) tType pct) = T_Port 
-      name (SWLen (origMultSS * (numComb `ceilDiv` par)) wSub) tType pct
-    -- renamed the port to duplicate as op ports named for two input ports
-    -- and this only has one input port
-    portToDuplicate ((T_Port _ sLen tType pct):_) = [T_Port "I" sLen tType pct]
+    scaleSeqLen (T_Port name origSLen tType pct) =
+      T_Port name (origSLen * (numComb `ceilDiv` par)) tType pct
+    portToDuplicate ((T_Port name sLen tType pct):_) = [T_Port name sLen tType pct]
     portToDuplicate [] = []
 
 inPorts (Underutil _ op) = inPorts op
