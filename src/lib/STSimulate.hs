@@ -4,6 +4,7 @@ import STTypes
 import STMetrics
 import STAST
 import STAnalysis
+import Data.Array
 import Data.Bool
 import Data.Bits
 import Data.List
@@ -60,30 +61,6 @@ simulateHighLevel op portInputs memoryInputs =
       error("Aetherling internal error: Something's wrong with the inputs,\n"
          ++ "but no error was reported by type-checker.")
 
--- Inspect the inPorts of op and see if they match the sequences of ValueType
--- passed by the user. (Integer argument used to keep track of which
--- list index the error was at).
-simhlCheckInputs :: Int -> [PortType] -> [[ValueType]] -> Bool
-simhlCheckInputs portIndex [] [] = True
-simhlCheckInputs portIndex [] excessValues = error(
-    "Have " ++ show portIndex ++ " ports but "
-    ++ show (portIndex + (length excessValues))
-    ++ " input sequences."
-  )
-simhlCheckInputs portIndex excessPorts [] = error(
-    "Have " ++ show (portIndex + (length excessPorts))
-    ++ " ports but only "
-    ++ show portIndex ++ " input sequences."
-  )
-simhlCheckInputs portIndex (portT:portTs) (valSeq:valSeqs) =
-    if all (tvTypesMatch (pTType portT)) valSeq
-    then simhlCheckInputs (portIndex+1) portTs valSeqs
-    else error("At port number " ++ show portIndex ++
-               " (counting from 0), input sequence " ++
-               show valSeq ++ " does not match port type "
-               ++ show (pTType portT)
-      )
-  
 -- Note that this "state" is not the state of the circuit (we don't
 -- simulate the circuit in time order, instead, for each Op we calculate
 -- all its outputs through time in one step given all inputs through time).
@@ -138,7 +115,7 @@ simhl (LUT table) inSeqs state = (simhlCombinational (simhlLUT table) inSeqs, st
 -- output sequences should be, so they look at the simhlConstSeqLen
 -- field, which is the maximum (at time of writing) of every input
 -- port and every MemRead's input sequence. (Might this not be enough
--- for some non-obvious reason???)
+-- for some non-obvious reason???) YES - SequenceArrayReshape interaction!
 --
 -- Note: Naively it may seem that an infinite list would be the ideal
 -- representation (actually not so naive, this is functional
@@ -160,6 +137,9 @@ simhl (ArrayReshape inTypes outTypes) inSeqs state =
 simhl (MemRead t) inSeqs state = simhlRead t inSeqs state
 
 simhl (MemWrite t) inSeqs state = simhlWrite inSeqs state
+
+simhl (LineBuffer pixelRate windowSize imageSize t) inSeqs state =
+    (simhlLineBuffer pixelRate windowSize imageSize t inSeqs, state)
 
 simhl (DuplicateOutputs n op) inSeqs inState =
     let (rawOutSeqs, outState) = simhl op inSeqs inState
@@ -376,6 +356,7 @@ simhlReshape _ _ =
 -- Take one instance of (possible nested) V_Arrays and a TokenType
 -- describing the intended type of the array, and recursively flatten
 -- it down to a list of ValueType.
+-- Note: The line buffer depends on this function too.
 simhlSerializeArray :: TokenType -> ValueType -> [ValueType]
 simhlSerializeArray (T_Array n t) V_Unit =
     concat $ replicate n (simhlSerializeArray t V_Unit)
@@ -509,6 +490,62 @@ simhlJoinMapOutputs par (thisLane:rightLanes) =
          ]
        |(portSeq, morePortSeqs) <- zip thisLane rightJoined
        ]
+
+-- Line buffer simulator implementation.
+--
+-- For now I'm only simulating 1D and 2D linebuffers.  There's some
+-- important restrictions on pixels-per-clock for the 2D case UPDATE
+-- THIS IF/WHEN THAT'S NO LONGER TRUE.  pixels-per-clock in the 2D
+-- case is passed as a list of [width, height].  For now, height must
+-- be 1, and width must divide both the image width and 1 minus the
+-- window width. Justification: never "cross" a no-output with-output
+-- boundary in a single cycle.
+--
+-- Implement by dumping all input data into a Haskell array, making a list
+-- of output windows from that array, and finally splitting that output list
+-- into the [[ValueType]] output expected.
+simhlLineBuffer :: [Int] -> [Int] -> [Int] -> TokenType -> [[ValueType]]
+                -> [[ValueType]]
+simhlLineBuffer [pixW, 1] [wW, wH] [iW, iH] t [inSeq] =
+    let
+      -- Part 1: Make the 2D array.
+      -- Note that our array will have indicies swapped compared to
+      -- typical width-height representation. This is because Haskell
+      -- defaults to lexicographical order, requiring height-width.
+      bounds = ((0,0), (iH-1, iW-1))
+      -- NOTE: This won't work for pixH /= 1, because serialize has
+      -- the last dimension varying fastest, but images have first
+      -- dimension (width/col number) varying fastest!
+      getValues = simhlSerializeArray (T_Array pixW (T_Array 1 t))
+      values = concat [getValues a | a <- inSeq] ++ repeat V_Unit
+      the_array = listArray bounds values
+
+      -- Split it up into windows
+      -- Make window with pixel (x,y) at lower-right.
+      -- Recall that the array has coords swapped.
+      mkWindow x y = V_Array [
+          V_Array [ the_array ! (y',x') | x' <- [x-wW+1..x] ]
+          | y' <- [y-wH+1..y]
+        ]
+      windows = [mkWindow x y | y <- [wH-1..iH-1], x <- [wW-1..iW-1]]
+      -- Munch the windows and pack them into a sequence of output
+      -- arrays-of-arrays-of-arrays-of-arrays
+      -- My understanding of the 4D output is that the inner 2 dims
+      -- correspond to the window dimensions, and the outer 2 dims
+      -- correspond to the pixel inputs. So (i,j,k,l) would be the
+      -- (k,l) pixel of the window with the pixel inputted at position
+      -- (i,j) at its lower-right.
+      pack :: [ValueType] -> [ValueType]
+      pack w | length w <= pixW = [V_Array [ V_Array [a] | a <- w]]
+      pack w =
+        let
+          (these_windows, later_windows) = splitAt pixW w
+          this_array = V_Array [ V_Array [a] | a <- these_windows]
+          later_arrays = pack later_windows
+        in
+          this_array:later_arrays
+    in
+      [pack windows]
 
 -- Fold strategy for Map: We need to get one set of inputs in and one
 -- set of outputs to each Op in the map. However, the state must go
@@ -663,7 +700,7 @@ vBitArray :: [Bool] -> ValueType
 vBitArray bools = V_Array $ vBits bools
 
 vIntArray :: [Int] -> ValueType
-vIntArray ints = V_Array $ vInts ints
+vIntArray ints = V_Array $ vInts
 
 -- Convert a list of values into a list of length-n lists
 vpartition :: Int -> [a] -> [[a]]
@@ -675,4 +712,27 @@ vpartition n s = (take n s) : vpartition n (drop n s)
 vIntArrayArray :: Int -> [Int] -> [ValueType]
 vIntArrayArray n ints = map V_Array (vpartition n (vInts ints))
 
-
+-- Checking functions (put at the end since they're of least interest)
+-- Inspect the inPorts of op and see if they match the sequences of ValueType
+-- passed by the user. (Integer argument used to keep track of which
+-- list index the error was at).
+simhlCheckInputs :: Int -> [PortType] -> [[ValueType]] -> Bool
+simhlCheckInputs portIndex [] [] = True
+simhlCheckInputs portIndex [] excessValues = error(
+    "Have " ++ show portIndex ++ " ports but "
+    ++ show (portIndex + (length excessValues))
+    ++ " input sequences."
+  )
+simhlCheckInputs portIndex excessPorts [] = error(
+    "Have " ++ show (portIndex + (length excessPorts))
+    ++ " ports but only "
+    ++ show portIndex ++ " input sequences."
+  )
+simhlCheckInputs portIndex (portT:portTs) (valSeq:valSeqs) =
+    if all (tvTypesMatch (pTType portT)) valSeq
+    then simhlCheckInputs (portIndex+1) portTs valSeqs
+    else error("At port number " ++ show portIndex ++
+               " (counting from 0), input sequence " ++
+               show valSeq ++ " does not match port type "
+               ++ show (pTType portT)
+      )
