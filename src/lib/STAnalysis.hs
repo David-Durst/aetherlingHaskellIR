@@ -421,7 +421,7 @@ inPorts (Constant_Int _) = []
 inPorts (Constant_Bit _) = []
 
 inPorts (SequenceArrayRepack (inSeq, inWidth) _ inType) =
-  [T_Port "I" (SWLen inSeq 0) (T_Array inWidth inType) 1]
+  [T_Port "I" inSeq (T_Array inWidth inType) 1]
 inPorts (ArrayReshape inTypes _) = renamePorts "I" $ map makePort inTypes
   where makePort t = head $ oneInSimplePort t
 -- for in ports, no duplicates
@@ -450,7 +450,20 @@ inPorts cSeq@(ComposeSeq (hd:_)) = renamePorts "I" $
 inPorts (ComposeFailure _ _) = []
 
 
-oneOutSimplePort t = [T_Port "O" baseWithNoWarmupSequenceLen t 1]
+-- get the number of cycles of warmup for a linebuffer
+-- this is only guaranteed to work for 1d and 2d linebuffers.
+lbWarmup :: [Int] -> [Int] -> [Int] -> Int
+lbWarmup [pHd:[]] [wHd:[]] [imgHd:[]] = (wHd `ceilDiv` pHd) - 1
+-- for the 2d case, warmup is filling the entire 1d linebuffer for all but last
+-- dimension of window, then doing warmup of 1d linebuffer
+lbWarmup [pHd:pTl] [wHd:wTl] [imgHd:imgTl] =
+  ((wHd `ceilDiv` pHd) * lowerDimLBInSeqLen) + lowerDimLBWarmup
+  where
+    -- cps is the same as input seq length
+    lowerDimLBInSeqLen = pSeqLen $ head $ inPorts $ LineBuffer pTl wTl imgTl T_Int
+    lowerDimLBWarmup = lbWarmup pTl wTl imgTl
+
+oneOutSimplePort t = [T_Port "O" 1 t 1]
 outPorts :: Op -> [PortType]
 outPorts (Add t) = oneOutSimplePort t
 outPorts (Sub t) = oneOutSimplePort t
@@ -477,26 +490,26 @@ outPorts (MemRead t) = oneOutSimplePort t
 outPorts (MemWrite _) = []
 -- go back to (sLen - ((w `ceilDiv` p) - 1)) for out stream length when 
 -- including warmup and shutdown
-outPorts lb@(LineBuffer p w img t) = [T_Port "O" (SWLen numOutputs warmup) parallelStencilType 1]
+outPorts lb@(LineBuffer p w img t) = [T_Port "O" seqLen parallelStencilType 1]
   where
     -- make number of stencials equal to parallelism
     -- first is just one stencil
-    singleStencilType = foldr (\wDim innerType -> T_Array wDim innerType) t w
-    parallelStencilType = foldr (\pDim innerType -> T_Array pDim innerType) singleStencilType p
-    -- need the number of outputs equal to product of all dimensions divided by
-    -- parallelism in each dimension
-    -- numOutputs in steady state depends on inputs, so using pDim instead of wDim here
-    numOutputs = foldr (\(pDim, imgDim) numSoFar -> numSoFar * (imgDim `ceilDiv` pDim)) 1 (zip p img)
-    warmup = warmupSub $ cps lb
-outPorts (Constant_Int ints) = [T_Port "O" baseWithNoWarmupSequenceLen (T_Array (length ints) T_Int) 1]
-outPorts (Constant_Bit bits) = [T_Port "O" baseWithNoWarmupSequenceLen (T_Array (length bits) T_Bit) 1]
+    singleStencilType =
+      foldr (\wDim innerType -> T_Array wDim innerType) t w
+    parallelStencilType =
+      foldr (\pDim innerType -> T_Array pDim innerType) singleStencilType p
+    -- seqLen is same as inputs, except with nothing on warmup inputs
+    seqLen = (pSeqLen $ head $ inPorts lb) - lbWarmup p w img
+outPorts (Constant_Int ints) = [T_Port "O" 1 (T_Array (length ints) T_Int) 1]
+outPorts (Constant_Bit bits) = [T_Port "O" 1 (T_Array (length bits) T_Bit) 1]
 
 outPorts (SequenceArrayRepack _ (outSeq, outWidth) outType) =
-  [T_Port "O" (SWLen outSeq 0) (T_Array outWidth outType) 1]
+  [T_Port "O" outSeq (T_Array outWidth outType) 1]
 outPorts (ArrayReshape _ outTypes) = renamePorts "O" $ map makePort outTypes
   where makePort t = head $ oneOutSimplePort t
 
-outPorts (DuplicateOutputs n op) = renamePorts "O" $ foldl (++) [] $ replicate n $ outPorts op
+outPorts (DuplicateOutputs n op) = renamePorts "O" $ foldl (++) [] $
+  replicate n $ outPorts op
 
 outPorts (MapOp par op) = renamePorts "O" $ duplicatePorts par (outPorts op)
 outPorts (ReduceOp _ _ op) = renamePorts "O" $ outPorts op
@@ -504,6 +517,7 @@ outPorts (ReduceOp _ _ op) = renamePorts "O" $ outPorts op
 outPorts (Underutil _ op) = outPorts op
 outPorts (RegDelay _ op) = outPorts op
 
+-- for these guys, just take the minimum output, and rest
 outPorts cPar@(ComposePar ops) = renamePorts "O" $ scalePortsSeqLens
   (getSSScalingsForEachPortOfEachOp cPar ops outPorts) 
   (combineAllWarmups ops maximum outPorts) (unionPorts outPorts ops)
