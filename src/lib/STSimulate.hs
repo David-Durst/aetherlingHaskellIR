@@ -8,6 +8,7 @@ import Data.Array
 import Data.Bool
 import Data.Bits
 import Data.List
+import Debug.Trace
 
 -- High level simulator for Aetherling pipelines (Op instances).
 -- Useful for verifying that the logic of the circuit is correct, but
@@ -506,41 +507,37 @@ simhlJoinMapOutputs par (thisLane:rightLanes) =
 -- into the [[ValueType]] output expected.
 simhlLineBuffer :: [Int] -> [Int] -> [Int] -> TokenType -> [[ValueType]]
                 -> [[ValueType]]
-simhlLineBuffer [pixW, 1] [wW, wH] [iW, iH] t [inSeq] =
+simhlLineBuffer [1, pixW] [wH, wW] [iH, iW] t [inSeq] =
     let
       -- Part 1: Make the 2D array.
-      -- Note that our array will have indicies swapped compared to
-      -- typical width-height representation. This is because Haskell
-      -- defaults to lexicographical order, requiring height-width.
+      -- Note that our array has indicies swapped compared to
+      -- typical width-height representation. Justification:
+      -- lexicographical order everywhere.
       bounds = ((0,0), (iH-1, iW-1))
-      -- NOTE: This won't work for pixH /= 1, because serialize has
-      -- the last dimension varying fastest, but images have first
-      -- dimension (width/col number) varying fastest!
-      getValues = simhlSerializeArray (T_Array pixW (T_Array 1 t))
+      getValues = simhlSerializeArray (T_Array 1 (T_Array pixW t))
       values = concat [getValues a | a <- inSeq] ++ repeat V_Unit
       the_array = listArray bounds values
-
+      
       -- Split it up into windows
-      -- Make window with pixel (x,y) at lower-right.
-      -- Recall that the array has coords swapped.
-      mkWindow x y = V_Array [
+      -- Make window with pixel (y,x) at lower-right.
+      mkWindow y x = V_Array [
           V_Array [ the_array ! (y',x') | x' <- [x-wW+1..x] ]
           | y' <- [y-wH+1..y]
         ]
-      windows = [mkWindow x y | y <- [wH-1..iH-1], x <- [wW-1..iW-1]]
+      windows = [mkWindow y x | y <- [wH-1..iH-1], x <- [wW-1..iW-1]]
       -- Munch the windows and pack them into a sequence of output
-      -- arrays-of-arrays-of-arrays-of-arrays
-      -- My understanding of the 4D output is that the inner 2 dims
-      -- correspond to the window dimensions, and the outer 2 dims
-      -- correspond to the pixel inputs. So (i,j,k,l) would be the
-      -- (k,l) pixel of the window with the pixel inputted at position
-      -- (i,j) at its lower-right.
+      -- arrays-of-arrays-of-arrays-of-arrays My understanding of the
+      -- 4D output is that the inner 2 dims correspond to the window
+      -- dimensions, and the outer 2 dims correspond to the pixel
+      -- inputs. So (i,j,k,l) would be the (row k, col l) pixel of the
+      -- window with the pixel inputted at position (row i, col j) at
+      -- its lower-right.
       pack :: [ValueType] -> [ValueType]
-      pack w | length w <= pixW = [V_Array [ V_Array [a] | a <- w]]
+      pack w | length w <= pixW = [V_Array [ V_Array [a | a <- w]]]
       pack w =
         let
           (these_windows, later_windows) = splitAt pixW w
-          this_array = V_Array [ V_Array [a] | a <- these_windows]
+          this_array = V_Array [ V_Array [a | a <- these_windows]]
           later_arrays = pack later_windows
         in
           this_array:later_arrays
