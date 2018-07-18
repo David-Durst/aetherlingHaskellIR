@@ -60,26 +60,10 @@ valueTypeTail V_Unit = V_Unit
 valueTypeTail (V_Array arr) = V_Array (tail arr)
 valueTypeTail _ = error "valueTypeTail of non-array non-unit ValueType"
 
--- the constants for describing a number of clocks or elements that is 
--- steadyStateMultiplier * n - warmupSub
-data SteadyStateAndWarmupLen = SWLen {steadyStateMultiplier :: Int, warmupSub :: Int}
-  deriving (Eq)
-
-instance Show SteadyStateAndWarmupLen where
-  show (SWLen ssMult wSub) | wSub > 0 = (show ssMult) ++ "n - " ++ (show wSub)
-  show (SWLen ssMult wSub) | wSub == 0 = (show ssMult) ++ "n"
-  show (SWLen ssMult wSub) = (show ssMult) ++ "n + " ++ (show (-1 * wSub))
-
-addToWarmup wIncr (SWLen ssMult wSub) = SWLen ssMult (wSub + wIncr)
-multToSteadyState ssScaler (SWLen ssCur wSub) = SWLen (ssCur * ssScaler) wSub
-makeSWLenConcrete nLen (SWLen ssMult wSub) = ssMult * nLen - wSub
-
-baseWithNoWarmupSequenceLen = SWLen 1 0
-
 -- implicitly not banning multiple ports with same name here
 -- names are only helpful reminders, can have duplicates with non-renamed ports
 -- pCTime tracks the combinonal time from the module through this port
-data PortType = T_Port {pName :: [Char], pSeqLen :: SteadyStateAndWarmupLen, 
+data PortType = T_Port {pName :: [Char], pSeqLen :: Int,
   pTType :: TokenType, pCTime :: Int} deriving (Show)
 
 instance Eq PortType where

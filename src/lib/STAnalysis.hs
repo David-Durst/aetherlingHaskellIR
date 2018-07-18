@@ -85,83 +85,78 @@ space (ComposePar ops) = foldl (|+|) addId $ map space ops
 space (ComposeSeq ops) = foldl (|+|) addId $ map space ops
 space (ComposeFailure _ _) = OWA (-1) (-1)
 
--- scaleCPS depending on if Op is combinational or not
-scaleCPS :: Op -> Int -> SteadyStateAndWarmupLen
-scaleCPS op n | isComb op = baseWithNoWarmupSequenceLen
-scaleCPS op n = SWLen (ssMult * n) (wSub * n)
-  where (SWLen ssMult wSub) = cps op
-
 cps op = clocksPerSequence op
-clocksPerSequence :: Op -> SteadyStateAndWarmupLen
-registerCPS = baseWithNoWarmupSequenceLen
+clocksPerSequence :: Op -> Int
+registerCPS = 1 
+combinationalCPS = 1
 
-clocksPerSequence (Add t) = baseWithNoWarmupSequenceLen
-clocksPerSequence (Sub t) = baseWithNoWarmupSequenceLen
-clocksPerSequence (Mul t) = baseWithNoWarmupSequenceLen
-clocksPerSequence (Div t) = baseWithNoWarmupSequenceLen
-clocksPerSequence (Max t) = baseWithNoWarmupSequenceLen
-clocksPerSequence (Min t) = baseWithNoWarmupSequenceLen
-clocksPerSequence (Ashr _ t) = baseWithNoWarmupSequenceLen
-clocksPerSequence (Shl _ t) = baseWithNoWarmupSequenceLen
-clocksPerSequence (Abs t) = baseWithNoWarmupSequenceLen
-clocksPerSequence (Not t) = baseWithNoWarmupSequenceLen
-clocksPerSequence (And t) = baseWithNoWarmupSequenceLen
-clocksPerSequence (Or t) = baseWithNoWarmupSequenceLen
-clocksPerSequence (XOr t) = baseWithNoWarmupSequenceLen
-clocksPerSequence Eq = baseWithNoWarmupSequenceLen
-clocksPerSequence Neq = baseWithNoWarmupSequenceLen
-clocksPerSequence Lt = baseWithNoWarmupSequenceLen
-clocksPerSequence Leq = baseWithNoWarmupSequenceLen
-clocksPerSequence Gt = baseWithNoWarmupSequenceLen
-clocksPerSequence Geq = baseWithNoWarmupSequenceLen
-clocksPerSequence (LUT _) = baseWithNoWarmupSequenceLen
+clocksPerSequence (Add t) = combinationalCPS
+clocksPerSequence (Sub t) = combinationalCPS
+clocksPerSequence (Mul t) = combinationalCPS
+clocksPerSequence (Div t) = combinationalCPS
+clocksPerSequence (Max t) = combinationalCPS
+clocksPerSequence (Min t) = combinationalCPS
+clocksPerSequence (Ashr _ t) = combinationalCPS
+clocksPerSequence (Shl _ t) = combinationalCPS
+clocksPerSequence (Abs t) = combinationalCPS
+clocksPerSequence (Not t) = combinationalCPS
+clocksPerSequence (And t) = combinationalCPS
+clocksPerSequence (Or t) = combinationalCPS
+clocksPerSequence (XOr t) = combinationalCPS
+clocksPerSequence Eq = combinationalCPS
+clocksPerSequence Neq = combinationalCPS
+clocksPerSequence Lt = combinationalCPS
+clocksPerSequence Leq = combinationalCPS
+clocksPerSequence Gt = combinationalCPS
+clocksPerSequence Geq = combinationalCPS
+clocksPerSequence (LUT _) = combinationalCPS
 
 -- to what degree can we pipeline MemRead and MemWrite
-clocksPerSequence (MemRead _) = baseWithNoWarmupSequenceLen
-clocksPerSequence (MemWrite _) = baseWithNoWarmupSequenceLen
+clocksPerSequence (MemRead _) = combinationalCPS 
+clocksPerSequence (MemWrite _) = combinationalCPS 
 
-clocksPerSequence (LineBuffer (pHd:[]) (wHd:[]) (imgHd:[]) t) = 
-  SWLen (imgHd `ceilDiv` pHd) (((wHd + pHd - 1) `ceilDiv` pHd) - 1) 
-clocksPerSequence (LineBuffer (pHd:pTl) (wHd:wTl) (imgHd:imgTl) t) = 
-  SWLen (childSSMult * (imgHd `ceilDiv` pHd)) (childWAdder * wHd)
-  where 
-    (SWLen childSSMult childWAdder) = clocksPerSequence $ LineBuffer pTl wTl imgTl t
-clocksPerSequence (LineBuffer _ _ _ _) = SWLen 0 0
-clocksPerSequence (Constant_Int _) = baseWithNoWarmupSequenceLen
-clocksPerSequence (Constant_Bit _) = baseWithNoWarmupSequenceLen
+clocksPerSequence (LineBuffer (pHd:[]) _ (imgHd:[]) t) = imgHd `ceilDiv` pHd
+clocksPerSequence (LineBuffer (pHd:pTl) (_:wTl) (imgHd:imgTl) t) =
+  (imgHd `ceilDiv` pHd) * cps LineBuffer pTl wTl imgTl t
+clocksPerSequence (LineBuffer _ _ _ _) = -1
+clocksPerSequence (Constant_Int _) = combinationalCPS
+clocksPerSequence (Constant_Bit _) = combinationalCPS
 
 -- Assuming either the input or output is fully utilized (dense), the
 -- clocks taken per sequence is just the longer sequence of the two.
 clocksPerSequence (SequenceArrayRepack (inSeq, _) (outSeq, _) _) =
-  SWLen (max inSeq outSeq) 0
-clocksPerSequence (ArrayReshape _ _) = baseWithNoWarmupSequenceLen
-clocksPerSequence (DuplicateOutputs _ _) = baseWithNoWarmupSequenceLen
+  max inSeq outSeq
+clocksPerSequence (ArrayReshape _ _) = combinationalCPS
+clocksPerSequence (DuplicateOutputs _ _) = combinationalCPS
 
 clocksPerSequence (MapOp _ op) = cps op
--- always can pipeline. Just reset register every numComb/par if not fully parallel
-clocksPerSequence (ReduceOp par numComb op) = SWLen (ssMult * (numComb `ceilDiv` par)) 
-  -- need to add one here if not fully parallel for extra op that combines results
-  -- over multiple cycles
-  (wSub * (ceilLog par + (bool 1 0 (par == numComb))))
-  where (SWLen ssMult wSub) = cps op
+-- if reducing combinational operator, clocks is number of iterations
+-- reduce needs to get a complete sequence. If less than parallel,
+-- need to write to register all but last, if fully parallel or more,
+-- reduce is combinational
+clocksPerSequence (ReduceOp par numComb op) |
+  isComb op = combinationalCPS * (numComb `ceilDiv` par)
+-- Why not including tree height? Because can always can pipeline.
+-- Putting inputs in every clock where can accept inputs.
+-- Just reset register every numComb/par if not fully parallel.
+-- What does it mean to reduce a linebuffer?
+-- you can't since it only has one input port. But for any other module with
+-- warmup, reduce will need to run for a multiple of total seq len, including
+-- warmup, so inner module will handle its warmup and reduce doesn't need
+-- to think about it
+clocksPerSequence (ReduceOp par numComb op) = cps op * (numComb `ceilDiv` par)
 
-clocksPerSequence (Underutil denom op) = SWLen (denom * ssMult) (denom * wSub)
-  where (SWLen ssMult wSub) = cps op
+clocksPerSequence (Underutil denom op) = denom * cps op
 -- since pipelined, this doesn't affect clocks per stream
-clocksPerSequence (RegDelay numDelay op) = SWLen ssMult (numDelay + wSub)
-  where (SWLen ssMult wSub) = clocksPerSequence op
+clocksPerSequence (RegDelay numDelay op) = cps op
 
-clocksPerSequence (ComposePar ops) = SWLen lcmSteadyState maxWarmup
-  where 
-    maxWarmup = maximum $ map (warmupSub . cps) ops
-    -- 1 works as all integers for steady state >= 1
-    lcmSteadyState = foldl lcm 1 $ map (steadyStateMultiplier . cps) ops
+-- will handle fact of doing max warmup in port sequence lengths, not here.
+-- here we just make all the times match up, worry about what to do during
+-- those times in port seq len
+clocksPerSequence (ComposePar ops) = foldl lcm 1 $ map cps ops
 -- this depends on only wiring up things that have matching throughputs
-clocksPerSequence (ComposeSeq ops) = SWLen lcmSteadyState sumWarmup
-  where
-    sumWarmup = sum $ map (warmupSub . cps) ops
-    lcmSteadyState = foldl lcm 1 $ map (steadyStateMultiplier . cps) ops
-clocksPerSequence (ComposeFailure _ _) = SWLen (-1) (-1)
+clocksPerSequence (ComposeSeq ops) = foldl lcm 1 $ map cps ops
+clocksPerSequence (ComposeFailure _ _) = -1
 
 
 registerInitialLatency = 1
