@@ -450,18 +450,64 @@ inPorts cSeq@(ComposeSeq (hd:_)) = renamePorts "I" $
 inPorts (ComposeFailure _ _) = []
 
 
--- get the number of cycles of warmup for a linebuffer
--- this is only guaranteed to work for 1d and 2d linebuffers.
-lbWarmup :: [Int] -> [Int] -> [Int] -> Int
-lbWarmup [pHd:[]] [wHd:[]] [imgHd:[]] = (wHd `ceilDiv` pHd) - 1
+-- get the number of clocks where a module doesn't have valid output
+-- but has valid input
+numClocksInvalid :: Op -> Int
+numClocksInvalid (Add t) = 0
+numClocksInvalid (Sub t) = 0
+numClocksInvalid (Mul t) = 0
+numClocksInvalid (Div t) = 0
+numClocksInvalid (Max t) = 0
+numClocksInvalid (Min t) = 0
+numClocksInvalid (Ashr _ t) = 0
+numClocksInvalid (Shl _ t) = 0
+numClocksInvalid (Abs t) = 0
+numClocksInvalid (Not t) = 0
+numClocksInvalid (And t) = 0
+numClocksInvalid (Or t) = 0
+numClocksInvalid (XOr t) = 0
+numClocksInvalid Eq = 0
+numClocksInvalid Neq  = 0
+numClocksInvalid Lt = 0
+numClocksInvalid Leq = 0
+numClocksInvalid Gt = 0
+numClocksInvalid Geq = 0
+numClocksInvalid (LUT _) = 0
+
+numClocksInvalid (MemRead _) = 0
+numClocksInvalid (MemWrite _) = 0
+-- only guaranteed for 1d and 2d cases
+numClocksInvalid (LineBuffer [pHd:[]] [wHd:[]] [imgHd:[]] _) =
+  (wHd `ceilDiv` pHd) - 1
 -- for the 2d case, warmup is filling the entire 1d linebuffer for all but last
 -- dimension of window, then doing warmup of 1d linebuffer
-lbWarmup [pHd:pTl] [wHd:wTl] [imgHd:imgTl] =
+numClocksInvalid (LineBuffer [pHd:pTl] [wHd:wTl] [imgHd:imgTl] _) =
   ((wHd `ceilDiv` pHd) * lowerDimLBInSeqLen) + lowerDimLBWarmup
   where
     -- cps is the same as input seq length
     lowerDimLBInSeqLen = pSeqLen $ head $ inPorts $ LineBuffer pTl wTl imgTl T_Int
-    lowerDimLBWarmup = lbWarmup pTl wTl imgTl
+    lowerDimLBWarmup = numClocksInvalid (LineBuffer pTl wTl imgTl T_Int)
+numClocksInvalid (Constant_Int ints) = 0
+numClocksInvalid (Constant_Bit bits) = 0
+
+numClocksInvalid (SequenceArrayRepack (inSeq, _) (outSeq, _) _) =
+  max 0 (outSeq - inSeq)
+numClocksInvalid (ArrayReshape _ _) = 0
+
+numClocksInvalid (DuplicateOutputs _ op) = numClocksInvalid op
+
+numClocksInvalid (MapOp _ op) = numClocksInvalid op
+-- this is irrelevant as can't reduce things with warmup
+numClocksInvalid (ReduceOp _ _ op) = 0
+
+numClocksInvalid (Underutil _ op) = numClocksInvalid op
+numClocksInvalid (RegDelay _ op) = numClocksInvalid op
+
+-- output from composePar only on clocks when all ops in it are emitting,
+-- assuming can retime as much as possible
+numClocksInvalid (ComposePar ops) = maximum $ map numClocksInvalid ops
+numClocksInvalid (ComposeSeq ops) = sum $ map numClocksInvalid ops
+numClocksInvalid (ComposeFailure _ _) = -1
 
 oneOutSimplePort t = [T_Port "O" 1 t 1]
 outPorts :: Op -> [PortType]
@@ -517,10 +563,17 @@ outPorts (ReduceOp _ _ op) = renamePorts "O" $ outPorts op
 outPorts (Underutil _ op) = outPorts op
 outPorts (RegDelay _ op) = outPorts op
 
--- for these guys, just take the minimum output, and rest
+-- output from composePar only on clocks when all ops in it are emitting.
 outPorts cPar@(ComposePar ops) = renamePorts "O" $ scalePortsSeqLens
   (getSSScalingsForEachPortOfEachOp cPar ops outPorts) 
   (combineAllWarmups ops maximum outPorts) (unionPorts outPorts ops)
+outPorts cPar@(ComposePar ops) = renamePorts "I" $ scalePortsSeqLens
+  (getSeqLenScalingsForAllPorts cPar ops inPorts) (unionPorts inPorts ops)
+-- this depends on only wiring up things that have matching throughputs
+outPorts (ComposeSeq []) = []
+outPorts cSeq@(ComposeSeq ops) = renamePorts "I" $ scalePortsSeqLens
+  (getSeqLenScalingsForAllPorts cSeq lastOp outPorts) (outPorts lastOp)
+  where lastOp = last ops
 outPorts (ComposeSeq []) = []
 outPorts cSeq@(ComposeSeq ops) = renamePorts "O" $
   scalePortsSeqLens (replicate (length $ outPorts lastOp) ssScaling) 
