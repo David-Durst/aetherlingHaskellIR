@@ -72,8 +72,9 @@ instance Eq PortType where
     len0 == len1 && tType0 == tType1 && pct0 == pct1
   (/=) pt0 pt1 = not $ pt0 == pt1
 
-duplicatePorts :: Int -> [PortType] -> [PortType]
-duplicatePorts n ports = map wrapInArray ports
+-- lift the types of ports to handle arrays
+liftPortsTypes :: Int -> [PortType] -> [PortType]
+liftPortsTypes n ports = map wrapInArray ports
   where wrapInArray (T_Port name sLen t pct) = T_Port name sLen (T_Array n t) pct
 
 renamePorts :: String -> [PortType] -> [PortType]
