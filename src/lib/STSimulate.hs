@@ -59,11 +59,32 @@ simulateHighLevel op portInputs memoryInputs =
     if simhlCheckInputs 0 (inPorts op) portInputs
     then
       let
-        maxSeqLen = maximum $ map length (portInputs++memoryInputs++[[V_Unit]])
-        inState = SimhlState maxSeqLen memoryInputs 0 []
-        portOutAndState = simhl op portInputs inState
+        inPreState = SimhlPreState Nothing memoryInputs 0 ""
+        inStrLens = map (Just . length) portInputs
+        (outStrLensExpected, outPreState) = simhlPre [op] inStrLens inPreState
+        longest' Nothing = 1
+        longest' (Just i) = i
+        longest = longest' $ simhlLongestStr outPreState
+
+        inState = SimhlState longest memoryInputs 0 []
+        (portOutputs, outState) = simhl op portInputs inState
+
+        checkExpectedOutStrLengths expected outs =
+          let
+            match (Nothing, _) = True
+            match (Just a, b) = a == b
+            actual = map length outs
+          in
+            length expected == length actual && all match (zip expected actual)
       in
-        (fst portOutAndState, simhlMemoryOut $ snd portOutAndState)
+        if checkExpectedOutStrLengths outStrLensExpected portOutputs then
+          (portOutputs, simhlMemoryOut outState)
+        else
+          error("Aetherling internal error: expected output stream lengths "
+             ++ show outStrLensExpected
+             ++ " but actual lengths are "
+             ++ show (map length portOutputs)
+          )
     else
       error("Aetherling internal error: Something's wrong with the inputs,\n"
          ++ "but no error was reported by type-checker.")
@@ -881,8 +902,8 @@ simhlPre opStack@(LineBuffer [1, pixW] [wH, wW] [iH, iW] t:_) [inStrLen] inState
       error("2D LineBuffer requires all positive parameters and the width of \
             \pixPerClock to divide both the image width and one minus the window \
             \width, at\n"
-            ++ (simhlFormatOpStack $
-                LineBuffer [1, pixW] [wH, wW] [iH, iW] t:opStack))
+            ++ (simhlFormatOpStack opStack)
+      )
     else
       let
         seqLen = div ((iH-wH+1)*(iW-wW+1)) pixW
@@ -897,14 +918,17 @@ simhlPre opStack@(LineBuffer [1, pixW] [wH, wW] [iH, iW] t:_) [inStrLen] inState
             midState
       in
         ([Just seqLen], outState)
-
+simhlPre opStack@(LineBuffer pix w i t:_) _ _ =
+    error("Only support 2D linebuffers, with pixel window of form [1,w], at\n"
+       ++ (simhlFormatOpStack opStack)
+    )
 -- TODO more linebuffers.
 
 simhlPre (Constant_Int _:_) _ state = ([Nothing], state)
 simhlPre (Constant_Bit _:_) _ state = ([Nothing], state)
 
 simhlPre opStack@(SequenceArrayRepack (inSeqLen, inWidth) (outSeqLen, outWidth) t:_)
-         [inStrLen]
+         inStrLens
          inState =
     if inSeqLen*inWidth /= outSeqLen*outWidth || inSeqLen*inWidth == 0 then
       error("Need product of sequence length and array width to be nonzero \
@@ -913,6 +937,7 @@ simhlPre opStack@(SequenceArrayRepack (inSeqLen, inWidth) (outSeqLen, outWidth) 
       )
     else
       let
+        inStrLen = head inStrLens
         outStrLen' Nothing = Nothing
         outStrLen' (Just n) = Just ((div n inSeqLen) * outSeqLen)
         outStrLen = outStrLen' inStrLen
@@ -956,27 +981,31 @@ simhlPre opStack@(MapOp par op:_) inStrLens inState | par < 0 =
     error("Negative parallelism at " ++ simhlFormatOpStack opStack)
 simhlPre (MapOp par op:_) inStrLens inState | par == 0 =
     ([], inState)
-simhlPre opStack@(MapOp par op:_) inStrLens inState | par > 0 =
+simhlPre opStack@(MapOp par op:_) inStrLens inState =
     let
       -- Fold lambda. Go through par copies of the op, threading the state
-      -- through each one and concatenating their output stream lens.
+      -- through each one and taking the minimum of their output stream lengths.
+      -- Note: they could be different due to MemRead.
       f :: ([Maybe Int], SimhlPreState) -> Op -> ([Maybe Int], SimhlPreState)
       f (fOutStrLens, fInState) op =
         let
           (thisOutStrLen, fOutState) = simhlPre (op:opStack)
                                        inStrLens fInState
+          newOutStrLens = [simhlMinStrLen [a,b]
+                          | (a,b) <- zip thisOutStrLen fOutStrLens]
         in
-          (fOutStrLens ++ thisOutStrLen, fOutState)
+          (newOutStrLens, fOutState)
     in
-      foldl f ([], inState) (replicate par op)
+      foldl f (replicate (length $ outPorts op) Nothing, inState)
+              (replicate par op)
 
-simhlPre opStack@(ReduceOp par numComb op:_) [inStrLen0, inStrLen1] inState
+simhlPre opStack@(ReduceOp par numComb op:_) inStrLens inState
     | numComb `mod` par /= 0 =
       error("Need numComb to be divisible by paralellism at "
          ++ simhlFormatOpStack opStack
       )
-    | fst (simhlPre (op:opStack) [inStrLen0, inStrLen1] inState)
-        /= [min inStrLen0 inStrLen1] =
+    | fst (simhlPre (op:opStack) inStrLens inState)
+        /= [simhlMinStrLen inStrLens] =
       error("Need reducedOp to have 1 output port with output stream length \
             \equal to minimum of 2 input stream lengths at "
          ++ simhlFormatOpStack opStack
@@ -987,20 +1016,18 @@ simhlPre opStack@(ReduceOp par numComb op:_) [inStrLen0, inStrLen1] inState
         -- reducedOp because there's no MemReads/MemWrites, and we
         -- checked above that it has predictable behavior on its
         -- output port lengths.
+        inStrLen = head inStrLens
         ratio = numComb `div` par
         outStrLen' Nothing = Nothing
         outStrLen' (Just x) = Just $ x `div` ratio
-        outStrLen = outStrLen' $ simhlMinStrLen [inStrLen0, inStrLen1]
-        warning' (Just justInStrLen0) (Just justInStrLen1) =
-          if justInStrLen0 /= justInStrLen1 then
-            Just "Input stream lengths don't match"
+        outStrLen = outStrLen' $ inStrLen
+        warning' (Just justInStrLen) =
+          if justInStrLen `mod` ratio /= 0 then
+            Just "Truncated input (stream length not divisible by ratio)"
           else
-            if justInStrLen0 `mod` ratio /= 0 then
-              Just "Truncated input (stream length not divisible by ratio)"
-            else
-              Nothing
-        warning' _ _ = Nothing
-        warning = warning' inStrLen0 inStrLen1
+            Nothing
+        warning' Nothing = Nothing
+        warning = warning' inStrLen
         stateWithWarn = simhlAddMaybeWarning inState opStack warning
       in
         ([outStrLen], simhlUpdateLongestStr stateWithWarn [outStrLen])
@@ -1082,11 +1109,11 @@ simhlAddMaybeWarning state _ Nothing = state
 simhlAddMaybeWarning state ops (Just msg) = simhlAddWarning state ops msg
 
 simhlUpdateLongestStr :: SimhlPreState -> [Maybe Int] -> SimhlPreState
-simhlUpdateLongestStr (SimhlPreState longStr memIn memIdx memOut) lst =
+simhlUpdateLongestStr (SimhlPreState longStr memIn memIdx warnings) lst =
     let
       newLongStr = simhlMaxStrLen (longStr:lst)
     in
-      (SimhlPreState newLongStr memIn memIdx memOut)
+      (SimhlPreState newLongStr memIn memIdx warnings)
 
 -- Find the minimum stream length given a list of stream lengths
 -- (recall that Nothing represents the output of a constant
