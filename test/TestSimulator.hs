@@ -170,7 +170,7 @@ simhlCombinationalIgnoreMem impl inSeqs _ =
   else do { let inputsNow = map head inSeqs
           ; let inputsL8r = map tail inSeqs
           ; let outputsNow = impl inputsNow
-          ; let outputsL8r = simhlCombinational impl inputsL8r
+          ; let outputsL8r = fst $ simhlCombinationalIgnoreMem impl inputsL8r []
           ; let allOutputs =
                  if null outputsL8r
                  then [[outputNow] | outputNow <- outputsNow] -- 1-seq output case
