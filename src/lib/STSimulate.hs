@@ -48,6 +48,8 @@ import Debug.Trace
 --
 -- TODO: More convenient error messages?
 -- TODO: Warnings when input stream lengths don't match.
+-- TODO: Replace 4-space with 2-space indents.
+-- TODO: Split up the file into smaller files ... eventually.
 simulateHighLevel ::
      Op -> [[ValueType]] -> [[ValueType]] -> ([[ValueType]], [[ValueType]])
 -- Check that the types match, then delegate to simhl implementation.
@@ -135,9 +137,8 @@ simhl (Constant_Bit a) inStrs state =
 simhl (SequenceArrayRepack (a,b) (c,d) t) inStrs state =
     (simhlRepack (a,b) (c,d) t inStrs, state)
 
-simhl (ArrayReshape inTypes outTypes) inStrs state =
-    (simhlCombinational (simhlReshape (ArrayReshape inTypes outTypes)) inStrs,
-     state)
+simhl reshape@(ArrayReshape inTypes outTypes) inStrs state =
+    (simhlCombinational (simhlReshape reshape) inStrs, state)
 
 simhl (MemRead t) inStrs state = simhlRead t inStrs state
 
@@ -152,9 +153,17 @@ simhl (DuplicateOutputs n op) inStrs inState =
 
 simhl (MapOp par op) inStrs state = simhlMap par op inStrs state
 
--- Note: a ReduceOp may not contain a MemRead, since it's not clear
--- how to number the reads, and also, ReduceOp kind assumes that the
--- op is combinational.
+-- Restrictions on ReduceOp reducedOp in simulator:
+-- 1. No MemRead/MemWrite allowed anywhere is sub-op (reducedOp).
+-- 2. 2 input ports, 1 output port.
+-- 3. The reduced op's output stream must be the same length as the
+--    shortest of the 2 input streams.
+--
+-- Furthermore, parallellism must evenly divide the combine count,
+-- which itself must be nonzero.
+--
+-- Make sure that these restrictions are checked by simhlPre (ReduceOp),
+-- and that the documentation there on restrictions is up-to-date.
 simhl (ReduceOp par numComb op) inStrs state =
     if numComb `mod` par /= 0 || numComb == 0
     then error("Simulator assumes paralellism of a reduce evenly divides "
@@ -190,8 +199,8 @@ simhl (ComposePar (op:moreOps)) inStrs inState =
     in
       (opOutStrs ++ moreOutStrs, endState)
 
-simhl (ComposeFailure foo bar) _ _ =
-    error $ "Cannot simulate ComposeFaliure " ++ show (ComposeFailure foo bar)
+simhl (ComposeFailure _ _) _ _ =
+    error "Aetherling internal error: ComposeFailure in simulation."
 
 -- Helper function for simulating combinational devices.  Takes an
 -- implementation function ([ValueType]->[ValueType]) and a list of
@@ -611,7 +620,7 @@ simhlReduceTree theReducedOp laneInStrs inState =
           simhlReduceRecurse theReducedOp laneInStrs inState
     in (treeOutputs, outState)
 
--- Each level of recursion corresponds to one level of the the ecircuit,
+-- Each level of recursion corresponds to one level of the the circuit,
 -- in which the number of inputs in halved.
 simhlReduceRecurse :: Op -> [[[ValueType]]] -> SimhlState
                    -> ( [[[ValueType]]], SimhlState )
@@ -752,71 +761,81 @@ simhlCheckInputs portIndex (portT:portTs) (valStr:valStrs) =
 -- Warn for input stream length mismatches.
 --
 -- First, there's this data structure for holding the info we're figuring out.
+-- This gets threaded through all the ops of the simulated
+-- pipeline. When it goes through, do these things:
+-- 1. If any output stream is longer than simhlLongestStr, replace
+--    simhlLongestStr with the longest stream length.
+--    Use simhlUpdateLongestStr for this.
+-- 2. Append any warning messages to simhlWarningMessage.
+-- 3. Thread the state through any child ops.
 data SimhlPreState = SimhlPreState {
-    simhlLongestStr :: Int
+    simhlLongestStr :: Maybe Int,
     simhlPreMemoryIn :: [[ValueType]],
-    simhlPreMemoryIndex :: [Int],
+    simhlPreMemoryIndex :: Int,
     simhlWarningMessage :: [Char]
 }
 
--- The op being checked is head of the opStack. The stack is kept for
--- error messages. [Maybe Int] is the list of input stream lengths
--- for each port (Nothing for the output of a constant
--- generator). Return the output port stream lengths and next state.
+-- The op being checked is head of the opStack. Each subsequent op in
+-- the stack is the op containing the previous op as a child
+-- op. [Maybe Int] is the list of input stream lengths for each port
+-- (Nothing for the output of a constant generator). Return the output
+-- port stream lengths and next state.
 simhlPre :: [Op] -> [Maybe Int] -> SimhlPreState
          -> ([Maybe Int], SimhlPreState)
-simhlPre (Add t:opStack) inStrLens inState =
-    simhlPreCombinational (Add t:opStack) inStrLens inState
-simhlPre (Sub t:opStack) inStrLens inState =
-    simhlPreCombinational (Sub t:opStack) inStrLens inState
-simhlPre (Mul t:opStack) inStrLens inState =
-    simhlPreCombinational (Mul t:opStack) inStrLens inState
-simhlPre (Div t:opStack) inStrLens inState =
-    simhlPreCombinational (Div t:opStack) inStrLens inState
-simhlPre (Max t:opStack) inStrLens inState =
-    simhlPreCombinational (Max t:opStack) inStrLens inState
-simhlPre (Min t:opStack) inStrLens inState =
-    simhlPreCombinational (Min t:opStack) inStrLens inState
-simhlPre (Ashr c t:opStack) inStrLens inState =
-    simhlPreCombinational (Ashr c t:opStack) inStrLens inState
-simhlPre (Shl c t:opStack) inStrLens inState =
-    simhlPreCombinational (Shl c t:opStack) inStrLens inState
-simhlPre (Abs t:opStack) inStrLens inState =
-    simhlPreCombinational (Abs t:opStack) inStrLens inState
-simhlPre (Not t:opStack) inStrLens inState =
-    simhlPreCombinational (Not t:opStack) inStrLens inState
-simhlPre (And t:opStack) inStrLens inState =
-    simhlPreCombinational (And t:opStack) inStrLens inState
-simhlPre (Or t:opStack) inStrLens inState =
-    simhlPreCombinational (Or t:opStack) inStrLens inState
-simhlPre (XOr t:opStack) inStrLens inState =
-    simhlPreCombinational (XOr t:opStack) inStrLens inState
-simhlPre (Eq:opStack) inStrLens inState =
-    simhlPreCombinational (Eq:opStack) inStrLens inState
-simhlPre (Neq:opStack) inStrLens inState =
-    simhlPreCombinational (Neq:opStack) inStrLens inState
-simhlPre (Lt:opStack) inStrLens inState =
-    simhlPreCombinational (Lt:opStack) inStrLens inState
-simhlPre (Leq:opStack) inStrLens inState =
-    simhlPreCombinational (Leq:opStack) inStrLens inState
-simhlPre (Gt:opStack) inStrLens inState =
-    simhlPreCombinational (Gt:opStack) inStrLens inState
-simhlPre (Geq:opStack) inStrLens inState =
-    simhlPreCombinational (Geq:opStack) inStrLens inState
-simhlPre (LUT table:opStack) inStrLens inState =
-    simhlPreCombinational (LUT table:opStack) inStrLens inState
+simhlPre [] _ _ = error "Aetherling internal error: simhlPre empty opStack."
+simhlPre opStack@(Add t:_) inStrLens inState =
+    simhlPreCombinational opStack inStrLens inState
+simhlPre opStack@(Sub t:_) inStrLens inState =
+    simhlPreCombinational opStack inStrLens inState
+simhlPre opStack@(Mul t:_) inStrLens inState =
+    simhlPreCombinational opStack inStrLens inState
+simhlPre opStack@(Div t:_) inStrLens inState =
+    simhlPreCombinational opStack inStrLens inState
+simhlPre opStack@(Max t:_) inStrLens inState =
+    simhlPreCombinational opStack inStrLens inState
+simhlPre opStack@(Min t:_) inStrLens inState =
+    simhlPreCombinational opStack inStrLens inState
+simhlPre opStack@(Ashr c t:_) inStrLens inState =
+    simhlPreCombinational opStack inStrLens inState
+simhlPre opStack@(Shl c t:_) inStrLens inState =
+    simhlPreCombinational opStack inStrLens inState
+simhlPre opStack@(Abs t:_) inStrLens inState =
+    simhlPreCombinational opStack inStrLens inState
+simhlPre opStack@(Not t:_) inStrLens inState =
+    simhlPreCombinational opStack inStrLens inState
+simhlPre opStack@(And t:_) inStrLens inState =
+    simhlPreCombinational opStack inStrLens inState
+simhlPre opStack@(Or t:_) inStrLens inState =
+    simhlPreCombinational opStack inStrLens inState
+simhlPre opStack@(XOr t:_) inStrLens inState =
+    simhlPreCombinational opStack inStrLens inState
+simhlPre opStack@(Eq:_) inStrLens inState =
+    simhlPreCombinational opStack inStrLens inState
+simhlPre opStack@(Neq:_) inStrLens inState =
+    simhlPreCombinational opStack inStrLens inState
+simhlPre opStack@(Lt:_) inStrLens inState =
+    simhlPreCombinational opStack inStrLens inState
+simhlPre opStack@(Leq:_) inStrLens inState =
+    simhlPreCombinational opStack inStrLens inState
+simhlPre opStack@(Gt:_) inStrLens inState =
+    simhlPreCombinational opStack inStrLens inState
+simhlPre opStack@(Geq:_) inStrLens inState =
+    simhlPreCombinational opStack inStrLens inState
+simhlPre opStack@(LUT table:_) inStrLens inState =
+    simhlPreCombinational opStack inStrLens inState
 
-simhlPre (MemRead t:opStack) _ (SimhlPreState longStr memIn memIdx warnMsg) =
+simhlPre opStack@(MemRead t:_) _ (SimhlPreState longStr memIn memIdx warnMsg) =
     let
       tape =
         if null memIn then
           error("Memory argument too short -- no tape left at MemRead number "
              ++ show memIdx
              ++ " (numbered using DFS starting at 0.) at\n"
-             ++ (simhlFormatOpStack $ MemRead t:opStack))
+             ++ (simhlFormatOpStack opStack)
+          )
         else
           head memIn
-      seqLen =
+      strLen =
         if all (tvTypesMatch t) tape then
           length tape
         else
@@ -826,15 +845,38 @@ simhlPre (MemRead t:opStack) _ (SimhlPreState longStr memIn memIdx warnMsg) =
             ++ " does not match expected type "
             ++ show t
             ++ " at\n"
-            ++ (simhlFormatOpStack $ MemRead t:opStack))
-      ([Just seqLen],
-       SimhlPreState (max longStr seqLen) (tail memIn) (1+memIdx) warnMsg)
+            ++ (simhlFormatOpStack opStack)
+          )
+    in
+      if hasReduce opStack then
+        error("MemRead cannot be in a reduce at\n" ++ simhlFormatOpStack opStack)
+      else
+        -- Output port stream length = tape length,
+        -- and peel off one tape of memory from the state for the next MemRead.
+        ([Just strLen],
+         simhlUpdateLongestStr
+           (SimhlPreState longStr (tail memIn) (1+memIdx) warnMsg)
+           [Just strLen]
+        )
+    where
+      hasReduce [] = False
+      hasReduce (ReduceOp _ _ _:_) = True
+      hasReduce (op:ops) = hasReduce ops
+        
 
-simhlPre (MemWrite t:opStack) _ inState = ([], inState)
+simhlPre opStack@(MemWrite t:_) _ state =
+    if hasReduce opStack then
+      error("MemWrite cannot be in a reduce at\n" ++ simhlFormatOpStack opStack)
+    else
+      ([], state)
+    where
+      hasReduce [] = False
+      hasReduce (ReduceOp _ _ _:_) = True
+      hasReduce (op:ops) = hasReduce ops
 
 -- Check that the LineBuffer conforms to the restrictions commented on
 -- in simhl LineBuffer.
-simhlPre (LineBuffer [1, pixW] [wH, wW] [iH, iW] t:opStack) [inStrLen] inState =
+simhlPre opStack@(LineBuffer [1, pixW] [wH, wW] [iH, iW] t:_) [inStrLen] inState =
     if (wW-1) `mod` pixW /= 0 || iW `mod` pixW /= 0 || any (<=0) [pixW, wH, wW, iH, iW] then
       error("2D LineBuffer requires all positive parameters and the width of \
             \pixPerClock to divide both the image width and one minus the window \
@@ -848,29 +890,27 @@ simhlPre (LineBuffer [1, pixW] [wH, wW] [iH, iW] t:opStack) [inStrLen] inState =
         midState = simhlUpdateLongestStr inState [Just seqLen]
         just Nothing = expectedInStrLen
         just (Just i) = i
-        let outState =
+        outState =
           if expectedInStrLen /= just inStrLen then
-            simhlAddWarning midState
-                            (LineBuffer [1, pixW] [wH, wW] [iH, iW] t:opStack)
-                            "Unexpected input stream length"
+            simhlAddWarning midState opStack "Unexpected input stream length"
           else
             midState
       in
         ([Just seqLen], outState)
+
 -- TODO more linebuffers.
 
-simhlPre (Constant_Int _) _ inState = ([Nothing], inState)
-simhlPre (Constant_Bit _) _ inState = ([Nothing], inState)
+simhlPre (Constant_Int _:_) _ state = ([Nothing], state)
+simhlPre (Constant_Bit _:_) _ state = ([Nothing], state)
 
-simhlPre (SequenceArrayRepack (inSeqLen, inWidth) (outSeqLen, outWidth) t)
+simhlPre opStack@(SequenceArrayRepack (inSeqLen, inWidth) (outSeqLen, outWidth) t:_)
          [inStrLen]
          inState =
     if inSeqLen*inWidth /= outSeqLen*outWidth || inSeqLen*inWidth == 0 then
       error("Need product of sequence length and array width to be nonzero \
             \and equal in input and output at " ++
-            (simhlFormatOpStack $
-              (SequenceArrayRepack (inSeqLen, inWidth) (outSeqLen, outWidth) t)
-              :opStack))
+            (simhlFormatOpStack opStack)
+      )
     else
       let
         outStrLen' Nothing = Nothing
@@ -882,33 +922,155 @@ simhlPre (SequenceArrayRepack (inSeqLen, inWidth) (outSeqLen, outWidth) t)
           else Just "Truncated input (input stream length not divisible by \
                     \input sequence length."
         warning = warning' inStrLen
-        ops = (SequenceArrayRepack (inSeqLen, inWidth) (outSeqLen, outWidth) t)
-              :opStack
       in
         ([outStrLen],
          simhlAddMaybeWarning (simhlUpdateLongestStr inState [outStrLen])
-            ops warning)
+            opStack warning)
 
-simhlPre (ArrayReshape inTypes outTypes:opStack) inStrLens inState =
-    -- Todo check for type mismatch in inTypes/outTypes?
-    simhlPreCombinational (ArrayReshape inTypes outTypes:opStack) inStrLens inState
+simhlPre opStack@(ArrayReshape inTypes outTypes:_) inStrLens inState
+    | flattenTypes inTypes == flattenTypes outTypes =
+      simhlPreCombinational opStack inStrLens inState
+    | otherwise =
+      error("I/O type mismatch (Bit vs. Int?) at " ++ simhlFormatOpStack opStack)
+    where
+      flattenTypes :: [TokenType] -> [TokenType]
+      flattenTypes (T_Array n t:ts) =
+        flattenTypes (replicate n t) ++ flattenTypes ts
+      flattenTypes (t:ts) = t:flattenTypes ts
+      flattenTypes [] = []
 
-simhlPre (DuplicateOutputs count op:opStack) inStrLens inState =
+simhlPre opStack@(DuplicateOutputs count op:_) inStrLens inState =
     let
       opPre =
         if count < 0 then
           error("Need non-negative repeat count at "
-             ++ simhlFormatOpStack (DuplicateOutputs count op:opStack))
+             ++ simhlFormatOpStack opStack)
         else
-          simhlPre (op:(DuplicateOutputs count op):opStack) inStrLens inState
+          simhlPre (op:opStack) inStrLens inState
       outStrLens = concat $ replicate count (fst opPre)
       outState = snd opPre
     in
       (outStrLens, outState)
 
+simhlPre opStack@(MapOp par op:_) inStrLens inState | par < 0 =
+    error("Negative parallelism at " ++ simhlFormatOpStack opStack)
+simhlPre (MapOp par op:_) inStrLens inState | par == 0 =
+    ([], inState)
+simhlPre opStack@(MapOp par op:_) inStrLens inState | par > 0 =
+    let
+      -- Fold lambda. Go through par copies of the op, threading the state
+      -- through each one and concatenating their output stream lens.
+      f :: ([Maybe Int], SimhlPreState) -> Op -> ([Maybe Int], SimhlPreState)
+      f (fOutStrLens, fInState) op =
+        let
+          (thisOutStrLen, fOutState) = simhlPre (op:opStack)
+                                       inStrLens fInState
+        in
+          (fOutStrLens ++ thisOutStrLen, fOutState)
+    in
+      foldl f ([], inState) (replicate par op)
 
-    
-            
+simhlPre opStack@(ReduceOp par numComb op:_) [inStrLen0, inStrLen1] inState
+    | numComb `mod` par /= 0 =
+      error("Need numComb to be divisible by paralellism at "
+         ++ simhlFormatOpStack opStack
+      )
+    | fst (simhlPre (op:opStack) [inStrLen0, inStrLen1] inState)
+        /= [min inStrLen0 inStrLen1] =
+      error("Need reducedOp to have 1 output port with output stream length \
+            \equal to minimum of 2 input stream lengths at "
+         ++ simhlFormatOpStack opStack
+      )
+    | otherwise =
+      let
+        -- Note that we don't worry about passing the state to the
+        -- reducedOp because there's no MemReads/MemWrites, and we
+        -- checked above that it has predictable behavior on its
+        -- output port lengths.
+        ratio = numComb `div` par
+        outStrLen' Nothing = Nothing
+        outStrLen' (Just x) = Just $ x `div` ratio
+        outStrLen = outStrLen' $ simhlMinStrLen [inStrLen0, inStrLen1]
+        warning' (Just justInStrLen0) (Just justInStrLen1) =
+          if justInStrLen0 /= justInStrLen1 then
+            Just "Input stream lengths don't match"
+          else
+            if justInStrLen0 `mod` ratio /= 0 then
+              Just "Truncated input (stream length not divisible by ratio)"
+            else
+              Nothing
+        warning' _ _ = Nothing
+        warning = warning' inStrLen0 inStrLen1
+        stateWithWarn = simhlAddMaybeWarning inState opStack warning
+      in
+        ([outStrLen], simhlUpdateLongestStr stateWithWarn [outStrLen])
+
+simhlPre opStack@(Underutil _ op:_) inStrLens inState =
+    simhlPre (op:opStack) inStrLens inState
+
+simhlPre opStack@(RegDelay _ op:_) inStrLens inState =
+    simhlPre (op:opStack) inStrLens inState
+
+simhlPre opStack@(ComposePar ops:_) inStrLens inState =
+    let
+      -- Fold lambda. Each iteration of the fold, take some of the
+      -- input stream length data and append some output stream length
+      -- data, also threading the state as we go along.
+      f :: ([Maybe Int], [Maybe Int], SimhlPreState) -> Op
+        -> ([Maybe Int], [Maybe Int], SimhlPreState)
+      f (oldInStrLens, oldOutStrLens, fInState) op =
+        let
+          (opIn, newInStrLens) = splitAt (length $ inPorts op) oldInStrLens
+          (opOut, fOutState) = simhlPre (op:opStack) opIn fInState
+        in
+          (newInStrLens, oldOutStrLens++opOut, fOutState)
+
+      (_, outStrLens, outState) = foldl f (inStrLens, [], inState) ops
+    in
+      (outStrLens, outState)
+
+simhlPre opStack@(ComposeSeq []:_) _ _ =
+    error("Empty ComposeSeq at\n" ++ simhlFormatOpStack opStack)
+simhlPre opStack@(ComposeSeq ops:_) inStrLens inState =
+    let
+      -- Fold lambda. Takes input stream lengths and state
+      -- and produce out stream lengths and state.
+      f :: ([Maybe Int], SimhlPreState) -> Op -> ([Maybe Int], SimhlPreState)
+      f (fInStrLens, fInState) op =
+        simhlPre (op:opStack) fInStrLens fInState
+    in
+      foldl f (inStrLens, inState) ops
+
+simhlPre opStack@(ComposeFailure foo bar:_) inStrLens inState =
+    error("ComposeFailure cannot be simulated at\n"
+       ++ (simhlFormatOpStack opStack))
+
+
+-- As far as the preprossessor pass is concerned, basically all combinational
+-- devices are the same. They just produce output streams as long as their
+-- shortest input stream. Combinational ops can just delegate to this
+-- function for their preprosessor pass (as long as they have no child ops).
+simhlPreCombinational :: [Op] -> [Maybe Int] -> SimhlPreState
+                      -> ([Maybe Int], SimhlPreState)
+simhlPreCombinational [] _ _ =
+    error "Aetherling internal error: simhlPreCombinational empty opStack."
+simhlPreCombinational opStack@(op:_) inStrLens inState =
+    let
+      outStrLen = simhlMinStrLen inStrLens
+      outPortCount = length $ outPorts op
+      warning' =
+        if all (== (head inStrLens)) inStrLens then Nothing
+        else Just "Input stream lengths don't match"
+      outState = simhlAddMaybeWarning
+                   (simhlUpdateLongestStr inState [outStrLen])
+                   opStack
+                   warning'
+    in
+      (replicate outPortCount outStrLen, outState)
+
+simhlFormatOpStack :: [Op] -> [Char]
+simhlFormatOpStack opStack =
+    (intercalate "\n - in -\n" (map show opStack)) ++ "\n --  --\n --  --\n"
 
 simhlAddWarning :: SimhlPreState -> [Op] -> [Char] -> SimhlPreState
 simhlAddWarning (SimhlPreState longStr memIn memIdx stateMsg) opStack message =
@@ -920,10 +1082,32 @@ simhlAddMaybeWarning state _ Nothing = state
 simhlAddMaybeWarning state ops (Just msg) = simhlAddWarning state ops msg
 
 simhlUpdateLongestStr :: SimhlPreState -> [Maybe Int] -> SimhlPreState
-simhlUpdateLongestStr inState [] = inState
-simhlUpdateLongestStr inState Nothing:lst = simhlUpdateLongestStr inState lst
-simhlUpdateLongestStr (SimhlPreState longStr memIn memIdx warnMessage)
-                      (Just thisStrLen:lst) =
-    SimhlPreState (max longStr thisStrLen) memIn memIdx warnMessage
+simhlUpdateLongestStr (SimhlPreState longStr memIn memIdx memOut) lst =
+    let
+      newLongStr = simhlMaxStrLen (longStr:lst)
+    in
+      (SimhlPreState newLongStr memIn memIdx memOut)
 
+-- Find the minimum stream length given a list of stream lengths
+-- (recall that Nothing represents the output of a constant
+-- generator). Ignore Nothing values.
+simhlMinStrLen :: [Maybe Int] -> Maybe Int
+simhlMinStrLen ints =
+  let
+    f Nothing Nothing = Nothing
+    f Nothing (Just a) = Just a
+    f (Just a) Nothing = Just a
+    f (Just a) (Just b) = Just (min a b)
+  in
+    foldr f Nothing ints
+
+simhlMaxStrLen :: [Maybe Int] -> Maybe Int
+simhlMaxStrLen ints =
+  let
+    f Nothing Nothing = Nothing
+    f Nothing (Just a) = Just a
+    f (Just a) Nothing = Just a
+    f (Just a) (Just b) = Just (max a b)
+  in
+    foldr f Nothing ints
 
