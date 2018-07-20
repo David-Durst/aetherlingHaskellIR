@@ -53,7 +53,10 @@ data PortThroughput = PortThroughput {throughputType :: TokenType,
 
 -- get the throughput of a port using only atomic types, T_Bit and T_Int
 -- this guarantees throuhgputs are comparable for equality
-atomicThroughput :: PortThroughput -> (TokenType, Ratio Int)
-atomicThroughput (PortThroughput (T_Array n t) r) =
-  atomicThroughput (PortThroughput t (r * (n % 1)))
+atomicThroughput :: PortThroughput -> PortThroughput
+atomicThroughput (PortThroughput nestedT@(T_Array n innerT) r) =
+  PortThroughput atomicT ((n % 1) * innerRatio)
+  where (PortThroughput atomicT innerRatio) =
+          atomicThroughput (PortThroughput innerT r)
+atomicThroughput pt@(PortThroughput t _) = pt
  
