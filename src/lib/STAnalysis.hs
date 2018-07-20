@@ -67,7 +67,7 @@ space (MapOp par op) = (space op) |* par
 space (ReduceOp par numComb op) | par == numComb = (space op) |* (par - 1)
 space rOp@(ReduceOp par numComb op) =
   reduceTreeSpace |+| (space op) |+| (registerSpace $ map pTType $ outPorts op)
-  |+| (counterSpace $ numComb * denomSSMult `ceilDiv` numSSMult)
+  |+| (counterSpace $ numComb * (denominator opThroughput) `ceilDiv` (numerator opThroughput))
   where 
     reduceTreeSpace = space (ReduceOp par par op)
     -- need to be able to count all clocks in steady state, as that is when
@@ -75,8 +75,7 @@ space rOp@(ReduceOp par numComb op) =
     -- thus, divide numComb by throuhgput in steady state to get clocks for
     -- numComb to be absorbed
     -- only need throughput from first port as all ports have same throuhgput
-    PortThroughput _ (SWRatio (SWLen numSSMult _) (SWLen denomSSMult _)) = 
-      portThroughput op $ head $ inPorts op
+    (PortThroughput _ opThroughput) = portThroughput op $ head $ inPorts op
 
 space (Underutil denom op) = space op |+| counterSpace denom
 space (RegDelay dc op) = space op |+|
@@ -118,7 +117,7 @@ clocksPerSequence (MemWrite _) = combinationalCPS
 
 clocksPerSequence (LineBuffer (pHd:[]) _ (imgHd:[]) t) = imgHd `ceilDiv` pHd
 clocksPerSequence (LineBuffer (pHd:pTl) (_:wTl) (imgHd:imgTl) t) =
-  (imgHd `ceilDiv` pHd) * cps LineBuffer pTl wTl imgTl t
+  (imgHd `ceilDiv` pHd) * (cps $ LineBuffer pTl wTl imgTl t)
 clocksPerSequence (LineBuffer _ _ _ _) = -1
 clocksPerSequence (Constant_Int _) = combinationalCPS
 clocksPerSequence (Constant_Bit _) = combinationalCPS
@@ -185,7 +184,7 @@ initialLatency (LUT _) = 1
 initialLatency (MemRead _) = 1
 initialLatency (MemWrite _) = 1
 -- intiial latency is just number of warmup clocks
-initialLatency lb@(LineBuffer p w _ _) = warmupSub $ cps lb
+initialLatency lb@(LineBuffer p w _ _) = 1 
 initialLatency (Constant_Int _) = 1
 initialLatency (Constant_Bit _) = 1
 initialLatency (SequenceArrayRepack (inSeq, _) (outSeq, _) _) =
@@ -373,9 +372,9 @@ getSeqLenScalingsForAllPorts containerOp ops portGetter = ssScalings
     opScaling op = cps containerOp `ceilDiv` cps op
     -- given one op, get a the scaling factor repeated for each of its ports
     -- note: all will be same, just need duplicates
-    opScalingForAllPorts op = replicate (length $ portGetter op) (ssScaling op)
+    opScalingForAllPorts op = replicate (length $ portGetter op) (opScaling op)
     -- scaling factors for all ports of all ops
-    ssScalings = foldl (++) [] $ map opScalingForALlPorts ops
+    ssScalings = foldl (++) [] $ map opScalingForAllPorts ops
 
 -- update the sequence lengths of a list of ports
 scalePortsSeqLens :: [Int] -> [PortType] -> [PortType]
@@ -447,7 +446,7 @@ inPorts cPar@(ComposePar ops) = renamePorts "I" $ scalePortsSeqLens
 -- this depends on only wiring up things that have matching throughputs
 inPorts (ComposeSeq []) = []
 inPorts cSeq@(ComposeSeq (hd:_)) = renamePorts "I" $
-  scalePortsSeqLens (getSeqLenScalingsForAllPorts cSeq hd inPorts) (inPorts hd)
+  scalePortsSeqLens (getSeqLenScalingsForAllPorts cSeq [hd] inPorts) (inPorts hd)
 inPorts (ComposeFailure _ _) = []
 
 
@@ -500,7 +499,7 @@ outPorts (ArrayReshape _ outTypes) = renamePorts "O" $ map makePort outTypes
 outPorts (DuplicateOutputs n op) = renamePorts "O" $ foldl (++) [] $
   replicate n $ outPorts op
 
-outPorts (MapOp par op) = renamePorts "O" $ duplicatePorts par (outPorts op)
+outPorts (MapOp par op) = renamePorts "O" $ liftPortsTypes par (outPorts op)
 outPorts (ReduceOp _ _ op) = renamePorts "O" $ outPorts op
 
 outPorts (Underutil _ op) = outPorts op
@@ -512,7 +511,7 @@ outPorts cPar@(ComposePar ops) = renamePorts "O" $ scalePortsSeqLens
 -- this depends on only wiring up things that have matching throughputs
 outPorts (ComposeSeq []) = []
 outPorts cSeq@(ComposeSeq ops) = renamePorts "O" $ scalePortsSeqLens
-  (getSeqLenScalingsForAllPorts cSeq lastOp outPorts) (outPorts lastOp)
+  (getSeqLenScalingsForAllPorts cSeq [lastOp] outPorts) (outPorts lastOp)
   where lastOp = last ops
 outPorts (ComposeFailure _ _) = []
 
