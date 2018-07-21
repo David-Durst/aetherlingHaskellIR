@@ -664,3 +664,15 @@ vBitArray bools = V_Array $ vBits bools
 
 vIntArray :: [Int] -> ValueType
 vIntArray ints = V_Array $ vInts ints
+
+-- Convert a list of values into a list of length-n lists
+vpartition :: Int -> [a] -> [[a]]
+vpartition _ [] = []
+vpartition n s = (take n s) : vpartition n (drop n s)
+
+-- Convert a flat list of integers into a list of V_arrays of size n
+-- Useful for constructing inputs to throughput > 1 pipelines 
+vIntArrayArray :: Int -> [Int] -> [ValueType]
+vIntArrayArray n ints = map V_Array (vpartition n (vInts ints))
+
+
