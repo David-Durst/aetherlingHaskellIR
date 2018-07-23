@@ -1,4 +1,3 @@
-{-# OPTIONS_GHC -fwarn-incomplete-patterns #-}
 module STAST where
 import STTypes
 import STMetrics
@@ -62,16 +61,43 @@ data Op =
   | MapOp {mapParallelism :: Int, mappedOp :: Op}
   | ReduceOp {reduceParallelism :: Int, reduceNumCombined :: Int, reducedOp :: Op}
 
+  -- TIMING HELPERS
+  | NoOp [TokenType]
+  -- this removes some of the outputs of the wrapped module
+  -- list of n to drop is doubly nested:
+  -- outer list is for each of the output ports of the wrapped module
+  -- inner list for dropping and keeping tokens. First part of tuple is
+  -- n to drop, second is n to keep. Creating patterns with lists of tuples
+  | Crop {crops :: [[DropKeepPair]], croppedOp :: Op}
+  -- crop and delay aren't perfectly symmetric. Crop changes the number of
+  -- elements for each output port independently, while delay affects the
+  -- clock and thus impacts all ports by same number of clocks
+  | Delay {delays :: [DropKeepPair], delayedOp :: Op} 
   -- run underOp at CPS = utilDenominator * old CPS
+  -- this is essentially a multiplier version of delay. It is separate as
+  -- this is used more to slowdown and delay is used to match warmups
   | Underutil {utilDenominator :: Int, underutilizedOp :: Op}
-  -- this inceases latency
-  | RegDelay {delayClocks :: Int, delayedOp :: Op}
+  -- this increases latency
+  | RegRetime {retimeClocks :: Int, retimeddOp :: Op}
 
   -- COMPOSE OPS
   | ComposePar [Op]
   | ComposeSeq [Op]
   | ComposeFailure ComposeResult (Op, Op) 
   deriving (Eq, Show)
+
+-- for a sequence of clocks or tokens,
+-- a list of pairs where each first element is a number dropped
+-- and the second is a number of clocks or tokens kept
+data DropKeepPair = DKPair {numDropped :: Int, numKept :: Int}
+  deriving (Eq, Show)
+
+-- given a list of DKPairs, get the total number of dropped clocks
+droppedInDKPairs :: [DropKeepPair] -> Int
+droppedInDKPairs dkPairs = foldl (+) 0 $ map numDropped dkPairs
+
+keptInDKPairs :: [DropKeepPair] -> Int
+keptInDKPairs dkPairs = foldl (+) 0 $ map numKept dkPairs
 
 -- SeqPortMismatch indicates couldn't do comopse as composeSeq requires 
 -- all port types and latencies 
@@ -116,8 +142,11 @@ getChildOps (ArrayReshape _ _) = []
 getChildOps (DuplicateOutputs _ op) = [op]
 getChildOps (MapOp _ op) = [op]
 getChildOps (ReduceOp _ _ op) = [op]
+getChildOps (NoOp _) = []
+getChildOps (Crop _ op) = [op]
+getChildOps (Delay _ op) = [op]
 getChildOps (Underutil _ op) = [op]
-getChildOps (RegDelay _ op) = [op]
+getChildOps (RegRetime _ op) = [op]
 getChildOps (ComposePar ops) = ops
 getChildOps (ComposeSeq ops) = ops
 getChildOps (ComposeFailure _ (op0, op1)) = [op0, op1]
@@ -127,7 +156,8 @@ getChildOps (ComposeFailure _ (op0, op1)) = [op0, op1]
 -- Will return the parent node if not failures
 isFailure (ComposeFailure _ _) = True
 isFailure _ = False
-hasChildWithError op = (<) 0 $ length $ filter (\i -> isFailure i || hasChildWithError i) $ getChildOps op
+hasChildWithError op = (<) 0 $ length $
+  filter (\i -> isFailure i || hasChildWithError i) $ getChildOps op
 getFirstError op | hasChildWithError op = head $ map getFirstError $ getChildOps op
 getFirstError op | isFailure op = op
 getFirstError op = op

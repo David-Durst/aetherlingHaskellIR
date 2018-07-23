@@ -1,4 +1,3 @@
-{-# OPTIONS_GHC -fwarn-incomplete-patterns #-}
 module STAnalysis where
 import STTypes
 import STMetrics
@@ -77,7 +76,18 @@ space rOp@(ReduceOp par numComb op) =
     -- only need throughput from first port as all ports have same throuhgput
     (PortThroughput _ opThroughput) = portThroughput op $ head $ inPorts op
 
-space (Underutil denom op) = space op |+| counterSpace denom
+space (NoOp _) = addId
+-- for each pair, valid if greater than last pair + drop and less than last pair
+-- + drop + keep numbers. Create a set of comparotors with ors for each port
+-- later optimize by removing ors at end of chain for or port, as independent
+-- valids for each port
+space (Crop dropKeepPairs op) = space op |+| (spacePerPair |* numPairs)
+  where
+    spacePerPair = space Lt |+| space Gt |+| space (Or T_Bit)
+    numPairs = foldl (+) 0 $ map length dropKeepPairs
+
+space (Underutil denom constant op) = space op |+|
+  counterSpace (denom * cps op + constant)
 space (RegDelay dc op) = space op |+|
   ((registerSpace $ map pTType $ outPorts op) |* dc)
 
@@ -145,7 +155,9 @@ clocksPerSequence (ReduceOp par numComb op) |
 -- structure
 clocksPerSequence (ReduceOp par numComb op) = cps op * (numComb `ceilDiv` par)
 
-clocksPerSequence (Underutil denom op) = denom * cps op
+clocksPerSequence (NoOp _) = combinationalCPS
+clocksPerSequence (Crop _ op) = cps op
+clocksPerSequence (Underutil denom constant op) = denom * cps op + constant
 -- since pipelined, this doesn't affect clocks per stream
 clocksPerSequence (RegDelay numDelay op) = cps op
 
@@ -187,6 +199,7 @@ initialLatency (MemWrite _) = 1
 initialLatency lb@(LineBuffer p w _ _) = 1 
 initialLatency (Constant_Int _) = 1
 initialLatency (Constant_Bit _) = 1
+
 initialLatency (SequenceArrayRepack (inSeq, _) (outSeq, _) _) =
   outSeq `ceilDiv` inSeq
 initialLatency (ArrayReshape _ _) = 1
@@ -203,6 +216,9 @@ initialLatency (ReduceOp par numComb op) =
     -- op adds nothing if its combinational, its CPS else
     opCPS = bool 0 (initialLatency op) (isComb op)
 
+
+initialLatency (NoOp _) = 0
+initialLatency (Crop _ _ op) = 1 + initialLatency op
 initialLatency (Underutil denom op) = initialLatency op
 -- since pipelined, this doesn't affect clocks per stream
 initialLatency (RegDelay dc op) = initialLatency op + dc
