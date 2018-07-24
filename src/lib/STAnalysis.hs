@@ -481,8 +481,8 @@ inPorts (ReduceOp par numComb op) = renamePorts "I" $ map scaleSeqLen $
 inPorts (NoOp tTypes) = renamePorts "I" $ map (head . oneInSimplePort) tTypes
 inPorts op@(Crop _ _ innerOp) = scalePortsSeqLens
   (getSeqLenScalingsForAllPorts op [innerOp] inPorts) (inPorts innerOp)
-inPorts op@(Delay _ innerOp) = scalePortsSeqLens
-  (getSeqLenScalingsForAllPorts op [innerOp] inPorts) (inPorts innerOp)
+inPorts op@(Delay dkPairs innerOp) =
+  getPortsWithDKPairsApplied (inPorts innerOp) dkPairs
 inPorts (Underutil _ op) = inPorts op
 inPorts (RegRetime _ op) = inPorts op
 
@@ -571,8 +571,8 @@ outPorts (Crop dkPairss _ op) |
     portsAndDKPairs = zip (outPorts op) dkPairss
     portsWithNewSLens = map (uncurry modifySeqLenForDropKeepPairs) portsAndDKPairs
 outPorts (Crop _ _ _) = [T_Port "invalidCropValues" 1 T_Unit 1]
-outPorts op@(Delay dkPairs innerOp) = scalePortsSeqLens
-  (getSeqLenScalingsForAllPorts op [innerOp] outPorts) (outPorts innerOp)
+outPorts op@(Delay dkPairs innerOp) =
+  getPortsWithDKPairsApplied (outPorts innerOp) dkPairs
 outPorts (Underutil _ op) = outPorts op
 outPorts (RegRetime _ op) = outPorts op
 
