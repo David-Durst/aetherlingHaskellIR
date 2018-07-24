@@ -196,7 +196,7 @@ simhl (ComposeFailure _ _) _ _ =
 -- Check for invalid ops. Durst is supposed to do this but I'm going
 -- to go ahead and implement it here anyway.
 --
--- Warn for input stream length mismatches.
+-- Warn for input stream length mismatches and other potential issues.
 --
 -- The op being checked is head of the opStack. Each subsequent op in
 -- the stack is the op containing the previous op as a child

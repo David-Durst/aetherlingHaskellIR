@@ -66,8 +66,9 @@ simhlPreCombinational opStack@(op:_) inStrLens inState =
     let
       outPortCount = length $ outPorts op
       outStrLens = replicate outPortCount (simhlMinStrLen inStrLens)
+      knownStrLens = filter (/=Nothing) inStrLens
       warning' =
-        if all (== (head inStrLens)) inStrLens then Nothing
+        if null knownStrLens || all (== (head knownStrLens)) knownStrLens then Nothing
         else Just $ "Input stream lengths don't match " ++ show inStrLens
     in
       simhlPreResult opStack outStrLens warning' inState

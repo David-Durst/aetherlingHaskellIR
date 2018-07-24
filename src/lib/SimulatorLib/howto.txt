@@ -8,11 +8,10 @@ ordering but not precisely specified timing. This document describes:
 2. How to extend the simulator with a combinational leaf op
 3. Summary of simulator implementation
 4. How to extend the simulator with a custom op
-5. How to handle the SimhlState data type.
 
 
 
-    1. How to Use the Simulator
+        1. How to Use the Simulator
 
 simulateHighLevel (imported from STSimulate) is the function to call
 for the simulator; all other functions defined are internal functions.
@@ -99,7 +98,7 @@ This is not the most elegant solution to the issue of handling memory IO.
 
 
 
-    2. How to Extend the Simulator with a Combinational Leaf Op.
+        2. How to Extend the Simulator with a Combinational Leaf Op.
 
 Suppose that a new Op is added to STAST.hs and it needs to be
 implemented in the simulator. This can easily be done without
@@ -131,9 +130,13 @@ c. In the list of simhlPre pattern matches, add an entry that looks
 simhlPre opStack@(Foo:_) inStrLens inState =
     simhlPreCombinational opStack inStrLens inState
 
+   You don't need to implement any function yourself for this step; as
+   far as the preprocessor is concerned, all combinational devices are
+   just the same and the simhlPreCombinational function handles this.
 
 
-3. Summary of Simulator Implementation
+
+        3. Summary of Simulator Implementation
 
 When simulateHighLevel is called, it delegates its work to 3 functions:
 
@@ -148,6 +151,187 @@ b. simhlPre, which recursively "preprocesses" the AST of the Op in order to:
       MemRead ops.
    3. Check that the Ops in the pipeline are well-formed, producing
       warnings or errors if needed.
+   This is all done by passing the SimhlPreState instance through
+   recursive calls of simhlPre, recording warnings and maximum stream
+   within.
 
 c. simhl, which performs the actual simulation, calling itself
-   recursively if needed.
+   recursively if needed. This function takes an input that is a
+   list-of-lists of ValueType (just like the port inputs argument in
+   simulateHighLevel) along with a mysterious state parameter, and
+   returns a tuple of output list-of-lists and the same mystery state
+   type.
+
+At each stage we can make more assumptions about the pipeline: when
+simhlPre is called we can assume that the ports match and the user
+port inputs are correct, and when simhl is called we can skip most
+error checking (note that the preprocessing step didn't exist for a
+long time, so there's a lot of extra paranoid error checking).
+
+In general, the state parameter will not need to be directly modified
+by any call of simhl; it only needs to pass on the state parameter to
+any recursive simhl calls on child Ops, and return the updated state
+in case the child op did modify the state. The state's main job is to
+pass out and collect MemRead/MemWrite data in the DFS order explained
+earlier, and it does not represent any sense of "simulated circuit
+state".
+
+Exception: ReduceOp does not properly handle the state. This is why
+it's not allowed to Reduce over a MemRead/MemWrite.
+
+
+
+        4. How to Extend the Simulator with a Custom Op
+
+To implement a new Op in the simulator, you need to implement a
+preprocessor pass for the Op and implement the behavior of the
+simulated Op.
+
+Preprocessor pass:
+
+The preprocessor pass function takes as input
+
+a. A stack of Ops (as a list), the head of which is the Op being
+   preprocessed. The idea is that each Op is the child of the next Op
+   in the list, and the stack can be formatted in errors/warnings.
+b. A list of expected input port stream lengths (as Maybe Int --
+   explained later).
+c. A SimhlPreState parameter, whose main job is to collect warnings
+   and record the longest output stream length.
+
+Your job is to calculate the tuple of return values:
+
+d. The list of expected output port stream lengths.
+e. The new SimhlPreState, updated as explained in (c) above. If there
+   are any child ops to be simulated, the state must be folded through
+   them all, i.e., each child op receives the state returned by the
+   previous child op, the first receives the initial state, and the
+   output state of the last child op (updated as in (c)) is the return
+   value state of the function.
+
+Fortunately there are helper functions (in SimulatorLib/State.hs) to
+make this easier, but before that I need to explain the Maybe Int. The
+input stream length might be indeterminate because it comes from a
+constant generator (which can create an arbitrarily long repeating
+output). In this case Nothing will be passed in the entry
+corresponding to the input port wired to the constant. The functions
+simhlMinStrLen and simhlMaxStrLen help you work around this.
+
+The simhlPreResult function helps you return the output tuple. It
+takes as arguments
+
+f. The stack of Ops (for error reporting)
+g. The list of expected output port stream lengths.
+h. An optional warning to record in the state (as Maybe [Char]).
+i. The output state of the last child op (or the input state if no
+   child ops).
+
+and produces the output tuple updated as explained above.
+
+Once this function is implemented, add a pattern-match entry to
+simhlPre in STSimulate.hs that dispatches to your function. You may
+need to pass in the simhlPre function itself as an additional
+parameter if you need to call it recursively in your function; note
+that SimhlPre in SimulatorLib/State.hs is the type of simhlPre.
+
+Example: implementation of preprocessor pass for MappedOp
+
+simhlPreMap :: SimhlPre -> [Op] -> [Maybe Int] -> SimhlPreState
+            -> ([Maybe Int], SimhlPreState)
+simhlPreMap simhlPre opStack@(MapOp par op:_) inStrLens inState
+(Some error checking by pattern matching omitted)
+1   let
+2     -- Fold lambda. Go through par copies of the op, threading the state
+3     -- through each one and taking the minimum of their output stream lengths.
+4     -- Note: they could be different due to MemRead.
+5     f :: ([Maybe Int], SimhlPreState) -> Op -> ([Maybe Int], SimhlPreState)
+6     f (fOutStrLens, fInState) op =
+7       let
+8         (thisOutStrLen, fOutState) = simhlPre (op:opStack)
+9                                      inStrLens fInState
+10        newOutStrLens = [simhlMinStrLen [a,b]
+11                        | (a,b) <- zip thisOutStrLen fOutStrLens]
+12      in
+13        (newOutStrLens, fOutState)
+14    
+15    (outStrLens, newState) =
+16      foldl f (replicate (length $ outPorts op) Nothing, inState)
+17              (replicate par op)
+18  in
+19    simhlPreResult opStack outStrLens Nothing newState
+
+Things to note:
+
+Line 7: When we recursively call simhlPre on each copy of the child
+mappedOp, the child op is prepended to the opStack to maintain (a).
+
+Lines 6, 8, 16: The fold and fold lambda ensures that the new state returned
+by the recursive simhlPre call is used as the input state for the next
+recursive call (fInState -> fOutState)
+
+Line 19: We use simhlPreResult at the end (using the new state
+returned by the fold, not the original inState!) to update the
+state. Nothing is passed as arg 3 since we don't detect any warnings
+here.
+
+Then, under simhlPre in STSimulate.hs, we have
+
+simhlPre opStack@(MapOp _ _:_) inStrLens inState =
+    simhlPreMap simhlPre opStack inStrLens inState
+
+which dispatches to the earlier function, passing in simhlPre itself
+since the map preprocessor pass calls simhlPre recursively.
+
+Simulator pass:
+
+The simulator pass function takes as input
+
+a. A list of lists of ValueType, in the same order as in simulateHighLevel.
+b. A SimhlState parameter, which in most cases just has to be folded
+   through all simhl calls on child ops.
+
+and returns as an output tuple.
+
+a. A list of lists of ValueType for output port values.
+b. Updated SimhlState parameter.
+
+Once the function is implemented, add a pattern-match entry under
+simhl in STSimulate.hs. Similar to before, you may need to pass the
+simhl function as an additional parameter (of type Simhl).
+
+Example: ComposePar simulator implementation
+
+simhlPar :: Simhl -> Op -> [[ValueType]] -> SimhlState
+         -> ( [[ValueType]], SimhlState )
+simhlPar simhl (ComposePar []) inStrs state = ([], state)
+simhlPar simhl (ComposePar (op:moreOps)) inStrs inState =
+1   let
+2     (opInStrs, moreInStrs) = splitAt (length $ inPorts op) inStrs
+3     (opOutStrs, nextState) = simhl op opInStrs inState
+4     (moreOutStrs, endState) = simhl (ComposePar moreOps) moreInStrs nextState
+5   in
+6     (opOutStrs ++ moreOutStrs, endState)
+
+Things to note:
+
+Line 2: Before calling simhl recursively on the composed child op, we
+need to collect the child's input. Since the outer dimension of
+inStrs :: [[ValueType]] corresponds to input ports, we can just
+collect the first (child op inPort count) entries of the list to get
+the child's list of input streams.
+
+Lines 3, 4, 6: Note how the state is carefully passed through the
+calls of simhl of child ops (some done through a recursive call on
+simhl ComposePar), named as inState, nextState, and finally endState.
+
+Then, in the simhl function, we have
+
+simhl op@(ComposePar _) inStrs state =
+    simhlPar simhl op inStrs state
+
+Similar to before, simhl itself must be passed as a parameter.
+
+If you get weird errors involving MemRead or MemWrite, that probably
+means that the state wasn't properly passed through your simulated op,
+e.g. you accidentally recycled an old State value.
+

@@ -233,9 +233,12 @@ simhlPreMap simhlPre opStack@(MapOp par op:_) inStrLens inState
                           | (a,b) <- zip thisOutStrLen fOutStrLens]
         in
           (newOutStrLens, fOutState)
+
+      (outStrLens, newState) =
+        foldl f (replicate (length $ outPorts op) Nothing, inState)
+                (replicate par op)
     in
-      foldl f (replicate (length $ outPorts op) Nothing, inState)
-              (replicate par op)
+      simhlPreResult opStack outStrLens Nothing newState
 
 simhlPreReduce :: SimhlPre -> [Op] -> [Maybe Int] -> SimhlPreState
                -> ([Maybe Int], SimhlPreState)
@@ -272,7 +275,6 @@ simhlPreReduce simhlPre opStack@(ReduceOp par numComb op:_) inStrLens inState
             Nothing
         warning' Nothing = Nothing
         warning = warning' inStrLen
-        stateWithWarn = simhlAddMaybeWarning inState opStack warning
       in
-        ([outStrLen], simhlUpdateLongestStr stateWithWarn [outStrLen])
+        simhlPreResult opStack [outStrLen] warning inState
 

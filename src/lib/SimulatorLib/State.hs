@@ -23,6 +23,11 @@ type SimhlPre = [Op] -> [Maybe Int] -> SimhlPreState
 -- one step given all inputs through time).  This is bookkeeping stuff
 -- for constant generators and distributing/collecting memory data
 -- to/from simulated MemRead/MemWrite ops.
+--
+-- ReduceOp doesn't handle the state properly, so if you add another
+-- Op that does something non-trivial with the state, check in the
+-- preprocessor stage that the non-trivial op is not a child of a
+-- ReduceOp.
 data SimhlState = SimhlState {
     simhlConstSeqLen :: Int,        -- For constant generator.
     simhlMemoryIn :: [[ValueType]],

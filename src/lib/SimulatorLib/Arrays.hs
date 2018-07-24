@@ -286,16 +286,16 @@ simhlPreLB opStack@(LineBuffer [1, pixW] [wH, wW] [iH, iW] t:_) [inStrLen] inSta
       let
         strLen = div ((iH-wH+1)*(iW-wW+1)) pixW
         expectedInStrLen = div (iH*iW) pixW
-        midState = simhlUpdateLongestStr inState [Just strLen]
         just Nothing = expectedInStrLen
         just (Just i) = i
-        outState =
+        warning' =
           if expectedInStrLen /= just inStrLen then
-            simhlAddWarning midState opStack "Unexpected input stream length"
+            Just "Unexpected input stream length"
           else
-            midState
+            Nothing
       in
-        ([Just strLen], outState)
+        simhlPreResult opStack [Just strLen] warning' inState
+
 simhlPreLB opStack@(LineBuffer pix w i t:_) _ _ =
     error("Only support 1D linebuffers, and 2D linebuffers \
           \with pixel window of form [1,w], at\n"
