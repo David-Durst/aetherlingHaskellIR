@@ -81,11 +81,11 @@ space (NoOp _) = addId
 -- that + keep numbers. Create a set of comparators with ors for each port
 -- later optimize by removing ors at end of chain for one port, as independent
 -- valids for each port
-space (Crop dkPairs op) = space op |+| (counterSpace $ cps op) |+|
+space (Crop dkPairss op) = space op |+| (counterSpace $ cps op) |+|
   (spacePerPair |* numPairs)
   where
     spacePerPair = space Lt |+| space Gt |+| space (Or T_Bit)
-    numPairs = foldl (+) 0 $ map length dkPairs
+    numPairs = foldl (+) 0 $ map length dkPairss
 -- this is same hardware consumption as crop except instead of not sending a
 -- valid signal this manipulates clock enable
 space (Delay dkPairs op) = space $ Crop [dkPairs] op
@@ -319,10 +319,10 @@ maxCombPath (ReduceOp par numComb op) = max (maxCombPath op) maxCombPathFromOutp
     -- assuming two inputs and one output to op
     maxCombPathFromOutputToInput = maximum (map pCTime $ inPorts op) + (pCTime $ head $ outPorts op)
 
-maxCombPath (Crop dkPairs op) =
+maxCombPath (Crop dkPairss op) =
   let
     -- have an or reduce tree for each port, get the largest one
-    maxOrCombPath = maximum $ map (ceilLog . length) dkPairs
+    maxOrCombPath = maximum $ map (ceilLog . length) dkPairss
   in max maxOrCombPath (maxCombPath op)
 maxCombPath (Delay dkPairs op) = maxCombPath $ Crop [dkPairs] op
 maxCombPath (Underutil denom op) = maxCombPath op
@@ -546,8 +546,19 @@ outPorts (MapOp par op) = renamePorts "O" $ liftPortsTypes par (outPorts op)
 outPorts (ReduceOp _ _ op) = renamePorts "O" $ outPorts op
 
 outPorts (NoOp tTypes) = renamePorts "O" $ map (head . oneOutSimplePort) tTypes
-outPorts (Crop _ op) = inPorts op
-outPorts (Delay _ op) = inPorts op
+-- verifying assertions stated in STAST.hs
+outPorts (Crop dkPairss op) |
+  (length (outPorts op) == length dkPairss) &&
+  (and $
+   map (\(port,dkPairs) -> pSeqLen port ==
+               (droppedInDKPairs dkPairs + keptInDKPairs dkPairs))
+    portsAndDKPairs) = portsWithNewSLens
+  where
+    portsAndDKPairs :: [(PortType, [DropKeepPair])]
+    portsAndDKPairs = zip (outPorts op) dkPairss
+    portsWithNewSLens = map (uncurry dropFromPort) portsAndDKPairs
+outPorts (Crop _ _) = [T_Port "invalidCropValues" 1 T_Unit 1]
+outPorts (Delay _ op) = outPorts op
 outPorts (Underutil _ op) = outPorts op
 outPorts (RegRetime _ op) = outPorts op
 

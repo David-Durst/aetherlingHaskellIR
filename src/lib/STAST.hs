@@ -71,6 +71,8 @@ data Op =
   -- this unit only impacts hardware for stateful elements by making valid
   -- false. It is only for aetherling type manipulations in combinational
   -- units
+  -- ASSUMING for each port, droopedInDKPairs + keptInDKPairs for its list
+  -- is equal to its sequence length 
   | Crop {crops :: [[DropKeepPair]], croppedOp :: Op}
   -- crop and delay aren't perfectly symmetric. Crop changes the number of
   -- elements for each output port independently, while delay affects the
@@ -78,6 +80,7 @@ data Op =
   -- this unit only impacts hardware for stateful elements by delaying clock
   -- enable. It is only for aetherling type manipulations in combinational
   -- units
+  -- ASSUMING keptInDKPairs = cps delayedOp, kept clocks are fully pipelined
   | Delay {delays :: [DropKeepPair], delayedOp :: Op} 
   -- run underOp at CPS = utilDenominator * old CPS
   -- this is essentially a multiplier version of delay. It is separate as
@@ -104,6 +107,11 @@ droppedInDKPairs dkPairs = foldl (+) 0 $ map numDropped dkPairs
 
 keptInDKPairs :: [DropKeepPair] -> Int
 keptInDKPairs dkPairs = foldl (+) 0 $ map numKept dkPairs
+
+-- given a Crop's DKPairs for a port, keep only the kept tokens
+dropFromPort :: PortType -> [DropKeepPair] -> PortType
+dropFromPort (T_Port name _ t pct) dkPairs =
+  T_Port name (keptInDKPairs dkPairs) t pct
 
 -- SeqPortMismatch indicates couldn't do comopse as composeSeq requires 
 -- all port types and latencies 
