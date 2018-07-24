@@ -193,7 +193,7 @@ simhlLineBuffer [pixW] [wW] [iW] t [inStr] =
       pack w =
         let
           (these_windows, later_windows) = splitAt pixW w
-          this_array = V_Array [a | a <- w]
+          this_array = V_Array [a | a <- these_windows]
           later_arrays = pack later_windows
         in
           this_array:later_arrays

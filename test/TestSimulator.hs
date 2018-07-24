@@ -113,7 +113,7 @@ data SimhlTestCase = SimhlTestCase {
   simhlTestOp :: Op,
   simhlTestImpl :: [[ValueType]] -> [[ValueType]]
                 -> ( [[ValueType]], [[ValueType]] ),
-  simhlInSeqLen :: Int,
+  simhlInStrLen :: Int,
   simhlMemTypes :: [(Int, TokenType)]
 }
 
@@ -122,7 +122,7 @@ simhlMakeTestCases _ [] = []
 simhlMakeTestCases inRand (thisCase:cases) =
   do { let op = simhlTestOp thisCase
      ; let (memRand, inSeqs) = simhlOpRandInputs inRand op
-                                                 (simhlInSeqLen thisCase)
+                                                 (simhlInStrLen thisCase)
      ; let (nextRand, inMem) = simhlMemRandInputs memRand
                                                   (simhlMemTypes thisCase)
      ; let tree = testCase (simhlTestDescription thisCase) $
@@ -423,6 +423,29 @@ simhlCase11 = SimhlTestCase
   280
   [(280, T_Int), (280, T_Int), (260, T_Int), (288, T_Int)] -- mismatch intended.
 
+-- Use a 1D line buffer to output the maximum of adjacent inputs (adjacent in time).
+simhlMaxAdjacentOp =
+  ArrayReshape [T_Int] [T_Array 1 T_Int] |>>=|
+  LineBuffer [1] [2] [100] T_Int |>>=|
+  ArrayReshape [T_Array 1 (T_Array 2 T_Int)] [T_Int, T_Int] |>>=|
+  Max T_Int
+simhlMaxAdjacentImpl :: [[ValueType]] -> [[ValueType]]
+                     -> ( [[ValueType]], [[ValueType]] )
+simhlMaxAdjacentImpl [inStr] _ =
+  let
+    intPairs = [(a,b) | (V_Int a, V_Int b) <- zip (tail inStr) (init inStr)]
+  in
+    ([[V_Int (max a b) | (a,b) <- intPairs]], [])
+simhlMaxAdjacentImpl _ _ = error "Aetherling test internal error: case 12"
+
+simhlCase12 = SimhlTestCase
+  "Use a 1D line buffer to output the maximum of adjacent inputs (adjacent \
+  \in time). (Tests LineBuffer, ArrayReshape, Max)."
+  simhlMaxAdjacentOp
+  simhlMaxAdjacentImpl
+  100
+  []
+
 simhlSeed = 1337
 
 simulatorTests = testGroup ("High level simulator tests, seed " ++ show simhlSeed)
@@ -438,5 +461,6 @@ simulatorTests = testGroup ("High level simulator tests, seed " ++ show simhlSee
       simhlCase8,
       simhlCase9,
       simhlCase10,
-      simhlCase11
+      simhlCase11,
+      simhlCase12
     ]
