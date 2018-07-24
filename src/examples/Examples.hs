@@ -49,13 +49,17 @@ conv1PxPerClock =
       MemRead T_Int |>>=|
       ArrayReshape [T_Int] [T_Array 1 T_Int] |>>=|
       LineBuffer [1] [3] [300] T_Int |>>=|
-      ArrayReshape [T_Array 1 (T_Array 3 T_Int)] [T_Array 3 T_Int]
+      Delay [DKPair 2 298] (
+        ArrayReshape [T_Array 1 (T_Array 3 T_Int)] [T_Array 3 T_Int]
+      )
     ) |&|
     Delay [DKPair 2 298] (Constant_Int [1, 1, 1])
   ) |>>=|
-  MapOp 3 (Add T_Int) |>>=|
-  ReduceOp 3 3 (Add T_Int) |>>=|
-  MemWrite T_Int
+  Delay [DKPair 2 298] (
+    MapOp 3 (Add T_Int) |>>=|
+    ReduceOp 3 3 (Add T_Int) |>>=|
+    MemWrite T_Int
+  )
 
 describeMethod name op = do
   print $ "Describing Module: " ++ name
