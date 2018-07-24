@@ -493,6 +493,18 @@ inPorts cSeq@(ComposeSeq (hd:_)) = renamePorts "I" $
 inPorts (ComposeFailure _ _) = []
 
 
+lbWarmup :: [Int] -> [Int] -> [Int] -> Int
+-- only guaranteed for 1d and 2d cases
+lbWarmup (pHd:[]) (wHd:[]) _ = (wHd `ceilDiv` pHd) - 1
+-- for the 2d case, warmup is filling the entire 1d linebuffer for all but last
+-- dimension of window, then doing warmup of 1d linebuffer
+lbWarmup (pHd:pTl) (wHd:wTl) (imgHd:imgTl) =
+  (((wHd `ceilDiv` pHd) - 1) * lowerDimLBInSeqLen) + lowerDimLBWarmup
+  where
+    -- cps is the same as input seq length
+    lowerDimLBInSeqLen = pSeqLen $ head $ inPorts $ LineBuffer pTl wTl imgTl T_Int
+    lowerDimLBWarmup = lbWarmup pTl wTl imgTl
+lbWarmup _ _ _ = 0
 
 oneOutSimplePort t = [T_Port "O" 1 t 1]
 outPorts :: Op -> [PortType]
@@ -530,7 +542,7 @@ outPorts lb@(LineBuffer p w img t) = [T_Port "O" seqLen parallelStencilType 1]
     parallelStencilType =
       foldr (\pDim innerType -> T_Array pDim innerType) singleStencilType p
     -- seqLen is same as inputs, except with nothing on warmup inputs
-    seqLen = (pSeqLen $ head $ inPorts lb) 
+    seqLen = (pSeqLen $ head $ inPorts lb) - lbWarmup p w img
 outPorts (Constant_Int ints) = [T_Port "O" 1 (T_Array (length ints) T_Int) 1]
 outPorts (Constant_Bit bits) = [T_Port "O" 1 (T_Array (length bits) T_Bit) 1]
 
