@@ -68,10 +68,16 @@ data Op =
   -- outer list is for each of the output ports of the wrapped module
   -- inner list for dropping and keeping tokens. First part of tuple is
   -- n to drop, second is n to keep. Creating patterns with lists of tuples
+  -- this unit only impacts hardware for stateful elements by making valid
+  -- false. It is only for aetherling type manipulations in combinational
+  -- units
   | Crop {crops :: [[DropKeepPair]], croppedOp :: Op}
   -- crop and delay aren't perfectly symmetric. Crop changes the number of
   -- elements for each output port independently, while delay affects the
   -- clock and thus impacts all ports by same number of clocks
+  -- this unit only impacts hardware for stateful elements by delaying clock
+  -- enable. It is only for aetherling type manipulations in combinational
+  -- units
   | Delay {delays :: [DropKeepPair], delayedOp :: Op} 
   -- run underOp at CPS = utilDenominator * old CPS
   -- this is essentially a multiplier version of delay. It is separate as
