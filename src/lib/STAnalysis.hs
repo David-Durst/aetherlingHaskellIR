@@ -81,14 +81,14 @@ space (NoOp _) = addId
 -- that + keep numbers. Create a set of comparators with ors for each port
 -- later optimize by removing ors at end of chain for one port, as independent
 -- valids for each port
-space (Crop dkPairss op) = space op |+| (counterSpace $ cps op) |+|
+space (Crop dkPairss cCPS op) = space op |+| counterSpace cCPS |+|
   (spacePerPair |* numPairs)
   where
     spacePerPair = space Lt |+| space Gt |+| space (Or T_Bit)
     numPairs = foldl (+) 0 $ map length dkPairss
 -- this is same hardware consumption as crop except instead of not sending a
 -- valid signal this manipulates clock enable
-space (Delay dkPairs op) = space $ Crop [dkPairs] op
+space op@(Delay dkPairs innerOp) = space $ Crop [dkPairs] (cps op) innerOp
 
 space (Underutil denom op) = space op |+| counterSpace (denom * cps op)
 space (RegRetime rc op) = space op |+|
@@ -159,9 +159,9 @@ clocksPerSequence (ReduceOp par numComb op) |
 clocksPerSequence (ReduceOp par numComb op) = cps op * (numComb `ceilDiv` par)
 
 clocksPerSequence (NoOp _) = combinationalCPS
-clocksPerSequence (Crop _ op) = cps op
+clocksPerSequence (Crop _ cCPS op) = cCPS
 -- Note assumption of STAST about kept in dkPairs matching cps op
-clocksPerSequence (Delay dkPairs _) = droppedInDKPairs dkPairs +
+clocksPerSequence (Delay dkPairs op) = droppedInDKPairs dkPairs +
   keptInDKPairs dkPairs
 clocksPerSequence (Underutil denom op) = denom * cps op
 -- since pipelined, this doesn't affect clocks per stream
@@ -225,11 +225,11 @@ initialLatency (ReduceOp par numComb op) =
 
 initialLatency (NoOp _) = 0
 -- if dropping stuff at start, that will increase initial latency
-initialLatency (Crop ((fstDKPair : _) : _) op) = (numDropped fstDKPair) +
+initialLatency (Crop ((fstDKPair : _) : _) _ op) = (numDropped fstDKPair) +
   initialLatency op
-initialLatency (Crop _ op) = initialLatency op
+initialLatency (Crop _ _ op) = initialLatency op
 -- delaying output with valid is same as delaying input with clock enable
-initialLatency (Delay dkPairs op) = initialLatency $ Crop [dkPairs] op
+initialLatency op@(Delay dkPairs innerOp) = initialLatency $ Crop [dkPairs] (cps op) innerOp
 initialLatency (Underutil denom op) = initialLatency op
 -- since pipelined, this doesn't affect clocks per stream
 initialLatency (RegRetime rc op) = initialLatency op + rc
@@ -319,12 +319,12 @@ maxCombPath (ReduceOp par numComb op) = max (maxCombPath op) maxCombPathFromOutp
     -- assuming two inputs and one output to op
     maxCombPathFromOutputToInput = maximum (map pCTime $ inPorts op) + (pCTime $ head $ outPorts op)
 
-maxCombPath (Crop dkPairss op) =
+maxCombPath (Crop dkPairss _ op) =
   let
     -- have an or reduce tree for each port, get the largest one
     maxOrCombPath = maximum $ map (ceilLog . length) dkPairss
   in max maxOrCombPath (maxCombPath op)
-maxCombPath (Delay dkPairs op) = maxCombPath $ Crop [dkPairs] op
+maxCombPath op@(Delay dkPairs innerOp) = maxCombPath $ Crop [dkPairs] (cps op) innerOp
 maxCombPath (Underutil denom op) = maxCombPath op
 -- since pipelined, this doesn't affect clocks per stream
 maxCombPath (RegRetime _ op) = maxCombPath op
@@ -376,7 +376,7 @@ util (ReduceOp _ _ op) = util op
 util (NoOp _) = 1
 -- this is actually not underutilizing it as computations
 -- still happening, internal state being modified
-util (Crop _ op) = util op
+util (Crop _ _ op) = util op
 util (Delay dkPairs op) = util op * (fromIntegral $ keptInDKPairs dkPairs) /
   (fromIntegral $ droppedInDKPairs dkPairs + keptInDKPairs dkPairs)
 util (Underutil denom op) = util op / fromIntegral denom
@@ -479,8 +479,10 @@ inPorts (ReduceOp par numComb op) = renamePorts "I" $ map scaleSeqLen $
     portToDuplicate [] = []
 
 inPorts (NoOp tTypes) = renamePorts "I" $ map (head . oneInSimplePort) tTypes
-inPorts (Crop _ op) = inPorts op
-inPorts (Delay _ op) = inPorts op
+inPorts op@(Crop _ _ innerOp) = scalePortsSeqLens
+  (getSeqLenScalingsForAllPorts op [innerOp] inPorts) (inPorts innerOp)
+inPorts op@(Delay _ innerOp) = scalePortsSeqLens
+  (getSeqLenScalingsForAllPorts op [innerOp] inPorts) (inPorts innerOp)
 inPorts (Underutil _ op) = inPorts op
 inPorts (RegRetime _ op) = inPorts op
 
@@ -559,18 +561,18 @@ outPorts (ReduceOp _ _ op) = renamePorts "O" $ outPorts op
 
 outPorts (NoOp tTypes) = renamePorts "O" $ map (head . oneOutSimplePort) tTypes
 -- verifying assertions stated in STAST.hs
-outPorts (Crop dkPairss op) |
+outPorts (Crop dkPairss _ op) |
   (length (outPorts op) == length dkPairss) &&
   (and $
-   map (\(port,dkPairs) -> pSeqLen port ==
-               (droppedInDKPairs dkPairs + keptInDKPairs dkPairs))
-    portsAndDKPairs) = portsWithNewSLens
+   map (\(port,dkPairs) -> (droppedInDKPairs dkPairs + keptInDKPairs dkPairs)
+         `mod` pSeqLen port == 0) portsAndDKPairs) = portsWithNewSLens
   where
     portsAndDKPairs :: [(PortType, [DropKeepPair])]
     portsAndDKPairs = zip (outPorts op) dkPairss
-    portsWithNewSLens = map (uncurry dropFromPort) portsAndDKPairs
-outPorts (Crop _ _) = [T_Port "invalidCropValues" 1 T_Unit 1]
-outPorts (Delay _ op) = outPorts op
+    portsWithNewSLens = map (uncurry modifySeqLenForDropKeepPairs) portsAndDKPairs
+outPorts (Crop _ _ _) = [T_Port "invalidCropValues" 1 T_Unit 1]
+outPorts op@(Delay dkPairs innerOp) = scalePortsSeqLens
+  (getSeqLenScalingsForAllPorts op [innerOp] outPorts) (outPorts innerOp)
 outPorts (Underutil _ op) = outPorts op
 outPorts (RegRetime _ op) = outPorts op
 
@@ -622,7 +624,7 @@ isComb (ReduceOp par numComb op) | par == numComb = isComb op
 isComb (ReduceOp _ _ op) = False
 
 isComb (NoOp tTypes) = True 
-isComb (Crop _ op) = isComb op
+isComb (Crop _ _ op) = isComb op
 isComb (Delay _ op) = isComb op
 isComb (Underutil denom op) = isComb op
 -- since pipelined, this doesn't affect clocks per stream

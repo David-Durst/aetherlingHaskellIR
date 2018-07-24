@@ -161,8 +161,8 @@ speedUpIfPossible throughMult (ReduceOp par numComb innerOp) =
 speedUpIfPossible throughMult op@(NoOp _) = (MapOp throughMult op, throughMult)
 -- this doesn't work when speeding up a linebuffer, the dkPairs value seems like
 -- it needs to be reworked here.
-speedUpIfPossible throughMult (Crop dkPairss innerOp) =
-  (Crop dkPairss spedUpInnerOp, innerMult)
+speedUpIfPossible throughMult (Crop dkPairss cCps innerOp) =
+  (Crop dkPairss cCps spedUpInnerOp, innerMult)
   where (spedUpInnerOp, innerMult) = speedUpIfPossible throughMult innerOp 
 speedUpIfPossible throughMult (Delay dkPairs innerOp) =
   (Delay dkPairs spedUpInnerOp, innerMult)
@@ -318,8 +318,8 @@ slowDownIfPossible throughDiv (ReduceOp par numComb innerOp) =
 slowDownIfPossible throughDiv op@(NoOp _) = (MapOp throughDiv op, throughDiv)
 -- this doesn't work when speeding up a linebuffer, the dkPairs value seems like
 -- it needs to be reworked here.
-slowDownIfPossible throughDiv (Crop dkPairss innerOp) =
-  (Crop dkPairss slowedInnerOp, innerDiv)
+slowDownIfPossible throughDiv (Crop dkPairss cCps innerOp) =
+  (Crop dkPairss cCps slowedInnerOp, innerDiv)
   where (slowedInnerOp, innerDiv) = slowDownIfPossible throughDiv innerOp 
 slowDownIfPossible throughDiv (Delay dkPairs innerOp) =
   (Delay dkPairs slowedInnerOp, innerDiv)

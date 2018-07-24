@@ -72,15 +72,15 @@ data Op =
   -- false. It is only for aetherling type manipulations in combinational
   -- units
   -- ASSUMING for each port, droopedInDKPairs + keptInDKPairs for its list
-  -- is equal to its sequence length 
-  | Crop {crops :: [[DropKeepPair]], croppedOp :: Op}
+  -- is a multiple of its sequence length 
+  | Crop {crops :: [[DropKeepPair]], scaledCPS :: Int, croppedOp :: Op}
   -- crop and delay aren't perfectly symmetric. Crop changes the number of
   -- elements for each output port independently, while delay affects the
   -- clock and thus impacts all ports by same number of clocks
   -- this unit only impacts hardware for stateful elements by delaying clock
   -- enable. It is only for aetherling type manipulations in combinational
   -- units
-  -- ASSUMING keptInDKPairs = cps delayedOp, kept clocks are fully pipelined
+  -- Assuming droppedInDKPairs + keptInDKPairs is a multiple of delayedOP's cps
   | Delay {delays :: [DropKeepPair], delayedOp :: Op} 
   -- run underOp at CPS = utilDenominator * old CPS
   -- this is essentially a multiplier version of delay. It is separate as
@@ -108,9 +108,16 @@ droppedInDKPairs dkPairs = foldl (+) 0 $ map numDropped dkPairs
 keptInDKPairs :: [DropKeepPair] -> Int
 keptInDKPairs dkPairs = foldl (+) 0 $ map numKept dkPairs
 
--- given a Crop's DKPairs for a port, keep only the kept tokens
-dropFromPort :: PortType -> [DropKeepPair] -> PortType
-dropFromPort (T_Port name _ t pct) dkPairs =
+-- given an Op and a list of DKPairs, modify all its ports according to
+-- modifySeqLenForDropKeepPairs
+getPortsWithDKPairsApplied :: [PortType] -> [DropKeepPair] -> [PortType]
+getPortsWithDKPairsApplied ports dkPairs =
+  map (\port -> modifySeqLenForDropKeepPairs port dkPairs) ports
+
+-- given a Crop's DKPairs for a port, scale the port's seqlen up to
+-- the sum of the dropped and kept length and drop the dropped tokens
+modifySeqLenForDropKeepPairs :: PortType -> [DropKeepPair] -> PortType
+modifySeqLenForDropKeepPairs (T_Port name _ t pct) dkPairs =
   T_Port name (keptInDKPairs dkPairs) t pct
 
 -- SeqPortMismatch indicates couldn't do comopse as composeSeq requires 
@@ -157,7 +164,7 @@ getChildOps (DuplicateOutputs _ op) = [op]
 getChildOps (MapOp _ op) = [op]
 getChildOps (ReduceOp _ _ op) = [op]
 getChildOps (NoOp _) = []
-getChildOps (Crop _ op) = [op]
+getChildOps (Crop _ _ op) = [op]
 getChildOps (Delay _ op) = [op]
 getChildOps (Underutil _ op) = [op]
 getChildOps (RegRetime _ op) = [op]

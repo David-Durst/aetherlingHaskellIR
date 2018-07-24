@@ -25,7 +25,7 @@ lb13Underutil = Underutil 2 $ LineBuffer [2] [3] [300] T_Int
 lbChain = 
   Constant_Int [1] |>>=|
   LineBuffer [1] [3] [300] T_Int |>>=|
-  LineBuffer [1] [3] [300] (T_Array 3 T_Int)
+  Delay [DKPair 2 298] (LineBuffer [1] [3] [298] (T_Array 3 T_Int))
 
 -- no support for 2D linebuffers yet
 
@@ -51,7 +51,7 @@ conv1PxPerClock =
       LineBuffer [1] [3] [300] T_Int |>>=|
       ArrayReshape [T_Array 1 (T_Array 3 T_Int)] [T_Array 3 T_Int]
     ) |&|
-    Constant_Int [1, 1, 1]
+    Delay [DKPair 2 298] (Constant_Int [1, 1, 1])
   ) |>>=|
   MapOp 3 (Add T_Int) |>>=|
   ReduceOp 3 3 (Add T_Int) |>>=|
