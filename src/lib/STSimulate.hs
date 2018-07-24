@@ -16,9 +16,11 @@ import SimulatorLib.MapReduce
 import SimulatorLib.Memory
 import SimulatorLib.State
 
--- High level simulator for Aetherling pipelines (Op instances).
--- Useful for verifying that the logic of the circuit is correct, but
--- doesn't simulate the actual hardware implementation.
+-- See SimulatorLib/howto.txt for documentation.
+--
+-- High level (functional) simulator for Aetherling pipelines (Op
+-- instances).  Useful for verifying that the logic of the circuit is
+-- correct, but doesn't simulate the actual hardware implementation.
 --
 -- First Argument - Simulated Operator.
 --
@@ -30,8 +32,8 @@ import SimulatorLib.State
 -- that aren't underutilized and have no warmup, this corresponds to a
 -- list of inputs on each clock cycle).
 --
--- NOTE: Be careful if some ports have a longer/shorter stream of
--- inputs than expected.
+-- NOTE: Implementors: be careful if some ports have a longer/shorter
+-- stream of inputs than expected.
 --
 -- NOTE: Nomenclature issue. For historical reasons "sequence" might
 -- be used where "stream" should be. Fix this. "Sequence" should only
@@ -61,7 +63,7 @@ import SimulatorLib.State
 -- TODO: Split up the file into smaller files ... eventually.
 simulateHighLevel' :: Op -> [[ValueType]] -> [[ValueType]]
                   -> ( [[ValueType]], [[ValueType]], String )
--- Check that the types match, then delegate to simhl implementation.
+-- Check for type mismatches, then run the preprocessor
 simulateHighLevel' op _ _ | hasChildWithError op || isFailure op =
   error $ "Op has error: " ++ show op
 simulateHighLevel' op portInputs memoryInputs =
@@ -184,7 +186,7 @@ simhl op@(ComposePar _) inStrs state =
 simhl (ComposeFailure _ _) _ _ =
     error "Aetherling internal error: ComposeFailure in simulation."
 
--- Preprosess the operators recursively. Does these things:
+-- Preprocess the operators recursively. Does these things:
 --
 -- Find the longest input/output stream that will ever be
 -- consumed/produced by the simulated pipeline, whether it's final or

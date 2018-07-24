@@ -74,6 +74,6 @@ simhlLUT table [V_Int i] = [V_Int 0]
 simhlLUT _ [V_Unit] = [V_Unit]
 simhlLUT _ _ = error "Aetherling internal error: non-unit garbage LUT input"
 
--- Note: all these ops are combinational, so their preprossessor pass
+-- Note: all these ops are combinational, so their preprocessor pass
 -- implementations are just one-line calls to simhlPreCombinational in
 -- simhlPre.

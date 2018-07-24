@@ -25,7 +25,7 @@ simhlPar simhl (ComposePar (op:moreOps)) inStrs inState =
       (opOutStrs ++ moreOutStrs, endState)
 
 
--- Preprossessor pass implementations.
+-- Preprocessor pass implementations.
 simhlPrePar :: SimhlPre -> [Op] -> [Maybe Int] -> SimhlPreState
             -> ([Maybe Int], SimhlPreState)
 simhlPrePar simhlPre opStack@(ComposePar ops:_) inStrLens inState =

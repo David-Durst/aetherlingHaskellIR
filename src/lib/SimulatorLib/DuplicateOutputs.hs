@@ -3,7 +3,7 @@ import STAST
 import STTypes
 import SimulatorLib.State
 
--- Simulator and preprosessor pass implementation for duplicate outputs.
+-- Simulator and preprocessor pass implementation for duplicate outputs.
 
 simhlDuplicateOutputs :: Simhl -> Op -> [[ValueType]] -> SimhlState
                       -> ( [[ValueType]], SimhlState )

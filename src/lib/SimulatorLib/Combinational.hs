@@ -6,8 +6,9 @@ import SimulatorLib.State
 
 -- Helper function for simulating combinational devices.  Takes an
 -- implementation function ([ValueType]->[ValueType]) and a list of
--- lists of ValueType as earlier. Implementation function takes a list
--- with entries corresponding to input ports' inputs in 1 cycle and
+-- lists of ValueType in the usual format for
+-- simulateHighLevel. Implementation function takes a list with
+-- entries corresponding to input ports' inputs in 1 cycle and
 -- produces list of output ports' outputs.
 simhlCombinational :: ([ValueType]->[ValueType]) -> [[ValueType]] -> [[ValueType]]
 simhlCombinational impl inStrs | any null inStrs = []
@@ -53,27 +54,22 @@ simhlIntCmpOp intImpl [_, V_Unit] = [V_Unit]
 simhlIntCmpOp intImpl [V_Int x, V_Int y] = [V_Bit $ intImpl x y]
 simhlIntCmpOp _ _ = error "Aetherling internal error: int cmp op no match"
 
-
--- As far as the preprossessor pass is concerned, basically all combinational
+-- As far as the preprocessor pass is concerned, basically all combinational
 -- devices are the same. They just produce output streams as long as their
 -- shortest input stream. Combinational ops can just delegate to this
--- function for their preprosessor pass (as long as they have no child ops).
+-- function for their preprocessor pass (as long as they have no child ops).
 simhlPreCombinational :: [Op] -> [Maybe Int] -> SimhlPreState
                       -> ([Maybe Int], SimhlPreState)
 simhlPreCombinational [] _ _ =
     error "Aetherling internal error: simhlPreCombinational empty opStack."
 simhlPreCombinational opStack@(op:_) inStrLens inState =
     let
-      outStrLen = simhlMinStrLen inStrLens
       outPortCount = length $ outPorts op
+      outStrLens = replicate outPortCount (simhlMinStrLen inStrLens)
       warning' =
         if all (== (head inStrLens)) inStrLens then Nothing
-        else Just "Input stream lengths don't match"
-      outState = simhlAddMaybeWarning
-                   (simhlUpdateLongestStr inState [outStrLen])
-                   opStack
-                   warning'
+        else Just $ "Input stream lengths don't match " ++ show inStrLens
     in
-      (replicate outPortCount outStrLen, outState)
+      simhlPreResult opStack outStrLens warning' inState
 
 

@@ -84,9 +84,6 @@ simhlMapFoldLambda simhl lastTuple laneInput =
 -- Furthermore, parallellism must evenly divide the combine count,
 -- which itself must be nonzero.
 --
--- Make sure that these restrictions are checked by simhlPre (ReduceOp),
--- and that the documentation there on restrictions is up-to-date.
---
 -- Implementation of simhl ReduceOp
 -- A Reduce circuit has 2 parts generally.
 --   1. A tree of reducedOps that takes par (paralellism) inputs and

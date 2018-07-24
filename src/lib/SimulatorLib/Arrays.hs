@@ -1,4 +1,3 @@
-{-# OPTIONS_GHC -fwarn-incomplete-patterns #-}
 module SimulatorLib.Arrays where
 import Data.Array
 import STAST
@@ -230,9 +229,8 @@ simhlPreRepack
                     \input sequence length."
         warning = warning' inStrLen
       in
-        ([outStrLen],
-         simhlAddMaybeWarning (simhlUpdateLongestStr inState [outStrLen])
-            opStack warning)
+        simhlPreResult opStack [outStrLen] warning inState
+
 simhlPreRepack _ _ _ =
     error "Aetherling internal error: expected SequenceArrayRepack"
 
@@ -267,16 +265,15 @@ simhlPreLB opStack@(LineBuffer [pixW] [wW] [iW] t:_) [inStrLen] inState =
       let
         strLen = div (iW-wW+1) pixW
         expectedInStrLen = div iW pixW
-        midState = simhlUpdateLongestStr inState [Just strLen]
         just Nothing = expectedInStrLen
         just (Just i) = i
-        outState =
+        warning' =
           if expectedInStrLen /= just inStrLen then
-            simhlAddWarning midState opStack "Unexpected input stream length"
+            Just "Unexpected input stream length"
           else
-            midState
+            Nothing
       in
-        ([Just strLen], outState)
+        simhlPreResult opStack [Just strLen] warning' inState
 
 simhlPreLB opStack@(LineBuffer [1, pixW] [wH, wW] [iH, iW] t:_) [inStrLen] inState =
     if (wW-1) `mod` pixW /= 0 || iW `mod` pixW /= 0 || any (<=0) [pixW, wH, wW, iH, iW] then
