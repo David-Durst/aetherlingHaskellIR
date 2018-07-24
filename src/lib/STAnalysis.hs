@@ -478,6 +478,9 @@ inPorts (ReduceOp par numComb op) = renamePorts "I" $ map scaleSeqLen $
     portToDuplicate ((T_Port name sLen tType pct):_) = [T_Port name sLen tType pct]
     portToDuplicate [] = []
 
+inPorts (NoOp tTypes) = renamePorts "I" $ map (head . oneInSimplePort) tTypes
+inPorts (Crop _ op) = inPorts op
+inPorts (Delay _ op) = inPorts op
 inPorts (Underutil _ op) = inPorts op
 inPorts (RegRetime _ op) = inPorts op
 
@@ -542,6 +545,9 @@ outPorts (DuplicateOutputs n op) = renamePorts "O" $ foldl (++) [] $
 outPorts (MapOp par op) = renamePorts "O" $ liftPortsTypes par (outPorts op)
 outPorts (ReduceOp _ _ op) = renamePorts "O" $ outPorts op
 
+outPorts (NoOp tTypes) = renamePorts "O" $ map (head . oneOutSimplePort) tTypes
+outPorts (Crop _ op) = inPorts op
+outPorts (Delay _ op) = inPorts op
 outPorts (Underutil _ op) = outPorts op
 outPorts (RegRetime _ op) = outPorts op
 
@@ -592,6 +598,9 @@ isComb (MapOp _ op) = isComb op
 isComb (ReduceOp par numComb op) | par == numComb = isComb op
 isComb (ReduceOp _ _ op) = False
 
+isComb (NoOp tTypes) = True 
+isComb (Crop _ op) = isComb op
+isComb (Delay _ op) = isComb op
 isComb (Underutil denom op) = isComb op
 -- since pipelined, this doesn't affect clocks per stream
 isComb (RegRetime _ op) = False
