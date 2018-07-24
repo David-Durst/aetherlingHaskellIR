@@ -10,7 +10,7 @@ combinationalAdd = Add T_Int
 
 reduce44 = ReduceOp 4 4 (Add T_Int)
 
-reduce44Delayed = RegDelay 2 $ ReduceOp 4 4 (Add T_Int)
+reduce44Retimed = RegRetime 2 $ ReduceOp 4 4 (Add T_Int)
 
 reduce41 = ReduceOp 4 1 (Add T_Int)
 

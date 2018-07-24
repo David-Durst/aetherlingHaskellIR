@@ -175,8 +175,8 @@ speedUpIfPossible throughMult op@(Underutil denom innerOp) =
 
 -- NOTE: what to do if mapping over a reg delay? Nothing? its sequential but,
 -- unlike other sequential things like reduce, linebuffer its cool to duplicate
-speedUpIfPossible throughMult (RegDelay d innerOp) =
-  (RegDelay d spedUpInnerOp, innerMult)
+speedUpIfPossible throughMult (RegRetime d innerOp) =
+  (RegRetime d spedUpInnerOp, innerMult)
   where (spedUpInnerOp, innerMult) = speedUpIfPossible throughMult innerOp 
 
 speedUpIfPossible throughMult (ComposePar ops) = 
@@ -311,8 +311,8 @@ slowDownIfPossible throughDiv (Underutil denom op) =
 
 -- NOTE: what to do if mapping over a reg delay? Nothing? its sequential but,
 -- unlike other sequential things like reduce, linebuffer its cool to duplicate
-slowDownIfPossible throughDiv (RegDelay d innerOp) =
-  (RegDelay d slowedInnerOp, innerMult)
+slowDownIfPossible throughDiv (RegRetime d innerOp) =
+  (RegRetime d slowedInnerOp, innerMult)
   where (slowedInnerOp, innerMult) = slowDownIfPossible throughDiv innerOp 
 
 slowDownIfPossible throughDiv (ComposePar ops) = 

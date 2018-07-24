@@ -4,7 +4,7 @@ import Examples
 main = do
   describeMethod "basic combinonal adder" combinationalAdd
   describeMethod "fully parallel 4 ints per clock reduce" reduce44 
-  describeMethod "register delayed, fully parallel 4 ints per clock reduce"reduce44Delayed 
+  describeMethod "register delayed, fully parallel 4 ints per clock reduce"reduce44Retimed
   describeMethod "fully sequential 4 ints per 4 clocks reduce" reduce41
   describeMethod "4 ints per clock map" map4
   describeMethod "1 pixel per clock, 3 pixel stencil linebuffer" lb13
