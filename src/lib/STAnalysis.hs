@@ -81,14 +81,14 @@ space (NoOp _) = addId
 -- that + keep numbers. Create a set of comparators with ors for each port
 -- later optimize by removing ors at end of chain for one port, as independent
 -- valids for each port
-space (Crop dkPairs op) = space op |+| space (counterSpace $ cps op) |+|
+space (Crop dkPairs op) = space op |+| (counterSpace $ cps op) |+|
   (spacePerPair |* numPairs)
   where
     spacePerPair = space Lt |+| space Gt |+| space (Or T_Bit)
-    numPairs = foldl (+) 0 $ map length dropKeepPairs
+    numPairs = foldl (+) 0 $ map length dkPairs
 -- this is same hardware consumption as crop except instead of not sending a
 -- valid signal this manipulates clock enable
-space (Delay dkPairs op) = space $ Crop dkPairs op
+space (Delay dkPairs op) = space $ Crop [dkPairs] op
 
 space (Underutil denom op) = space op |+| counterSpace (denom * cps op)
 space (RegRetime rc op) = space op |+|
@@ -224,11 +224,10 @@ initialLatency (ReduceOp par numComb op) =
 
 
 initialLatency (NoOp _) = 0
-initialLatency (Crop [] op) = initialLatency op
-initialLatency (Crop [[]] op) = initialLatency op
 -- if dropping stuff at start, that will increase initial latency
 initialLatency (Crop ((fstDKPair : _) : _) op) = (numDropped fstDKPair) +
   initialLatency op
+initialLatency (Crop _ op) = initialLatency op
 -- delaying output with valid is same as delaying input with clock enable
 initialLatency (Delay dkPairs op) = initialLatency $ Crop [dkPairs] op
 initialLatency (Underutil denom op) = initialLatency op
@@ -308,6 +307,7 @@ maxCombPath (SequenceArrayRepack _ _ _) = 1
 maxCombPath (ArrayReshape _ _) = 1
 maxCombPath (DuplicateOutputs _ _) = 1
 
+maxCombPath (NoOp _) = 0
 maxCombPath (MapOp _ op) = maxCombPath op
 maxCombPath (ReduceOp par _ op) | isComb op = maxCombPath op * ceilLog par
 -- since connecting each op to a copy, and all are duplicates, 
@@ -373,11 +373,12 @@ util (DuplicateOutputs _ _) = 1
 util (MapOp _ op) = util op
 util (ReduceOp _ _ op) = util op
 
+util (NoOp _) = 1
 -- this is actually not underutilizing it as computations
 -- still happening, internal state being modified
-util (Crop _ op) = crop op
-util (Delay dkPairs op) = util op * (keptInDKPairs dkPairs) /
-  (droppedInDKPairs dkPairs + keptInDKPairs dkPairs)
+util (Crop _ op) = util op
+util (Delay dkPairs op) = util op * (fromIntegral $ keptInDKPairs dkPairs) /
+  (fromIntegral $ droppedInDKPairs dkPairs + keptInDKPairs dkPairs)
 util (Underutil denom op) = util op / fromIntegral denom
 -- since pipelined, this doesn't affect clocks per stream
 util (RegRetime _ op) = util op
