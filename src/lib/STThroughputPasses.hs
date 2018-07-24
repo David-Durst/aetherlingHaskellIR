@@ -158,6 +158,15 @@ speedUpIfPossible throughMult (ReduceOp par numComb innerOp) =
   let (spedUpInnerOp, actualMult) = speedUpIfPossible throughMult innerOp
   in (ReduceOp par numComb spedUpInnerOp, actualMult)
 
+speedUpIfPossible throughMult op@(NoOp _) = (MapOp throughMult op, throughMult)
+-- this doesn't work when speeding up a linebuffer, the dkPairs value seems like
+-- it needs to be reworked here.
+speedUpIfPossible throughMult (Crop dkPairss innerOp) =
+  (Crop dkPairss spedUpInnerOp, innerMult)
+  where (spedUpInnerOp, innerMult) = speedUpIfPossible throughMult innerOp 
+speedUpIfPossible throughMult (Delay dkPairs innerOp) =
+  (Delay dkPairs spedUpInnerOp, innerMult)
+  where (spedUpInnerOp, innerMult) = speedUpIfPossible throughMult innerOp 
 -- modify underutil if mult divides cleanly into underutil's denominator
 -- or if removing underutil and the denominator divides cleanly into mult
 speedUpIfPossible throughMult (Underutil denom op) |
@@ -306,6 +315,15 @@ slowDownIfPossible throughDiv (ReduceOp par numComb innerOp) =
   let (slowedInnerOp, actualDiv) = slowDownIfPossible throughDiv innerOp
   in (ReduceOp par numComb slowedInnerOp, actualDiv)
 
+slowDownIfPossible throughDiv op@(NoOp _) = (MapOp throughDiv op, throughDiv)
+-- this doesn't work when speeding up a linebuffer, the dkPairs value seems like
+-- it needs to be reworked here.
+slowDownIfPossible throughDiv (Crop dkPairss innerOp) =
+  (Crop dkPairss slowedInnerOp, innerDiv)
+  where (slowedInnerOp, innerDiv) = slowDownIfPossible throughDiv innerOp 
+slowDownIfPossible throughDiv (Delay dkPairs innerOp) =
+  (Delay dkPairs slowedInnerOp, innerDiv)
+  where (slowedInnerOp, innerDiv) = slowDownIfPossible throughDiv innerOp 
 slowDownIfPossible throughDiv (Underutil denom op) =
   (Underutil (denom * throughDiv) op, throughDiv)
 
