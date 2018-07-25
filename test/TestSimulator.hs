@@ -6,6 +6,7 @@ import STComposeOps
 import STSimulate
 import STTypes
 import Data.Bits
+import Data.List
 import Test.Tasty
 import Test.Tasty.HUnit
 
@@ -71,7 +72,7 @@ simhlRandValues inRand seqLen T_Int =
   }
 simhlRandValues inRand seqLen T_Bit =
   do { let (nextRand, theBool) = simhlRandBool inRand
-     ; let (outRand, moreValues) = simhlRandValues nextRand (seqLen-1) T_Int
+     ; let (outRand, moreValues) = simhlRandValues nextRand (seqLen-1) T_Bit
      ; (outRand, (V_Bit theBool):moreValues)
   }
 simhlRandValues inRand seqLen (T_Array n t) =
@@ -437,7 +438,6 @@ simhlMaxAdjacentImpl [inStr] _ =
   in
     ([[V_Int (max a b) | (a,b) <- intPairs]], [])
 simhlMaxAdjacentImpl _ _ = error "Aetherling test internal error: case 12"
-
 simhlCase12 = SimhlTestCase
   "Use a 1D line buffer to output the maximum of adjacent inputs (adjacent \
   \in time). (Tests LineBuffer, ArrayReshape, Max)."
@@ -446,10 +446,67 @@ simhlCase12 = SimhlTestCase
   100
   []
 
+-- Use a 1D line buffer to output the xor of 10 adjacent inputs,
+-- passed 3 at a time.
+simhlXOr10Op =
+  ArrayReshape [T_Bit] [T_Array 1 T_Bit] |>>=|
+  SequenceArrayRepack (3, 1) (1, 3) T_Bit |>>=|
+  Underutil 3 (
+      LineBuffer [3] [10] [300] T_Bit |>>=|
+      MapOp 3 (ReduceOp 10 10 (XOr T_Bit))) |>>=|
+  SequenceArrayRepack (1, 3) (3, 1) T_Bit |>>=|
+  ArrayReshape [T_Array 1 T_Bit] [T_Bit]
+simhlXOr10Impl :: [[ValueType]] -> [[ValueType]]
+               -> ( [[ValueType]], [[ValueType]] )
+simhlXOr10Impl [inStr] _ =
+  let
+    getBools = \a -> [b | V_Bit b <- a]
+    everything = map (\n -> getBools (take 291 (drop n inStr))) [0..9]
+    groupsOfTen = transpose everything
+  in
+    ([[V_Bit (foldl1 xor a) | a <- groupsOfTen]], [])
+simhlCase13 = SimhlTestCase
+  "Use a 1D line buffer to output the xor of groups of 10 adjacent inputs \
+  \(Tests LineBuffer, XOr)"
+  simhlXOr10Op
+  simhlXOr10Impl
+  300
+  []
+
+-- A test for the 2D line buffer that breaks the mold. We just create
+-- inputs with a regular pattern (5*x + 7*y) and check that the
+-- outputs match that same pattern.
+simhlLineBufferOp =
+  LineBuffer [1, 2] [4, 3] [150, 100] T_Int
+simhlLineBufferTestData =
+      [[
+        V_Array [ V_Array [V_Int (5*x + 7*y), V_Int (5*(x+1) + 7*y)] ]
+        | y <- [0..149], x <- [0, 2..98]
+      ]]
+simhlLineBufferExpected =
+  let
+    mkWindow xo yo = V_Array [ V_Array [
+                                 V_Int (5*(xo+xi) + 7*(yo+yi)) | xi <- [0..2]
+                               ] | yi <- [0..3]
+                     ]
+  in
+    (
+        [[
+            V_Array [ V_Array [ mkWindow x y, mkWindow (x+1) y ]]
+                              | y <- [0..146], x <- [0,2..96]
+        ]],
+        []
+    )
+simhlLineBufferCase =
+  testCase "2D LineBuffer Test" $
+           (simulateHighLevel simhlLineBufferOp simhlLineBufferTestData [])
+       @?= simhlLineBufferExpected
+
 simhlSeed = 1337
 
 simulatorTests = testGroup ("High level simulator tests, seed " ++ show simhlSeed)
-  $ simhlMakeTestCases (SimhlRand simhlSeed) [
+  $ simhlLineBufferCase:
+    simhlMakeTestCases (SimhlRand simhlSeed) [
       simhlCase0,
       simhlCase1,
       simhlCase2,
@@ -462,5 +519,6 @@ simulatorTests = testGroup ("High level simulator tests, seed " ++ show simhlSee
       simhlCase9,
       simhlCase10,
       simhlCase11,
-      simhlCase12
+      simhlCase12,
+      simhlCase13
     ]
