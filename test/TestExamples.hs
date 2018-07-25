@@ -1,14 +1,16 @@
 import Test.Tasty
 import Test.Tasty.HUnit
 import STAST
+import STMetrics
 import Examples
 import TestSimulator
+import TestThroughputPasses
 
 main :: IO ()
 main = defaultMain tests
 
 tests :: TestTree
-tests = testGroup "Example Tests" [unitTests, simulatorTests]
+tests = testGroup "Example Tests" [unitTests, simulatorTests, throughputTests]
 
 isSuccess :: Op -> Bool
 isSuccess (ComposeFailure _ _) = False
