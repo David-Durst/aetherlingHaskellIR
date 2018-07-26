@@ -48,23 +48,15 @@ instance MergeOrScale OpsWireArea where
   (|+|) (OWA o0 w0) (OWA o1 w1) = OWA (o0 + o1) (w0 + w1)
   (|*) (OWA o w) i = OWA (o * i) (w * i)
 
-data SteadyStateAndWarmupRatio = SWRatio {swNumerator :: SteadyStateAndWarmupLen, 
-  swDenominator :: SteadyStateAndWarmupLen}
-
-instance Show SteadyStateAndWarmupRatio where
-  show (SWRatio num denom) | num == denom = "1"
-  show (SWRatio (SWLen numMult numWarmup) (SWLen denomMult denomWarmup)) | numWarmup == 0 &&
-    denomWarmup == 0 = "(" ++ show (numerator simplified) ++ "/" ++ show (denominator simplified) ++ ")n"
-    where simplified = numMult % denomMult
-  show (SWRatio num denom) = "(" ++ show num ++ ") / (" ++ show denom ++ ")"
-
-instance Eq SteadyStateAndWarmupRatio where
-  -- this is (an+b)/(cn+d) == (en+f)/(gn+h)
-  -- which is a*gn^2 + a*hn + b*gn + b*h == c*en^2 + c*fn + d*en + d*f
-  (==) (SWRatio (SWLen a b) (SWLen c d))
-    (SWRatio (SWLen e f) (SWLen g h))
-    = (a*g == c*e) && (a*h + b*g == c*f + d*e) && (b*h == d*f)
-  (/=) ratio0 ratio1 = not (ratio0 == ratio1) 
-
 data PortThroughput = PortThroughput {throughputType :: TokenType, 
-  throughputTypePerClock :: SteadyStateAndWarmupRatio} deriving (Show, Eq)
+  throughputTypePerClock :: Ratio Int} deriving (Show, Eq)
+
+-- get the throughput of a port using only atomic types, T_Bit and T_Int
+-- this guarantees throuhgputs are comparable for equality
+atomicThroughput :: PortThroughput -> PortThroughput
+atomicThroughput (PortThroughput nestedT@(T_Array n innerT) r) =
+  PortThroughput atomicT ((n % 1) * innerRatio)
+  where (PortThroughput atomicT innerRatio) =
+          atomicThroughput (PortThroughput innerT r)
+atomicThroughput pt@(PortThroughput t _) = pt
+ 

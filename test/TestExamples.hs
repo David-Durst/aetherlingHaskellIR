@@ -18,7 +18,7 @@ unitTests = testGroup "Verifying Examples Aren't ComposeFailures"
   [
     testCase "basic combinonal adder" $ isSuccess combinationalAdd @?= True,
     testCase "fully parallel 4 ints per clock reduce" $ isSuccess reduce44 @?= True,
-    testCase "register delayed, fully parallel 4 ints per clock reduce" $ isSuccess reduce44Delayed @?= True,
+    testCase "register delayed, fully parallel 4 ints per clock reduce" $ isSuccess reduce44Retimed @?= True,
     testCase "fully sequential 4 ints per 4 clocks reduce" $ isSuccess reduce41 @?= True,
     testCase "4 ints per clock map" $ isSuccess map4 @?= True,
     testCase "1 pixel per clock, 3 pixel stencil linebuffer" $ isSuccess lb13 @?= True,

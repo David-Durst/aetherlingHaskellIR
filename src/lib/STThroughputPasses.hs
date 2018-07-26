@@ -158,6 +158,15 @@ speedUpIfPossible throughMult (ReduceOp par numComb innerOp) =
   let (spedUpInnerOp, actualMult) = speedUpIfPossible throughMult innerOp
   in (ReduceOp par numComb spedUpInnerOp, actualMult)
 
+speedUpIfPossible throughMult op@(NoOp _) = (MapOp throughMult op, throughMult)
+-- this doesn't work when speeding up a linebuffer, the dkPairs value seems like
+-- it needs to be reworked here.
+speedUpIfPossible throughMult (Crop dkPairss cCps innerOp) =
+  (Crop dkPairss cCps spedUpInnerOp, innerMult)
+  where (spedUpInnerOp, innerMult) = speedUpIfPossible throughMult innerOp 
+speedUpIfPossible throughMult (Delay dkPairs innerOp) =
+  (Delay dkPairs spedUpInnerOp, innerMult)
+  where (spedUpInnerOp, innerMult) = speedUpIfPossible throughMult innerOp 
 -- modify underutil if mult divides cleanly into underutil's denominator
 -- or if removing underutil and the denominator divides cleanly into mult
 speedUpIfPossible throughMult (Underutil denom op) |
@@ -175,8 +184,8 @@ speedUpIfPossible throughMult op@(Underutil denom innerOp) =
 
 -- NOTE: what to do if mapping over a reg delay? Nothing? its sequential but,
 -- unlike other sequential things like reduce, linebuffer its cool to duplicate
-speedUpIfPossible throughMult (RegDelay d innerOp) =
-  (RegDelay d spedUpInnerOp, innerMult)
+speedUpIfPossible throughMult (RegRetime d innerOp) =
+  (RegRetime d spedUpInnerOp, innerMult)
   where (spedUpInnerOp, innerMult) = speedUpIfPossible throughMult innerOp 
 
 speedUpIfPossible throughMult (ComposePar ops) = 
@@ -306,13 +315,22 @@ slowDownIfPossible throughDiv (ReduceOp par numComb innerOp) =
   let (slowedInnerOp, actualDiv) = slowDownIfPossible throughDiv innerOp
   in (ReduceOp par numComb slowedInnerOp, actualDiv)
 
+slowDownIfPossible throughDiv op@(NoOp _) = (MapOp throughDiv op, throughDiv)
+-- this doesn't work when speeding up a linebuffer, the dkPairs value seems like
+-- it needs to be reworked here.
+slowDownIfPossible throughDiv (Crop dkPairss cCps innerOp) =
+  (Crop dkPairss cCps slowedInnerOp, innerDiv)
+  where (slowedInnerOp, innerDiv) = slowDownIfPossible throughDiv innerOp 
+slowDownIfPossible throughDiv (Delay dkPairs innerOp) =
+  (Delay dkPairs slowedInnerOp, innerDiv)
+  where (slowedInnerOp, innerDiv) = slowDownIfPossible throughDiv innerOp 
 slowDownIfPossible throughDiv (Underutil denom op) =
   (Underutil (denom * throughDiv) op, throughDiv)
 
 -- NOTE: what to do if mapping over a reg delay? Nothing? its sequential but,
 -- unlike other sequential things like reduce, linebuffer its cool to duplicate
-slowDownIfPossible throughDiv (RegDelay d innerOp) =
-  (RegDelay d slowedInnerOp, innerMult)
+slowDownIfPossible throughDiv (RegRetime d innerOp) =
+  (RegRetime d slowedInnerOp, innerMult)
   where (slowedInnerOp, innerMult) = slowDownIfPossible throughDiv innerOp 
 
 slowDownIfPossible throughDiv (ComposePar ops) = 
