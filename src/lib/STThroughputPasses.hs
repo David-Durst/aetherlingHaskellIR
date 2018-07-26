@@ -8,58 +8,13 @@ import STComposeOps
 -- NOTE: AM I PUSHING TOO MUCH LOGIC INTO THE LEAVES BY HAVING THEM
 -- UNDERUTIL THEMSELVES? SHOULD THE COMPOSESEQs DO UNDERUTIL WHEN CHILDREN CAN'T?
 
--- given a LB's pxPerClock, its image dimesions, and a multiple to speed up,
--- speed up the pxPerCLock from inner most to outer most.
--- Returns the new pxPerClock (in reverse order of LB) and the amount sped up
--- NOTE: Unlike for a LB, here the pxPerClock and img dimensions must have the
--- inner most dimension come first this is the reverse of what it is on the linebuffer
-increaseLBPxPerClock :: [Int] -> [Int] -> Int -> ([Int], Int)
--- if mult is down to 1 or no more dimensions to speed up, return remaining pxPerClock 
-increaseLBPxPerClock [] _ _ = ([], 1)
-increaseLBPxPerClock p img mult | mult == 1 = (p, 1)
--- if not filling out this dimension, pInner * mult must divide into imgInner
--- no need to recurse further as done filling out dimensions
-increaseLBPxPerClock (pInner:pTl) (imgInner:imgTl) mult |
-  imgInner > pInner * mult && (imgInner `mod` (pInner * mult) == 0) =
-  ((pInner * mult) : pTl, mult)
--- if filling out this dimension, imgInner must divide into mult * pInner cleanly
-increaseLBPxPerClock (pInner:pTl) (imgInner:imgTl) mult |
-  imgInner <= pInner * mult && ((mult * pInner) `mod` imgInner == 0) =
-  (imgInner : pOuter, mult * multOuter)
-  where
-    -- since requiring pInner to always divide into imgInner, this is ok
-    remainingMultForOuterDims = (mult * pInner) `ceilDiv` imgInner
-    (pOuter, multOuter) = increaseLBPxPerClock pTl imgTl remainingMultForOuterDims
-increaseLBPxPerClock p _ _ = (p, 1)
 
--- given a LB's pxPerClock, its image dimesions, and a divisor to slow down,
--- speed up the pxPerCLock from inner most to outer most.
--- Returns the new pxPerClock (in reverse order of LB) and the amount sped up
--- NOTE: pxPerClcok and imgDimensions come in same order as for LB
-decreaseLBPxPerClock :: [Int] -> [Int] -> Int -> ([Int], Int)
--- if no more dimensions to speed up, return remaining pxPerClock 
-decreaseLBPxPerClock [] _ _ = ([], 1)
--- if not reducing to 1 out this dimension, pOuter / div must divide into imgOuter
--- and div must divide into pOuter.
--- no need to recurse further as done filling out dimensions
-decreaseLBPxPerClock (pOuter:pTl) (imgOuter:imgTl) div |
-  div < pOuter && (pOuter `mod` div == 0) &&
-  ((imgOuter * div) `mod` pOuter == 0) = ((pOuter `ceilDiv` div) : pTl, div)
--- if reducing dim to 1 px per clock, pOuter must must divide into div  cleanly
-decreaseLBPxPerClock (pOuter:pTl) (imgOuter:imgTl) div |
-  div >= pOuter && (div `mod` pOuter == 0) = 
-  (1 : pInner, div * divInner)
-  where
-    -- since requiring pOuter to always divide into imgOuter, this is ok
-    remainingDivForInnerDims = div `ceilDiv` pOuter
-    (pInner, divInner) = decreaseLBPxPerClock pTl imgTl remainingDivForInnerDims
-decreaseLBPxPerClock p _ _ = (p, 1)
+speedUp throughMult op | actualMult == throughMult = spedUpOp
+  where (spedUpOp, actualMult) = speedUpIfPossible throughMult op
+speedUp throughMult op = ComposeFailure
+  (BadThroughputMultiplier throughMult actualMult) (op, ComposeSeq [])
+  where (spedUpOp, actualMult) = speedUpIfPossible throughMult op
 
--- helper function for linebuffer speedUpIfPossible, goes through, increasing
--- parallelism of each component take an op and make it run x times faster
--- without wrapping it, where x is the second argument.
--- This may not be possible for some ops without wrapping them in a map
--- so the pair returns a best effort speed up op and the amount it was sped up
 --
 -- If its combinational, pretty much always just wrap it in map, as if later
 -- speed up again, will just increase multiple on map, never see this again
@@ -204,11 +159,35 @@ speedUpIfPossible throughMult (ComposeSeq ops) =
   in (foldl (|>>=|) hdSpedUpOps tlSpedUpOps, minimum actualMults)
 speedUpIfPossible _ op@(ComposeFailure _ _) = (op, 1)
 
-speedUp throughMult op | actualMult == throughMult = spedUpOp
-  where (spedUpOp, actualMult) = speedUpIfPossible throughMult op
-speedUp throughMult op = ComposeFailure
-  (BadThroughputMultiplier throughMult actualMult) (op, ComposeSeq [])
-  where (spedUpOp, actualMult) = speedUpIfPossible throughMult op
+
+-- helper function for linebuffer speedUpIfPossible, goes through, increasing
+-- parallelism of each component take an op and make it run x times faster
+-- without wrapping it, where x is the second argument.
+-- This may not be possible for some ops without wrapping them in a map
+-- so the pair returns a best effort speed up op and the amount it was sped up
+-- given a LB's pxPerClock, its image dimesions, and a multiple to speed up,
+-- speed up the pxPerCLock from inner most to outer most.
+-- Returns the new pxPerClock (in reverse order of LB) and the amount sped up
+-- NOTE: Unlike for a LB, here the pxPerClock and img dimensions must have the
+-- inner most dimension come first this is the reverse of what it is on the linebuffer
+increaseLBPxPerClock :: [Int] -> [Int] -> Int -> ([Int], Int)
+-- if mult is down to 1 or no more dimensions to speed up, return remaining pxPerClock 
+increaseLBPxPerClock [] _ _ = ([], 1)
+increaseLBPxPerClock p img mult | mult == 1 = (p, 1)
+-- if not filling out this dimension, pInner * mult must divide into imgInner
+-- no need to recurse further as done filling out dimensions
+increaseLBPxPerClock (pInner:pTl) (imgInner:imgTl) mult |
+  imgInner > pInner * mult && (imgInner `mod` (pInner * mult) == 0) =
+  ((pInner * mult) : pTl, mult)
+-- if filling out this dimension, imgInner must divide into mult * pInner cleanly
+increaseLBPxPerClock (pInner:pTl) (imgInner:imgTl) mult |
+  imgInner <= pInner * mult && ((mult * pInner) `mod` imgInner == 0) =
+  (imgInner : pOuter, mult * multOuter)
+  where
+    -- since requiring pInner to always divide into imgInner, this is ok
+    remainingMultForOuterDims = (mult * pInner) `ceilDiv` imgInner
+    (pOuter, multOuter) = increaseLBPxPerClock pTl imgTl remainingMultForOuterDims
+increaseLBPxPerClock p _ _ = (p, 1)
 
 -- If its combinational, pretty much always just wrap it in underutil, as if later
 -- slow down again, will just increase multiple on underutil, never see this again
@@ -354,3 +333,26 @@ slowDown throughDiv op | actualDiv == throughDiv = spedUpOp
 slowDown throughDiv op =
   ComposeFailure (BadThroughputMultiplier throughDiv actualDiv) (op, ComposeSeq [])
   where (spedUpOp, actualDiv) = slowDownIfPossible throughDiv op
+
+-- given a LB's pxPerClock, its image dimesions, and a divisor to slow down,
+-- speed up the pxPerCLock from inner most to outer most.
+-- Returns the new pxPerClock (in reverse order of LB) and the amount sped up
+-- NOTE: pxPerClcok and imgDimensions come in same order as for LB
+decreaseLBPxPerClock :: [Int] -> [Int] -> Int -> ([Int], Int)
+-- if no more dimensions to speed up, return remaining pxPerClock 
+decreaseLBPxPerClock [] _ _ = ([], 1)
+-- if not reducing to 1 out this dimension, pOuter / div must divide into imgOuter
+-- and div must divide into pOuter.
+-- no need to recurse further as done filling out dimensions
+decreaseLBPxPerClock (pOuter:pTl) (imgOuter:imgTl) div |
+  div < pOuter && (pOuter `mod` div == 0) &&
+  ((imgOuter * div) `mod` pOuter == 0) = ((pOuter `ceilDiv` div) : pTl, div)
+-- if reducing dim to 1 px per clock, pOuter must must divide into div  cleanly
+decreaseLBPxPerClock (pOuter:pTl) (imgOuter:imgTl) div |
+  div >= pOuter && (div `mod` pOuter == 0) = 
+  (1 : pInner, div * divInner)
+  where
+    -- since requiring pOuter to always divide into imgOuter, this is ok
+    remainingDivForInnerDims = div `ceilDiv` pOuter
+    (pInner, divInner) = decreaseLBPxPerClock pTl imgTl remainingDivForInnerDims
+decreaseLBPxPerClock p _ _ = (p, 1)
