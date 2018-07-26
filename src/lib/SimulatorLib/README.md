@@ -38,8 +38,8 @@ the inner list corresponds to the stream of values read from that
 port. For example, in
 
 ```haskell
-inputs = [[V_Int 0, V_Int 2, V_Int 4], [V_Int 30, V_Int 20, V_Int 10]]
-simulateHighLevel (Add T_Int) inputs [] -- Empty memory argument
+> inputs = [[V_Int 0, V_Int 2, V_Int 4], [V_Int 30, V_Int 20, V_Int 10]]
+> simulateHighLevel (Add T_Int) inputs [] -- Empty memory argument
 ([[V_Int 30,V_Int 22,V_Int 14]],[])
 ```
 
@@ -52,6 +52,7 @@ corresponds to an adder calculating 0+30=30, 2+20=22, 4+10=14 on the
 As mentioned the simulator does not concern itself with exact timing,
 so the lengths of the inner lists need not match. Example:
 
+```haskell
 > add4stream = ArrayReshape [T_Int] [T_Array 1 T_Int] |>>=| ReduceOp 1 4 (Add T_Int)
 > pipeline = (add4stream |&| Underutil 4 (Shl 4 T_Int)) |>>=| Underutil 4 (Max T_Int)
 > :{
@@ -61,10 +62,11 @@ so the lengths of the inner lists need not match. Example:
 | :}
 > simulateHighLevel pipeline inputs []
 ([[V_Int 10,V_Int 160]],[])
+```
 
-Here, we get [max (1+2+3+4) (0 shl 4), max (5+6+7+8) (10 shl 4)] as
+Here, we get `[max (1+2+3+4) (0 shl 4), max (5+6+7+8) (10 shl 4)]` as
 the output stream. No action needed to be taken by the user to match
-the V_Int 10 argument with the ...V_Int 5, V_Int 6, V_Int 7, V_Int 8]
+the `V_Int 10` argument with the `...V_Int 5, V_Int 6, V_Int 7, V_Int 8]`
 arguments.
 
 The memory input/output format is similar: the outer list entries
