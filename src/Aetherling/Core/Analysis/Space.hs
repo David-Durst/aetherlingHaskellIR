@@ -1,5 +1,9 @@
-module STAnalysis where
-import STTypes
+{-|
+Module: Space
+Description: Analyzes ops' area on chip and utilization of that area.
+-}
+module Space where
+import Operations.Types
 import STMetrics
 import STAST
 
