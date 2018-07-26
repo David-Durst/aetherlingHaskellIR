@@ -188,7 +188,7 @@ where `simhlLUT` is partially evaluated and passed to
 
 Finally, under `simhlPre`, we see
 
-```
+```haskell
 simhlPre opStack@(LUT table:_) inStrLens inState =
     simhlPreCombinational opStack inStrLens inState
 ```
