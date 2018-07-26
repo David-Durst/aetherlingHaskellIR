@@ -129,12 +129,13 @@ and contains no child ops. Steps:
 a. Write a `[ValueType]->[ValueType]` function that simulates the
    behavior of the `Op` (say, `Foo`) in one tick: the input is a list
    of inputs (at one point in time) for each input port and the output
-   is similar. For example, conceptually the function for add should
-   do `[x, y] -> [x+y]`. For certain patterns, helpers like
+   is similar (be aware, the input may either be the expected type
+   *or* be `V_Unit`). For example, conceptually the function for add
+   should do `[x, y] -> [x+y]`. For certain patterns, helpers like
    `simhlBinaryOp` can further simplify this task (see
    `Combinational.hs`). By convention the new function should be in a
-   file in the `SimulateLib` directory and its name should be something
-   like `simhlFoo` (`simhl` = simulate high level).
+   file in the `SimulateLib` directory and its name should be
+   something like `simhlFoo` (`simhl` = simulate high level).
 
 b. In the list of simhl pattern matches in Simulator.hs, add an entry
    that looks something like
@@ -159,6 +160,40 @@ simhlPre opStack@(Foo:_) inStrLens inState =
    You don't need to implement any function yourself for this step; as
    far as the preprocessor is concerned, all combinational devices are
    just the same and the `simhlPreCombinational` function handles this.
+
+## Example: Lookup Table
+
+```haskell
+simhlLUT :: [Int] -> [ValueType] -> [ValueType]
+simhlLUT table [V_Int i] | i < length table = [V_Int $ table !! i]
+simhlLUT table [V_Int i] = [V_Int 0]
+simhlLUT _ [V_Unit] = [V_Unit]
+simhlLUT _ _ = error "Aetherling internal error: non-unit garbage LUT input"
+```
+
+Once `simhlLUT` is partially evaluated with the table entries
+(`[Int]`), it's a `[ValueType]->[ValueType]` function as specified
+above. In this case there's only 1 input and 1 output port, so the
+input/outputs of `simhlLUT [Int]` are 1-lists.
+
+With `simhlLUT` written, in `simhl`, we have
+
+```haskell
+simhl (LUT table) inStrs state = (simhlCombinational (simhlLUT table) inStrs, state)
+```
+
+where `simhlLUT` is partially evaluated and passed to
+`simhlCombinational` to adapt it to work with the simulator, and
+`state` is passed-through untouched as mentioned.
+
+Finally, under `simhlPre`, we see
+
+```
+simhlPre opStack@(LUT table:_) inStrLens inState =
+    simhlPreCombinational opStack inStrLens inState
+```
+
+So that the `LUT` is preprocessed like any other combinational device.
 
 
 
@@ -318,9 +353,12 @@ since the map preprocessor pass calls simhlPre recursively.
 
 The simulator pass function takes as input
 
-1. A list of lists of `ValueType`, in the same order as in `simulateHighLevel`.
-2. A `SimhlState` parameter, which in most cases just has to be folded
-   through all `simhl` calls on child ops.
+1. A list of lists of `ValueType`, in the same order as in
+`simulateHighLevel`. As before, each input may either be the of the
+expected type or be a `V_Unit`.
+2. A `SimhlState` parameter, which in
+most cases just has to be folded through all `simhl` calls on child
+ops.
 
 and returns as an output tuple
 

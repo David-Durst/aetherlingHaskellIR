@@ -272,7 +272,7 @@ simhlPre opStack@(ComposePar _:_) inStrLens inState =
     simhlPrePar simhlPre opStack inStrLens inState
 simhlPre opStack@(ComposeSeq _:_) inStrLens inState =
     simhlPreSeq simhlPre opStack inStrLens inState
-simhlPre opStack@(ComposeFailure foo bar:_) inStrLens inState =
+simhlPre opStack@(ComposeFailure _ _:_) inStrLens inState =
     error("ComposeFailure cannot be simulated at\n"
        ++ (simhlFormatOpStack opStack))
 
