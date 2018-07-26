@@ -1,9 +1,9 @@
-module SimulatorLib.Arithmetic where
+module Simulator.Arithmetic where
 import Data.Bool
 import Data.Bits
 import STAST
 import STTypes
-import SimulatorLib.Combinational
+import Simulator.Combinational
 
 -- These are all combinational device implementations.  These are then
 -- passed to simhlCombinational in the simhl function to complete the

@@ -1,8 +1,8 @@
-module SimulatorLib.Combinational where
+module Simulator.Combinational where
 import STAnalysis
 import STAST
 import STTypes
-import SimulatorLib.State
+import Simulator.State
 
 -- Helper function for simulating combinational devices.  Takes an
 -- implementation function ([ValueType]->[ValueType]) and a list of

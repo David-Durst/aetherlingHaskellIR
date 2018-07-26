@@ -1,5 +1,5 @@
 {-# OPTIONS_GHC -fwarn-incomplete-patterns #-}
-module STSimulate where
+module Simulator.Simulator where
 import STTypes
 import STMetrics
 import STAST
@@ -7,16 +7,16 @@ import STAnalysis
 import Data.Bool
 import Data.List
 import Debug.Trace
-import SimulatorLib.Arithmetic
-import SimulatorLib.Arrays
-import SimulatorLib.Combinational
-import SimulatorLib.Compose
-import SimulatorLib.DuplicateOutputs
-import SimulatorLib.MapReduce
-import SimulatorLib.Memory
-import SimulatorLib.State
+import Simulator.Arithmetic
+import Simulator.Arrays
+import Simulator.Combinational
+import Simulator.Compose
+import Simulator.DuplicateOutputs
+import Simulator.MapReduce
+import Simulator.Memory
+import Simulator.State
 
--- See SimulatorLib/howto.txt for documentation.
+-- See Simulator/howto.txt for documentation.
 --
 -- High level (functional) simulator for Aetherling pipelines (Op
 -- instances).  Useful for verifying that the logic of the circuit is

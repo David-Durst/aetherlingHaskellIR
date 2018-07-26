@@ -1,8 +1,8 @@
-module SimulatorLib.MapReduce where
+module Simulator.MapReduce where
 import STAnalysis
 import STAST
 import STTypes
-import SimulatorLib.State
+import Simulator.State
 
 -- Implementation of simhl MapOp. To avoid circular dependencies, the
 -- simulator implementation function (simhl) must be passed as an
@@ -241,6 +241,7 @@ simhlPreMap simhlPre opStack@(MapOp par op:_) inStrLens inState
                 (replicate par op)
     in
       simhlPreResult opStack outStrLens Nothing newState
+simhlPreMap _ _ _ _ = error "Aetherling internal error: expected MapOp"
 
 simhlPreReduce :: SimhlPre -> [Op] -> [Maybe Int] -> SimhlPreState
                -> ([Maybe Int], SimhlPreState)
@@ -281,4 +282,4 @@ simhlPreReduce simhlPre opStack@(ReduceOp par numComb op:_) inStrLens inState
         warning = warning' inStrLen
       in
         simhlPreResult opStack [outStrLen] warning inState
-
+simhlPreReduce _ _ _ _ = error "Aetherling internal error: expected ReduceOp"

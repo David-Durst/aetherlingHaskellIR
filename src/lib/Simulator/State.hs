@@ -1,4 +1,4 @@
-module SimulatorLib.State where
+module Simulator.State where
 import Data.List
 import STAST
 import STTypes

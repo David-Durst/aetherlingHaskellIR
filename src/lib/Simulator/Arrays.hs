@@ -1,9 +1,9 @@
-module SimulatorLib.Arrays where
+module Simulator.Arrays where
 import Data.Array
 import STAST
 import STTypes
-import SimulatorLib.Combinational
-import SimulatorLib.State
+import Simulator.Combinational
+import Simulator.State
 
 -- Simulator and preprocessor pass implementations for
 -- SequenceArrayRepack, ArrayReshape, and LineBuffer.

@@ -1,7 +1,7 @@
-module SimulatorLib.Memory where
+module Simulator.Memory where
 import STAST
 import STTypes
-import SimulatorLib.State
+import Simulator.State
 
 -- Memory read and write implementations.
 -- Two things need to happen to the state object:
@@ -73,6 +73,7 @@ simhlPreRead opStack@(MemRead t:_) _ (SimhlPreState longStr memIn memIdx warnMsg
       hasReduce [] = False
       hasReduce (ReduceOp _ _ _:_) = True
       hasReduce (op:ops) = hasReduce ops
+simhlPreRead _ _ _ = error "Aetherling internal error: expected MemRead"
         
 simhlPreWrite :: [Op] -> [Maybe Int] -> SimhlPreState
               -> ([Maybe Int], SimhlPreState)
@@ -85,4 +86,5 @@ simhlPreWrite opStack@(MemWrite t:_) _ state =
       hasReduce [] = False
       hasReduce (ReduceOp _ _ _:_) = True
       hasReduce (op:ops) = hasReduce ops
+simhlPreWrite _ _ _ = error "Aetherling internal error: expected MemWrite"
 

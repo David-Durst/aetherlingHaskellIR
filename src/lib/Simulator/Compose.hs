@@ -1,8 +1,8 @@
-module SimulatorLib.Compose where
+module Simulator.Compose where
 import STAnalysis
 import STAST
 import STTypes
-import SimulatorLib.State
+import Simulator.State
 
 -- Simulator implementations for ComposeSeq and ComposePar.
 simhlSeq :: Simhl -> Op -> [[ValueType]] -> SimhlState
@@ -12,6 +12,7 @@ simhlSeq simhl (ComposeSeq [op]) inStrs state = simhl op inStrs state
 simhlSeq simhl (ComposeSeq (op:ops)) inStrs inState =
     let (nextInput, nextState) = simhl op inStrs inState
     in simhl (ComposeSeq ops) nextInput nextState
+simhlSeq _ _ _ _ = error "Aetherling internal error: expected ComposeSeq"
 
 simhlPar :: Simhl -> Op -> [[ValueType]] -> SimhlState
          -> ( [[ValueType]], SimhlState )
@@ -23,9 +24,26 @@ simhlPar simhl (ComposePar (op:moreOps)) inStrs inState =
       (moreOutStrs, endState) = simhl (ComposePar moreOps) moreInStrs nextState
     in
       (opOutStrs ++ moreOutStrs, endState)
+simhlPar _ _ _ _ = error "Aetherling internal error: expected ComposePar"
 
 
 -- Preprocessor pass implementations.
+
+simhlPreSeq :: SimhlPre -> [Op] -> [Maybe Int] -> SimhlPreState
+            -> ([Maybe Int], SimhlPreState)
+simhlPreSeq simhlPre opStack@(ComposeSeq []:_) _ _ =
+    error("Empty ComposeSeq at\n" ++ simhlFormatOpStack opStack)
+simhlPreSeq simhlPre opStack@(ComposeSeq ops:_) inStrLens inState =
+    let
+      -- Fold lambda. Takes input stream lengths and state
+      -- and produce out stream lengths and state.
+      f :: ([Maybe Int], SimhlPreState) -> Op -> ([Maybe Int], SimhlPreState)
+      f (fInStrLens, fInState) op =
+        simhlPre (op:opStack) fInStrLens fInState
+    in
+      foldl f (inStrLens, inState) ops
+simhlPreSeq _ _ _ _ = error "Aetherling internal error: expected ComposeSeq"
+
 simhlPrePar :: SimhlPre -> [Op] -> [Maybe Int] -> SimhlPreState
             -> ([Maybe Int], SimhlPreState)
 simhlPrePar simhlPre opStack@(ComposePar ops:_) inStrLens inState =
@@ -45,18 +63,5 @@ simhlPrePar simhlPre opStack@(ComposePar ops:_) inStrLens inState =
       (_, outStrLens, outState) = foldl f (inStrLens, [], inState) ops
     in
       (outStrLens, outState)
-
-simhlPreSeq :: SimhlPre -> [Op] -> [Maybe Int] -> SimhlPreState
-            -> ([Maybe Int], SimhlPreState)
-simhlPreSeq simhlPre opStack@(ComposeSeq []:_) _ _ =
-    error("Empty ComposeSeq at\n" ++ simhlFormatOpStack opStack)
-simhlPreSeq simhlPre opStack@(ComposeSeq ops:_) inStrLens inState =
-    let
-      -- Fold lambda. Takes input stream lengths and state
-      -- and produce out stream lengths and state.
-      f :: ([Maybe Int], SimhlPreState) -> Op -> ([Maybe Int], SimhlPreState)
-      f (fInStrLens, fInState) op =
-        simhlPre (op:opStack) fInStrLens fInState
-    in
-      foldl f (inStrLens, inState) ops
+simhlPrePar _ _ _ _ = error "Aetherling internal error: expected ComposePar"
 

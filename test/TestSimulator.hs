@@ -3,7 +3,7 @@ module TestSimulator where
 import STAST
 import STAnalysis
 import STComposeOps
-import STSimulate
+import Simulator.Simulator
 import STTypes
 import Data.Bits
 import Data.List
@@ -465,6 +465,7 @@ simhlXOr10Impl [inStr] _ =
     groupsOfTen = transpose everything
   in
     ([[V_Bit (foldl1 xor a) | a <- groupsOfTen]], [])
+simhlXOr10Impl _ _ = error "Aetherling internal test error: case 13"
 simhlCase13 = SimhlTestCase
   "Use a 1D line buffer to output the xor of groups of 10 adjacent inputs \
   \(Tests LineBuffer, XOr)"
