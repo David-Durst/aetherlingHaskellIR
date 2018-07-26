@@ -1,11 +1,10 @@
 # The Simulator
 
 The files in the `Simulator` directory implement a functional
-simulator for Aetherling pipelines: this simulator (which lives in
-`Simulator.Simulator.hs` does not concern itself with the actual
-timing of the circuit, but instead works with "streams" of
-input/output values that have a precise ordering but not precisely
-specified timing. This document describes:
+simulator for Aetherling pipelines: this simulator does not concern
+itself with the actual timing of the circuit, but instead works with
+"streams" of input/output values that have a precise ordering but not
+precisely specified timing. This document describes:
 
 1. How to use the simulator
 2. How to extend the simulator with a combinational leaf op
@@ -16,9 +15,9 @@ specified timing. This document describes:
 
 # 1. How to Use the Simulator
 
-`simulateHighLevel` (imported from STSimulate) is the function to call
-for the simulator; all other functions defined are internal functions.
-This function takes three arguments:
+`simulateHighLevel` (imported from `Simulator.Simulator`) is the
+function to call for the simulator; all other functions defined are
+internal functions. This function takes three arguments:
 
 1. the `Op` instance to simulate
 2. simulated input port values
