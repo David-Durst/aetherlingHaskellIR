@@ -11,16 +11,21 @@ import SimulatorLib.State
 -- entries corresponding to input ports' inputs in 1 cycle and
 -- produces list of output ports' outputs.
 simhlCombinational :: ([ValueType]->[ValueType]) -> [[ValueType]] -> [[ValueType]]
-simhlCombinational impl inStrs | any null inStrs = []
+simhlCombinational impl inStrs | any null inStrs =
+  error "Aetherling internal error: cannot simulate 0-input-stream device."
+simhlCombinational impl inStrs | any (\x -> length x == 1) inStrs =
+  let
+    inputsNow = map head inStrs
+    outputsNow = impl inputsNow
+  in
+    [[outputNow] | outputNow <- outputsNow]
 simhlCombinational impl inStrs =
   let
     inputsNow = map head inStrs
     inputsLater = map tail inStrs
     outputsNow = impl inputsNow
     outputsLater = simhlCombinational impl inputsLater
-  in if null outputsLater
-  then [[outputNow] | outputNow <- outputsNow] -- 1-seq output case
-  else                                         -- N-seq output case
+  in
     [outputNow:outputLater
     |(outputNow, outputLater) <- zip outputsNow outputsLater]
 
@@ -71,6 +76,9 @@ simhlPreCombinational opStack@(op:_) inStrLens inState =
         if null knownStrLens || all (== (head knownStrLens)) knownStrLens then Nothing
         else Just $ "Input stream lengths don't match " ++ show inStrLens
     in
-      simhlPreResult opStack outStrLens warning' inState
+      if any (== Just 0) inStrLens
+      then error("Cannot have any 0-length input streams at\n" ++
+                simhlFormatOpStack opStack)
+      else simhlPreResult opStack outStrLens warning' inState
 
 

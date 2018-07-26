@@ -1,3 +1,5 @@
+# The Simulator
+
 STSimulate.hs and the files in the SimulatorLib directory implement a
 functional simulator for Aetherling pipelines: this simulator does not
 concern itself with the actual timing of the circuit, but instead
@@ -11,7 +13,7 @@ ordering but not precisely specified timing. This document describes:
 
 
 
-        1. How to Use the Simulator
+# How to Use the Simulator
 
 simulateHighLevel (imported from STSimulate) is the function to call
 for the simulator; all other functions defined are internal functions.
@@ -96,9 +98,14 @@ ComposeSeq:
 
 This is not the most elegant solution to the issue of handling memory IO.
 
+Note: Some Ops may not be simulated properly if one of their input
+streams is empty (particularly combinational ones). Any Ops you
+implement may do the same (but it's recommended that they report this
+error at the preprocessing stage – see below).
 
 
-        2. How to Extend the Simulator with a Combinational Leaf Op.
+
+# 2. How to Extend the Simulator with a Combinational Leaf Op.
 
 Suppose that a new Op is added to STAST.hs and it needs to be
 implemented in the simulator. This can easily be done without
@@ -136,7 +143,7 @@ simhlPre opStack@(Foo:_) inStrLens inState =
 
 
 
-        3. Summary of Simulator Implementation
+# Summary of Simulator Implementation
 
 When simulateHighLevel is called, it delegates its work to 3 functions:
 
@@ -181,7 +188,7 @@ it's not allowed to Reduce over a MemRead/MemWrite.
 
 
 
-        4. How to Extend the Simulator with a Custom Op
+# How to Extend the Simulator with a Custom Op
 
 To implement a new Op in the simulator, you need to implement a
 preprocessor pass for the Op and implement the behavior of the
@@ -194,7 +201,7 @@ The preprocessor pass function takes as input
 a. A stack of Ops (as a list), the head of which is the Op being
    preprocessed. The idea is that each Op is the child of the next Op
    in the list, and the stack can be formatted in errors/warnings.
-b. A list of expected input port stream lengths (as Maybe Int --
+b. A list of expected input port stream lengths (as Maybe Int –
    explained later).
 c. A SimhlPreState parameter, whose main job is to collect warnings
    and record the longest output stream length.

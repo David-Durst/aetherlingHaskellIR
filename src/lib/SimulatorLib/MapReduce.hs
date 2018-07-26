@@ -216,9 +216,11 @@ simhlPreMap :: SimhlPre -> [Op] -> [Maybe Int] -> SimhlPreState
             -> ([Maybe Int], SimhlPreState)
 simhlPreMap simhlPre opStack@(MapOp par op:_) inStrLens inState
   | par < 0 =
-    error("Negative parallelism at " ++ simhlFormatOpStack opStack)
+    error("Negative parallelism at\n" ++ simhlFormatOpStack opStack)
   | par == 0 =
     ([], inState)
+  | any (== Just 0) inStrLens =
+    error("Cannot have 0-length input stream at\n" ++ simhlFormatOpStack opStack)
   | otherwise =
     let
       -- Fold lambda. Go through par copies of the op, threading the state
@@ -257,6 +259,8 @@ simhlPreReduce simhlPre opStack@(ReduceOp par numComb op:_) inStrLens inState
             \equal to minimum of 2 input stream lengths at "
          ++ simhlFormatOpStack opStack
       )
+    | any (== Just 0) inStrLens =
+      error("Cannot have 0-length input stream at\n" ++ simhlFormatOpStack opStack)
     | otherwise =
       let
         -- Note that we don't worry about passing the state to the

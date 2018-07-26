@@ -265,8 +265,8 @@ simhlMul7Max15SpaceOp =
 simhlMul7Max15Combinational :: [ValueType] -> [ValueType]
 simhlMul7Max15Combinational inputs = [V_Int $ maximum [7*n | V_Int n <- inputs]]
 simhlCase5 = SimhlTestCase
-  "Maximum of 15 integers, multiplied by 7, using a reduce that takes only\
-        \3 inputs at a time.\
+  "Maximum of 15 integers, multiplied by 7, using a reduce that takes only \
+        \3 inputs at a time. \
         \(Tests ReduceOp, Max, SequenceArrayRepack, Underutil)."
   simhlMul7Max15SpaceOp
   (simhlCombinationalIgnoreMem simhlMul7Max15Combinational)
