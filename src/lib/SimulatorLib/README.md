@@ -37,9 +37,11 @@ value) corresponds to the list of input ports (or output ports), and
 the inner list corresponds to the stream of values read from that
 port. For example, in
 
-> inputs = [[V_Int 0, V_Int 2, V_Int 4], [V_Int 30, V_Int 20, V_Int 10]]
-> simulateHighLevel (Add T_Int) inputs [] -- Empty memory argument
+```haskell
+inputs = [[V_Int 0, V_Int 2, V_Int 4], [V_Int 30, V_Int 20, V_Int 10]]
+simulateHighLevel (Add T_Int) inputs [] -- Empty memory argument
 ([[V_Int 30,V_Int 22,V_Int 14]],[])
+```
 
 we simulate a 2-input-port adder, where the 0th input port gets 0, 2,
 4 as its input stream and the 1st port 30, 20, 10. If this circuit
