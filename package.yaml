@@ -23,6 +23,7 @@ description:         Please see the README on GitHub at <https://github.com/Davi
 dependencies:
 - base >= 4.7 && < 5
 - pretty-simple >= 2.1.0.0 && < 2.2.0.0
+- array >= 0.5.2.0 && < 0.6.0.0
 
 ghc-options:
 - -fwarn-incomplete-patterns 

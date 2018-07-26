@@ -3,9 +3,10 @@ module TestSimulator where
 import STAST
 import STAnalysis
 import STComposeOps
-import STSimulate
+import Simulator.Simulator
 import STTypes
 import Data.Bits
+import Data.List
 import Test.Tasty
 import Test.Tasty.HUnit
 
@@ -45,18 +46,20 @@ data SimhlRand = SimhlRand { simhlRandState :: Int }
 
 simhlRandInt :: SimhlRand -> (SimhlRand, Int)
 simhlRandInt (SimhlRand state) =
-  do { let x1 = (shiftL state 13) `xor` state
-     ; let x2 = (shiftR x1 17) `xor` x1
-     ; let x3 = (shiftL x2 5)  `xor` x2
-     ; let x32bits = x3 .&. 0xFFFFFFFF
-     ; (SimhlRand x32bits, x32bits .&. 0x000000FF)
-  }
+  let
+    x1 = (shiftL state 13) `xor` state
+    x2 = (shiftR x1 17) `xor` x1
+    x3 = (shiftL x2 5)  `xor` x2
+    x32bits = x3 .&. 0xFFFFFFFF
+  in
+    (SimhlRand x32bits, x32bits .&. 0x000000FF)
 
 simhlRandBool :: SimhlRand -> (SimhlRand, Bool)
 simhlRandBool inRand =
-  do { let (outRand, x) = simhlRandInt inRand
-     ; (outRand, x .&. 1 == 1)
-  }
+  let
+    (outRand, x) = simhlRandInt inRand
+  in
+    (outRand, x .&. 1 == 1)
 
 -- Get a sequence of seqLen random ValueTypes, suitable for simulating
 -- an op with an input port with given TokenType. Returns the random
@@ -65,31 +68,36 @@ simhlRandValues :: SimhlRand -> Int -> TokenType -> (SimhlRand, [ValueType])
 simhlRandValues inRand 0 _ = (inRand, [])
 simhlRandValues inRand seqLen T_Unit = (inRand, replicate seqLen V_Unit)
 simhlRandValues inRand seqLen T_Int =
-  do { let (nextRand, theInt) = simhlRandInt inRand
-     ; let (outRand, moreValues) = simhlRandValues nextRand (seqLen-1) T_Int
-     ; (outRand, (V_Int theInt):moreValues)
-  }
+  let
+    (nextRand, theInt) = simhlRandInt inRand
+    (outRand, moreValues) = simhlRandValues nextRand (seqLen-1) T_Int
+  in
+    (outRand, (V_Int theInt):moreValues)
+
 simhlRandValues inRand seqLen T_Bit =
-  do { let (nextRand, theBool) = simhlRandBool inRand
-     ; let (outRand, moreValues) = simhlRandValues nextRand (seqLen-1) T_Int
-     ; (outRand, (V_Bit theBool):moreValues)
-  }
+  let
+    (nextRand, theBool) = simhlRandBool inRand
+    (outRand, moreValues) = simhlRandValues nextRand (seqLen-1) T_Bit
+  in
+    (outRand, (V_Bit theBool):moreValues)
+
 simhlRandValues inRand seqLen (T_Array n t) =
-  do { let (nextRand, array) = simhlRandValues inRand n t
-     ; let (outRand, moreArrays) = simhlRandValues nextRand (seqLen-1) (T_Array n t)
-     ; (outRand, (V_Array array):moreArrays)
-  }
+  let
+    (nextRand, array) = simhlRandValues inRand n t
+    (outRand, moreArrays) = simhlRandValues nextRand (seqLen-1) (T_Array n t)
+  in
+    (outRand, (V_Array array):moreArrays)
 
 -- Look at the op's input ports and generate suitable random input.
 simhlOpRandInputs :: SimhlRand -> Op -> Int -> (SimhlRand, [[ValueType]])
 simhlOpRandInputs inRand op seqLen =
-  do { let inTypes = map pTType (inPorts op)
-     ; let foldLambda = \(prevRand, results) t ->
-             do { let (nextRand, values) = simhlRandValues prevRand seqLen t
-                ; (nextRand, results ++ [values])
-             }
-     ; foldl foldLambda (inRand, []) inTypes
-  }
+  let
+    inTypes = map pTType (inPorts op)
+    foldLambda = \(prevRand, results) t ->
+      let (nextRand, values) = simhlRandValues prevRand seqLen t
+      in (nextRand, results ++ [values])
+  in
+    foldl foldLambda (inRand, []) inTypes
 
 -- Similar for a list of (sequence length :: Int, type :: TokenType)
 -- Used for generating memory inputs, see SimhlTestCase.
@@ -97,11 +105,11 @@ simhlMemRandInputs :: SimhlRand -> [(Int, TokenType)]
                    -> (SimhlRand, [[ValueType]])
 simhlMemRandInputs inRand [] = (inRand, [])
 simhlMemRandInputs inRand (tuple:tuples) =
-  do { let (nextRand, value) = simhlRandValues inRand (fst tuple) (snd tuple)
-     ; let (outRand, values) = simhlMemRandInputs nextRand tuples
-     ; (outRand, value:values)
-  }
-  
+  let
+    (nextRand, value) = simhlRandValues inRand (fst tuple) (snd tuple)
+    (outRand, values) = simhlMemRandInputs nextRand tuples
+  in
+    (outRand, value:values)
 
 -- Test case data for the simulator tests.  Includes a description for
 -- the op being tested, the op, a manually-implemented function that
@@ -113,24 +121,23 @@ data SimhlTestCase = SimhlTestCase {
   simhlTestOp :: Op,
   simhlTestImpl :: [[ValueType]] -> [[ValueType]]
                 -> ( [[ValueType]], [[ValueType]] ),
-  simhlInSeqLen :: Int,
+  simhlInStrLen :: Int,
   simhlMemTypes :: [(Int, TokenType)]
 }
 
 simhlMakeTestCases :: SimhlRand -> [SimhlTestCase] -> [TestTree]
 simhlMakeTestCases _ [] = []
 simhlMakeTestCases inRand (thisCase:cases) =
-  do { let op = simhlTestOp thisCase
-     ; let (memRand, inSeqs) = simhlOpRandInputs inRand op
-                                                 (simhlInSeqLen thisCase)
-     ; let (nextRand, inMem) = simhlMemRandInputs memRand
-                                                  (simhlMemTypes thisCase)
-     ; let tree = testCase (simhlTestDescription thisCase) $
-                  (simulateHighLevel op inSeqs inMem)
-              @?= ((simhlTestImpl thisCase) inSeqs inMem)
-     ; let trees = simhlMakeTestCases nextRand cases
-     ; tree:trees
-  }
+  let
+    op = simhlTestOp thisCase
+    (memRand, inSeqs) = simhlOpRandInputs inRand op (simhlInStrLen thisCase)
+    (nextRand, inMem) = simhlMemRandInputs memRand (simhlMemTypes thisCase)
+    tree = testCase (simhlTestDescription thisCase) $
+           (simulateHighLevel op inSeqs inMem)
+           @?= ((simhlTestImpl thisCase) inSeqs inMem)
+    trees = simhlMakeTestCases nextRand cases
+  in
+    tree:trees
 
 -- Take two vec4s, subtract them, and double the result.
 -- Note that the implementation function has a bunch of ugly list
@@ -141,14 +148,15 @@ vec4SubTimes8Op = MapOp 4 ((Sub T_Int) |>>=| (Shl 3 T_Int))
 vec4SubTimes8Impl :: [[ValueType]] -> [[ValueType]]
                   -> ( [[ValueType]], [[ValueType]] )
 vec4SubTimes8Impl inSeqs _ =
-  do { let [leftSeq, rightSeq] = inSeqs
-     ; ([[V_Array
+  let [leftSeq, rightSeq] = inSeqs
+  in
+       ([[V_Array
           [V_Int (8*(a-b)) | (V_Int a, V_Int b) <- zip leftArray rightArray]
         | (V_Array leftArray, V_Array rightArray) <- zip leftSeq rightSeq
         ]],
         []
        )
-  }
+
 simhlCase0 = SimhlTestCase
   "Subtract 4-vec, then multiply by 8. (Tests Sub, Shl, MapOp)"
   vec4SubTimes8Op
@@ -162,23 +170,30 @@ simhlCase0 = SimhlTestCase
 -- the last test case should have ensured simhlCombinational works
 -- correctly.
 simhlCombinationalIgnoreMem :: ([ValueType]->[ValueType])
-                    -> [[ValueType]] -> [[ValueType]]
-                    -> ( [[ValueType]], [[ValueType]] )
-simhlCombinationalIgnoreMem impl inSeqs _ =
-  if any null inSeqs
-  then ([], [])
-  else do { let inputsNow = map head inSeqs
-          ; let inputsL8r = map tail inSeqs
-          ; let outputsNow = impl inputsNow
-          ; let outputsL8r = simhlCombinational impl inputsL8r
-          ; let allOutputs =
-                 if null outputsL8r
-                 then [[outputNow] | outputNow <- outputsNow] -- 1-seq output case
-                 else                                         -- N-seq output case
-                 [outputNow:outputL8r
-                 |(outputNow, outputL8r) <- zip outputsNow outputsL8r]
-          ; (allOutputs, [])
-       }
+                            -> [[ValueType]] -> [[ValueType]]
+                            -> ( [[ValueType]], [[ValueType]] )
+simhlCombinationalIgnoreMem impl inStrs _ =
+  (simhlCombinational2 impl inStrs, [])
+
+simhlCombinational2 :: ([ValueType]->[ValueType]) -> [[ValueType]] -> [[ValueType]]
+simhlCombinational2 impl inStrs | any null inStrs =
+  error "Aetherling internal error: cannot simulate 0-input-stream device."
+simhlCombinational2 impl inStrs | any (\x -> length x == 1) inStrs =
+  let
+    inputsNow = map head inStrs
+    outputsNow = impl inputsNow
+  in
+    [[outputNow] | outputNow <- outputsNow]
+simhlCombinational2 impl inStrs =
+  let
+    inputsNow = map head inStrs
+    inputsLater = map tail inStrs
+    outputsNow = impl inputsNow
+    outputsLater = simhlCombinational2 impl inputsLater
+  in
+    [outputNow:outputLater
+    |(outputNow, outputLater) <- zip outputsNow outputsLater]
+
 
 -- ((a xor b) / (c|100)) >> 5
 simhlCase1Op =
@@ -264,8 +279,8 @@ simhlMul7Max15SpaceOp =
 simhlMul7Max15Combinational :: [ValueType] -> [ValueType]
 simhlMul7Max15Combinational inputs = [V_Int $ maximum [7*n | V_Int n <- inputs]]
 simhlCase5 = SimhlTestCase
-  "Maximum of 15 integers, multiplied by 7, using a reduce that takes only\
-        \3 inputs at a time.\
+  "Maximum of 15 integers, multiplied by 7, using a reduce that takes only \
+        \3 inputs at a time. \
         \(Tests ReduceOp, Max, SequenceArrayRepack, Underutil)."
   simhlMul7Max15SpaceOp
   (simhlCombinationalIgnoreMem simhlMul7Max15Combinational)
@@ -423,10 +438,90 @@ simhlCase11 = SimhlTestCase
   280
   [(280, T_Int), (280, T_Int), (260, T_Int), (288, T_Int)] -- mismatch intended.
 
+-- Use a 1D line buffer to output the maximum of adjacent inputs (adjacent in time).
+simhlMaxAdjacentOp =
+  ArrayReshape [T_Int] [T_Array 1 T_Int] |>>=|
+  LineBuffer [1] [2] [100] T_Int |>>=|
+  ArrayReshape [T_Array 1 (T_Array 2 T_Int)] [T_Int, T_Int] |>>=|
+  Max T_Int
+simhlMaxAdjacentImpl :: [[ValueType]] -> [[ValueType]]
+                     -> ( [[ValueType]], [[ValueType]] )
+simhlMaxAdjacentImpl [inStr] _ =
+  let
+    intPairs = [(a,b) | (V_Int a, V_Int b) <- zip (tail inStr) (init inStr)]
+  in
+    ([[V_Int (max a b) | (a,b) <- intPairs]], [])
+simhlMaxAdjacentImpl _ _ = error "Aetherling test internal error: case 12"
+simhlCase12 = SimhlTestCase
+  "Use a 1D line buffer to output the maximum of adjacent inputs (adjacent \
+  \in time). (Tests LineBuffer, ArrayReshape, Max)."
+  simhlMaxAdjacentOp
+  simhlMaxAdjacentImpl
+  100
+  []
+
+-- Use a 1D line buffer to output the xor of 10 adjacent inputs,
+-- passed 3 at a time.
+simhlXOr10Op =
+  ArrayReshape [T_Bit] [T_Array 1 T_Bit] |>>=|
+  SequenceArrayRepack (3, 1) (1, 3) T_Bit |>>=|
+  Underutil 3 (
+      LineBuffer [3] [10] [300] T_Bit |>>=|
+      MapOp 3 (ReduceOp 10 10 (XOr T_Bit))) |>>=|
+  SequenceArrayRepack (1, 3) (3, 1) T_Bit |>>=|
+  ArrayReshape [T_Array 1 T_Bit] [T_Bit]
+simhlXOr10Impl :: [[ValueType]] -> [[ValueType]]
+               -> ( [[ValueType]], [[ValueType]] )
+simhlXOr10Impl [inStr] _ =
+  let
+    getBools = \a -> [b | V_Bit b <- a]
+    everything = map (\n -> getBools (take 291 (drop n inStr))) [0..9]
+    groupsOfTen = transpose everything
+  in
+    ([[V_Bit (foldl1 xor a) | a <- groupsOfTen]], [])
+simhlXOr10Impl _ _ = error "Aetherling internal test error: case 13"
+simhlCase13 = SimhlTestCase
+  "Use a 1D line buffer to output the xor of groups of 10 adjacent inputs \
+  \(Tests LineBuffer, XOr)"
+  simhlXOr10Op
+  simhlXOr10Impl
+  300
+  []
+
+-- A test for the 2D line buffer that breaks the mold. We just create
+-- inputs with a regular pattern (5*x + 7*y) and check that the
+-- outputs match that same pattern.
+simhlLineBufferOp =
+  LineBuffer [1, 2] [4, 3] [150, 100] T_Int
+simhlLineBufferTestData =
+      [[
+        V_Array [ V_Array [V_Int (5*x + 7*y), V_Int (5*(x+1) + 7*y)] ]
+        | y <- [0..149], x <- [0, 2..98]
+      ]]
+simhlLineBufferExpected =
+  let
+    mkWindow xo yo = V_Array [ V_Array [
+                                 V_Int (5*(xo+xi) + 7*(yo+yi)) | xi <- [0..2]
+                               ] | yi <- [0..3]
+                     ]
+  in
+    (
+        [[
+            V_Array [ V_Array [ mkWindow x y, mkWindow (x+1) y ]]
+                              | y <- [0..146], x <- [0,2..96]
+        ]],
+        []
+    )
+simhlLineBufferCase =
+  testCase "2D LineBuffer Test" $
+           (simulateHighLevel simhlLineBufferOp simhlLineBufferTestData [])
+       @?= simhlLineBufferExpected
+
 simhlSeed = 1337
 
 simulatorTests = testGroup ("High level simulator tests, seed " ++ show simhlSeed)
-  $ simhlMakeTestCases (SimhlRand simhlSeed) [
+  $ simhlLineBufferCase:
+    simhlMakeTestCases (SimhlRand simhlSeed) [
       simhlCase0,
       simhlCase1,
       simhlCase2,
@@ -438,5 +533,7 @@ simulatorTests = testGroup ("High level simulator tests, seed " ++ show simhlSee
       simhlCase8,
       simhlCase9,
       simhlCase10,
-      simhlCase11
+      simhlCase11,
+      simhlCase12,
+      simhlCase13
     ]
