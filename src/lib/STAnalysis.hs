@@ -96,7 +96,7 @@ space (RegRetime rc op) = space op |+|
 
 space (ComposePar ops) = foldl (|+|) addId $ map space ops
 space (ComposeSeq ops) = foldl (|+|) addId $ map space ops
-space (ComposeFailure _ _) = OWA (-1) (-1)
+space (Failure _) = OWA (-1) (-1)
 
 cps op = clocksPerSequence op
 clocksPerSequence :: Op -> Int
@@ -173,7 +173,7 @@ clocksPerSequence (RegRetime _ op) = cps op
 clocksPerSequence (ComposePar ops) = foldl lcm 1 $ map cps ops
 -- this depends on only wiring up things that have matching throughputs
 clocksPerSequence (ComposeSeq ops) = foldl lcm 1 $ map cps ops
-clocksPerSequence (ComposeFailure _ _) = -1
+clocksPerSequence (Failure _) = -1
 
 
 registerInitialLatency = 1
@@ -242,7 +242,7 @@ initialLatency (ComposeSeq ops) = bool combinationalInitialLatency sequentialIni
   where 
     combinationalInitialLatency = 1
     sequentialInitialLatency = foldl (+) 0 $ map initialLatency $ filter (not . isComb) ops
-initialLatency (ComposeFailure _ _) = 0
+initialLatency (Failure _) = 0
 
 -- in order to get maxCombPath for composeSeq, need to get all combinational 
 -- chains with the starting and stopping sequential nodes to get all max, multiop
@@ -336,7 +336,7 @@ maxCombPath compSeq@(ComposeSeq ops) = max maxSingleOpPath maxMultiOpPath
     maxSingleOpPath = maximum $ map maxCombPath ops
     maxMultiOpPath = maximum $ map getCombPathLength $ getMultiOpCombGroupings compSeq
 
-maxCombPath (ComposeFailure _ _) = 0
+maxCombPath (Failure _) = 0
 
 
 util :: Op -> Float
@@ -385,7 +385,7 @@ util (RegRetime _ op) = util op
 
 util (ComposePar ops) = utilWeightedByArea ops
 util (ComposeSeq ops) = utilWeightedByArea ops
-util (ComposeFailure _ _) = 0
+util (Failure _) = 0
 -- is there a better utilization than weighted by operator area
 utilWeightedByArea :: [Op] -> Float
 utilWeightedByArea ops = unnormalizedUtil / totalArea
@@ -492,7 +492,7 @@ inPorts cPar@(ComposePar ops) = renamePorts "I" $ scalePortsSeqLens
 inPorts (ComposeSeq []) = []
 inPorts cSeq@(ComposeSeq (hd:_)) = renamePorts "I" $
   scalePortsSeqLens (getSeqLenScalingsForAllPorts cSeq [hd] inPorts) (inPorts hd)
-inPorts (ComposeFailure _ _) = []
+inPorts (Failure _) = []
 
 
 lbWarmup :: [Int] -> [Int] -> [Int] -> Int
@@ -584,7 +584,7 @@ outPorts (ComposeSeq []) = []
 outPorts cSeq@(ComposeSeq ops) = renamePorts "O" $ scalePortsSeqLens
   (getSeqLenScalingsForAllPorts cSeq [lastOp] outPorts) (outPorts lastOp)
   where lastOp = last ops
-outPorts (ComposeFailure _ _) = []
+outPorts (Failure _) = []
 
 isComb :: Op -> Bool
 isComb (Add t) = True
@@ -632,7 +632,7 @@ isComb (RegRetime _ op) = False
 
 isComb (ComposePar ops) = length (filter isComb ops) > 0
 isComb (ComposeSeq ops) = length (filter isComb ops) > 0
-isComb (ComposeFailure _ _) = True
+isComb (Failure _) = True
 
 
 portThroughput :: Op -> PortType -> PortThroughput

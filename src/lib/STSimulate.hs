@@ -205,8 +205,8 @@ simhl (ComposePar (op:moreOps)) inSeqs inState =
     in
       (opOutSeqs ++ moreOutSeqs, endState)
 
-simhl (ComposeFailure foo bar) _ _ =
-    error $ "Cannot simulate ComposeFaliure " ++ show (ComposeFailure foo bar)
+simhl op@(Failure _) _ _ =
+    error $ "Cannot simulate Failure " ++ show op 
 
 -- Helper function for simulating combinational devices.  Takes an
 -- implementation function ([ValueType]->[ValueType]) and a list of

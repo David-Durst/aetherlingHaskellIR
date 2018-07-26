@@ -10,11 +10,10 @@ import STComposeOps
 
 speedUp throughMult op | actualMult == throughMult = spedUpOp
   where (spedUpOp, actualMult) = attemptSpeedUp throughMult op
-speedUp throughMult op = ComposeFailure
-  (BadThroughputMultiplier throughMult actualMult) (op, ComposeSeq [])
+speedUp throughMult op = Failure
+  (InvalidThroughputModification throughMult actualMult) 
   where (spedUpOp, actualMult) = attemptSpeedUp throughMult op
 
---
 -- If its combinational, pretty much always just wrap it in map, as if later
 -- speed up again, will just increase multiple on map, never see this again
 attemptSpeedUp :: Int -> Op -> (Op, Int)
@@ -156,7 +155,7 @@ attemptSpeedUp throughMult (ComposeSeq ops) =
   -- doing a fold here instead of just making another composeSeq to make sure all
   -- ports still match 
   in (foldl (|>>=|) hdSpedUpOps tlSpedUpOps, minimum actualMults)
-attemptSpeedUp _ op@(ComposeFailure _ _) = (op, 1)
+attemptSpeedUp _ op@(Failure _) = (op, 1)
 
 
 -- helper function for linebuffer attemptSpeedUp, goes through, increasing
@@ -187,6 +186,11 @@ increaseLBPxPerClock (pInner:pTl) (imgInner:imgTl) mult |
     remainingMultForOuterDims = (mult * pInner) `ceilDiv` imgInner
     (pOuter, multOuter) = increaseLBPxPerClock pTl imgTl remainingMultForOuterDims
 increaseLBPxPerClock p _ _ = (p, 1)
+
+slowDown throughDiv op | actualDiv == throughDiv = spedUpOp
+  where (spedUpOp, actualDiv) = attemptSlowDown throughDiv op
+slowDown throughDiv op = Failure $ InvalidThroughputModification throughDiv actualDiv
+  where (spedUpOp, actualDiv) = attemptSlowDown throughDiv op
 
 -- If its combinational, pretty much always just wrap it in underutil, as if later
 -- slow down again, will just increase multiple on underutil, never see this again
@@ -325,13 +329,7 @@ attemptSlowDown throughDiv (ComposeSeq ops) =
   -- doing a fold here instead of just making another composeSeq to make sure all
   -- ports still match 
   in (foldl (|>>=|) hdSlowedOps tlSlowedOps, maximum actualDivs)
-attemptSlowDown _ op@(ComposeFailure _ _) = (op, 1)
-
-slowDown throughDiv op | actualDiv == throughDiv = spedUpOp
-  where (spedUpOp, actualDiv) = attemptSlowDown throughDiv op
-slowDown throughDiv op =
-  ComposeFailure (BadThroughputMultiplier throughDiv actualDiv) (op, ComposeSeq [])
-  where (spedUpOp, actualDiv) = attemptSlowDown throughDiv op
+attemptSlowDown _ op@(Failure _) = (op, 1)
 
 -- given a LB's pxPerClock, its image dimesions, and a divisor to slow down,
 -- speed up the pxPerCLock from inner most to outer most.

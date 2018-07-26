@@ -92,7 +92,7 @@ data Op =
   -- COMPOSE OPS
   | ComposePar [Op]
   | ComposeSeq [Op]
-  | ComposeFailure ComposeResult (Op, Op) 
+  | Failure FailureType 
   deriving (Eq, Show)
 
 -- for a sequence of clocks or tokens,
@@ -120,12 +120,16 @@ modifySeqLenForDropKeepPairs :: PortType -> [DropKeepPair] -> PortType
 modifySeqLenForDropKeepPairs (T_Port name _ t pct) dkPairs =
   T_Port name (keptInDKPairs dkPairs) t pct
 
+data FailureType =
+  ComposeFailure ComposeResult (Op, Op)
+  | InvalidThroughputModification {attemptedMult :: Int, actualMult :: Int}
+  deriving (Eq, Show)
+
 -- SeqPortMismatch indicates couldn't do comopse as composeSeq requires 
 -- all port types and latencies 
 data ComposeResult = 
   PriorFailure 
   | SeqPortMismatch {outPortsThroughput :: [PortThroughput], inPortsThroughput :: [PortThroughput]}
-  | BadThroughputMultiplier {attemptedMult :: Int, actualMult :: Int}
   | ComposeSuccess
   deriving (Eq, Show)
 
@@ -170,12 +174,13 @@ getChildOps (Underutil _ op) = [op]
 getChildOps (RegRetime _ op) = [op]
 getChildOps (ComposePar ops) = ops
 getChildOps (ComposeSeq ops) = ops
-getChildOps (ComposeFailure _ (op0, op1)) = [op0, op1]
+getChildOps (Failure (ComposeFailure _ (op0, op1))) = [op0, op1]
+getChildOps (Failure _) = []
 
 -- Walk the failure tree and find the first one, preferring failures on the left
 -- over the right
 -- Will return the parent node if not failures
-isFailure (ComposeFailure _ _) = True
+isFailure (Failure _) = True
 isFailure _ = False
 hasChildWithError op = (<) 0 $ length $
   filter (\i -> isFailure i || hasChildWithError i) $ getChildOps op

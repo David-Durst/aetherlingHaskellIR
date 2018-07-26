@@ -6,8 +6,8 @@ import STAnalysis
 -- This is for making ComposeSeq
 (|.|) :: Op -> Op -> Op
 -- if failed in earlier step, keep propagating failures
-(|.|) cf@(ComposeFailure _ _) op1 = ComposeFailure PriorFailure (op1, cf)
-(|.|) op0 cf@(ComposeFailure _ _) = ComposeFailure PriorFailure (cf, op0)
+(|.|) cf@(Failure _) op1 = Failure $ ComposeFailure PriorFailure (op1, cf)
+(|.|) op0 cf@(Failure _) = Failure $ ComposeFailure PriorFailure (cf, op0)
 -- when checking if can compose, need to match up individual elements, not whole list
 -- ex. If each component is operating at one token per 10 clocks, sequence of 4
 -- parts will take 40 clocks, but should be able to add another component 
@@ -20,7 +20,7 @@ import STAnalysis
   ComposeSeq $ ops1 ++ [op0]
 (|.|) op0 op1 | canComposeSeq op1 op0 =
   ComposeSeq $ [op1] ++ [op0]
-(|.|) op0 op1 = ComposeFailure (SeqPortMismatch (outThroughput op1) 
+(|.|) op0 op1 = Failure $ ComposeFailure (SeqPortMismatch (outThroughput op1) 
   (inThroughput op0)) (op1, op0)
 
 -- This is in same spirit as Monad's >>=, kinda abusing notation
