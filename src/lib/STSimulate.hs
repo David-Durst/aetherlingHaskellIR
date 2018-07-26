@@ -188,7 +188,7 @@ simhl (ReduceOp par numComb op) inSeqs state =
 -- simulator -- dealing with the details of clock scheduling and clock
 -- enable is something that we worry about elsewhere.
 simhl (Underutil n op) inSeqs state = simhl op inSeqs state
-simhl (RegRetime delay op) inSeqs state = simhl op inSeqs state
+simhl (Delay _ op) inSeqs state = simhl op inSeqs state
 
 simhl (ComposeSeq []) inSeqs state = error "ComposeSeq with empty [Op]"
 simhl (ComposeSeq [op]) inSeqs state = simhl op inSeqs state

@@ -34,7 +34,8 @@ data Op =
   -- third arg is the size of the image. Saem indexing order. This is necessary
   -- for internal buffer sizing
   -- Last is the type of the pixel element
-  | LineBuffer {pxPerClock :: [Int], windowWidth :: [Int], image :: [Int], lbInT :: TokenType}
+  | LineBuffer {pxPerClock :: [Int], windowWidth :: [Int], image :: [Int],
+                lbInT :: TokenType, boundaryCondition :: BoundaryConditions}
   -- Array is constant produced, int is sequence length
   | Constant_Int {intConstProduced :: [Int]}
   -- Array is constant produced
@@ -56,38 +57,16 @@ data Op =
   | ArrayReshape [TokenType] [TokenType]
   | DuplicateOutputs Int Op
 
-
   -- HIGHER ORDER OPS
   | MapOp {mapParallelism :: Int, mappedOp :: Op}
   | ReduceOp {reduceParallelism :: Int, reduceNumCombined :: Int, reducedOp :: Op}
 
   -- TIMING HELPERS
   | NoOp [TokenType]
-  -- this removes some of the outputs of the wrapped module
-  -- list of n to drop is doubly nested:
-  -- outer list is for each of the output ports of the wrapped module
-  -- inner list for dropping and keeping tokens. First part of tuple is
-  -- n to drop, second is n to keep. Creating patterns with lists of tuples
-  -- this unit only impacts hardware for stateful elements by making valid
-  -- false. It is only for aetherling type manipulations in combinational
-  -- units
-  -- ASSUMING for each port, droopedInDKPairs + keptInDKPairs for its list
-  -- is a multiple of its sequence length 
-  | Crop {crops :: [[DropKeepPair]], scaledCPS :: Int, croppedOp :: Op}
-  -- crop and delay aren't perfectly symmetric. Crop changes the number of
-  -- elements for each output port independently, while delay affects the
-  -- clock and thus impacts all ports by same number of clocks
-  -- this unit only impacts hardware for stateful elements by delaying clock
-  -- enable. It is only for aetherling type manipulations in combinational
-  -- units
-  -- Assuming droppedInDKPairs + keptInDKPairs is a multiple of delayedOP's cps
-  | Delay {delays :: [DropKeepPair], delayedOp :: Op} 
   -- run underOp at CPS = utilDenominator * old CPS
-  -- this is essentially a multiplier version of delay. It is separate as
-  -- this is used more to slowdown and delay is used to match warmups
   | Underutil {utilDenominator :: Int, underutilizedOp :: Op}
   -- this increases latency
-  | RegRetime {retimeClocks :: Int, retimeddOp :: Op}
+  | Delay {delayClocks :: Int, delayedOp :: Op}
 
   -- COMPOSE OPS
   | ComposePar [Op]
@@ -95,30 +74,7 @@ data Op =
   | Failure FailureType 
   deriving (Eq, Show)
 
--- for a sequence of clocks or tokens,
--- a list of pairs where each first element is a number dropped
--- and the second is a number of clocks or tokens kept
-data DropKeepPair = DKPair {numDropped :: Int, numKept :: Int}
-  deriving (Eq, Show)
-
--- given a list of DKPairs, get the total number of dropped clocks
-droppedInDKPairs :: [DropKeepPair] -> Int
-droppedInDKPairs dkPairs = foldl (+) 0 $ map numDropped dkPairs
-
-keptInDKPairs :: [DropKeepPair] -> Int
-keptInDKPairs dkPairs = foldl (+) 0 $ map numKept dkPairs
-
--- given an Op and a list of DKPairs, modify all its ports according to
--- modifySeqLenForDropKeepPairs
-getPortsWithDKPairsApplied :: [PortType] -> [DropKeepPair] -> [PortType]
-getPortsWithDKPairsApplied ports dkPairs =
-  map (\port -> modifySeqLenForDropKeepPairs port dkPairs) ports
-
--- given a Crop's DKPairs for a port, scale the port's seqlen up to
--- the sum of the dropped and kept length and drop the dropped tokens
-modifySeqLenForDropKeepPairs :: PortType -> [DropKeepPair] -> PortType
-modifySeqLenForDropKeepPairs (T_Port name _ t pct) dkPairs =
-  T_Port name (keptInDKPairs dkPairs) t pct
+data BoundaryConditions = Crop | KeepGarbage deriving (Eq, Show)
 
 data FailureType =
   ComposeFailure ComposeResult (Op, Op)
@@ -129,7 +85,8 @@ data FailureType =
 -- all port types and latencies 
 data ComposeResult = 
   PriorFailure 
-  | SeqPortMismatch {outPortsThroughput :: [PortThroughput], inPortsThroughput :: [PortThroughput]}
+  | SeqPortMismatch {outPortsThroughput :: [PortThroughput],
+                     inPortsThroughput :: [PortThroughput]}
   | ComposeSuccess
   deriving (Eq, Show)
 
@@ -159,7 +116,7 @@ getChildOps (Geq) = []
 getChildOps (LUT _) = []
 getChildOps (MemRead _) = []
 getChildOps (MemWrite _) = []
-getChildOps (LineBuffer _ _ _ _) = []
+getChildOps (LineBuffer _ _ _ _ _) = []
 getChildOps (Constant_Int _) = []
 getChildOps (Constant_Bit _) = []
 getChildOps (SequenceArrayRepack _ _ _) = []
@@ -168,10 +125,8 @@ getChildOps (DuplicateOutputs _ op) = [op]
 getChildOps (MapOp _ op) = [op]
 getChildOps (ReduceOp _ _ op) = [op]
 getChildOps (NoOp _) = []
-getChildOps (Crop _ _ op) = [op]
-getChildOps (Delay _ op) = [op]
 getChildOps (Underutil _ op) = [op]
-getChildOps (RegRetime _ op) = [op]
+getChildOps (Delay _ op) = [op]
 getChildOps (ComposePar ops) = ops
 getChildOps (ComposeSeq ops) = ops
 getChildOps (Failure (ComposeFailure _ (op0, op1))) = [op0, op1]

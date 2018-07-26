@@ -37,14 +37,14 @@ space (MemWrite t) = OWA (len t) (len t)
 -- registers account for wiring as some registers receive input wires,
 -- others get wires from other registers
 -- add |+| counterSpace (p `ceilDiv` w) when accounting for warmup counter
-space (LineBuffer (pHd:[]) (wHd:[]) _ t) = registerSpace [t] |* (pHd + wHd - 2)
+space (LineBuffer (pHd:[]) (wHd:[]) _ t _) = registerSpace [t] |* (pHd + wHd - 2)
 -- unclear if this works in greater than 2d case, will come back for it later
-space (LineBuffer (pHd:pTl) (wHd:wTl) (_:imgTl) t) = 
-  (space (LineBuffer pTl wTl imgTl t) |* wHd) |+|
+space (LineBuffer (pHd:pTl) (wHd:wTl) (_:imgTl) t bc) = 
+  (space (LineBuffer pTl wTl imgTl t bc) |* wHd) |+|
   -- divide and muliplty by pTl (aka num cols) for banking rowbuffers for parallelism
   -- to account for more wires
   (rowbufferSpace (head imgTl `ceilDiv` head pTl) t |* (head pTl) |* (wHd - pHd)) 
-space (LineBuffer _ _ _ _) = addId
+space (LineBuffer _ _ _ _ _) = addId
 space (Constant_Int consts) = OWA (len (T_Array (length consts) T_Int)) 0
 space (Constant_Bit consts) = OWA (len (T_Array (length consts) T_Bit)) 0
 
@@ -55,7 +55,8 @@ space (SequenceArrayRepack (inSeq, inWidth) (outSeq, outWidth) inType) =
 
 -- just a pass through, so will get removed by CoreIR
 space (ArrayReshape _ _) = addId
--- since pass through with no logic and resulting ops will count input wire sizes, no need to account for any space here
+-- since pass through with no logic and resulting ops will count input wire sizes,
+-- no need to account for any space here
 space (DuplicateOutputs _ _) = addId
 
 -- area of parallel map is area of all the copies
@@ -77,22 +78,9 @@ space rOp@(ReduceOp par numComb op) =
     (PortThroughput _ opThroughput) = portThroughput op $ head $ inPorts op
 
 space (NoOp _) = addId
--- for each pair, valid if counter greater than last pair + drop and less than
--- that + keep numbers. Create a set of comparators with ors for each port
--- later optimize by removing ors at end of chain for one port, as independent
--- valids for each port
-space (Crop dkPairss cCPS op) = space op |+| counterSpace cCPS |+|
-  (spacePerPair |* numPairs)
-  where
-    spacePerPair = space Lt |+| space Gt |+| space (Or T_Bit)
-    numPairs = foldl (+) 0 $ map length dkPairss
--- this is same hardware consumption as crop except instead of not sending a
--- valid signal this manipulates clock enable
-space op@(Delay dkPairs innerOp) = space $ Crop [dkPairs] (cps op) innerOp
-
 space (Underutil denom op) = space op |+| counterSpace (denom * cps op)
-space (RegRetime rc op) = space op |+|
-  ((registerSpace $ map pTType $ outPorts op) |* rc)
+space (Delay dc op) = space op |+|
+  ((registerSpace $ map pTType $ outPorts op) |* dc)
 
 space (ComposePar ops) = foldl (|+|) addId $ map space ops
 space (ComposeSeq ops) = foldl (|+|) addId $ map space ops
@@ -128,10 +116,10 @@ clocksPerSequence (LUT _) = combinationalCPS
 clocksPerSequence (MemRead _) = combinationalCPS 
 clocksPerSequence (MemWrite _) = combinationalCPS 
 
-clocksPerSequence (LineBuffer (pHd:[]) _ (imgHd:[]) t) = imgHd `ceilDiv` pHd
-clocksPerSequence (LineBuffer (pHd:pTl) (_:wTl) (imgHd:imgTl) t) =
-  (imgHd `ceilDiv` pHd) * (cps $ LineBuffer pTl wTl imgTl t)
-clocksPerSequence (LineBuffer _ _ _ _) = -1
+clocksPerSequence (LineBuffer (pHd:[]) _ (imgHd:[]) t _) = imgHd `ceilDiv` pHd
+clocksPerSequence (LineBuffer (pHd:pTl) (_:wTl) (imgHd:imgTl) t bc) =
+  (imgHd `ceilDiv` pHd) * (cps $ LineBuffer pTl wTl imgTl t bc)
+clocksPerSequence (LineBuffer _ _ _ _ _) = -1
 clocksPerSequence (Constant_Int _) = combinationalCPS
 clocksPerSequence (Constant_Bit _) = combinationalCPS
 
@@ -159,13 +147,9 @@ clocksPerSequence (ReduceOp par numComb op) |
 clocksPerSequence (ReduceOp par numComb op) = cps op * (numComb `ceilDiv` par)
 
 clocksPerSequence (NoOp _) = combinationalCPS
-clocksPerSequence (Crop _ cCPS op) = cCPS
--- Note assumption of STAST about kept in dkPairs matching cps op
-clocksPerSequence (Delay dkPairs op) = droppedInDKPairs dkPairs +
-  keptInDKPairs dkPairs
 clocksPerSequence (Underutil denom op) = denom * cps op
 -- since pipelined, this doesn't affect clocks per stream
-clocksPerSequence (RegRetime _ op) = cps op
+clocksPerSequence (Delay _ op) = cps op
 
 -- will handle fact of doing max warmup in port sequence lengths, not here.
 -- here we just make all the times match up, worry about what to do during
@@ -202,7 +186,7 @@ initialLatency (LUT _) = 1
 initialLatency (MemRead _) = 1
 initialLatency (MemWrite _) = 1
 -- intiial latency is just number of warmup clocks
-initialLatency lb@(LineBuffer p w _ _) = 1 
+initialLatency lb@(LineBuffer p w _ _ _) = 1 
 initialLatency (Constant_Int _) = 1
 initialLatency (Constant_Bit _) = 1
 
@@ -224,15 +208,9 @@ initialLatency (ReduceOp par numComb op) =
 
 
 initialLatency (NoOp _) = 0
--- if dropping stuff at start, that will increase initial latency
-initialLatency (Crop ((fstDKPair : _) : _) _ op) = (numDropped fstDKPair) +
-  initialLatency op
-initialLatency (Crop _ _ op) = initialLatency op
--- delaying output with valid is same as delaying input with clock enable
-initialLatency op@(Delay dkPairs innerOp) = initialLatency $ Crop [dkPairs] (cps op) innerOp
 initialLatency (Underutil denom op) = initialLatency op
 -- since pipelined, this doesn't affect clocks per stream
-initialLatency (RegRetime rc op) = initialLatency op + rc
+initialLatency (Delay dc op) = initialLatency op + dc
 
 initialLatency (ComposePar ops) = maximum $ map initialLatency ops
 -- initialLatency is 1 if all elemetns are combintional, sum of latencies of sequential
@@ -300,7 +278,7 @@ maxCombPath (LUT _) = 1
 
 maxCombPath (MemRead _) = 1
 maxCombPath (MemWrite _) = 1
-maxCombPath (LineBuffer _ _ _ _) = 1
+maxCombPath (LineBuffer _ _ _ _ _) = 1
 maxCombPath (Constant_Int _) = 1
 maxCombPath (Constant_Bit _) = 1
 maxCombPath (SequenceArrayRepack _ _ _) = 1
@@ -319,15 +297,9 @@ maxCombPath (ReduceOp par numComb op) = max (maxCombPath op) maxCombPathFromOutp
     -- assuming two inputs and one output to op
     maxCombPathFromOutputToInput = maximum (map pCTime $ inPorts op) + (pCTime $ head $ outPorts op)
 
-maxCombPath (Crop dkPairss _ op) =
-  let
-    -- have an or reduce tree for each port, get the largest one
-    maxOrCombPath = maximum $ map (ceilLog . length) dkPairss
-  in max maxOrCombPath (maxCombPath op)
-maxCombPath op@(Delay dkPairs innerOp) = maxCombPath $ Crop [dkPairs] (cps op) innerOp
 maxCombPath (Underutil denom op) = maxCombPath op
 -- since pipelined, this doesn't affect clocks per stream
-maxCombPath (RegRetime _ op) = maxCombPath op
+maxCombPath (Delay _ op) = maxCombPath op
 
 maxCombPath (ComposePar ops) = maximum $ map maxCombPath ops
 maxCombPath compSeq@(ComposeSeq ops) = max maxSingleOpPath maxMultiOpPath
@@ -363,7 +335,7 @@ util (LUT _) = 1
 
 util (MemRead _) = 1
 util (MemWrite _) = 1
-util (LineBuffer _ _ _ _) = 1
+util (LineBuffer _ _ _ _ _) = 1
 util (Constant_Int _) = 1
 util (Constant_Bit _) = 1
 util (SequenceArrayRepack _ _ _) = 1
@@ -374,14 +346,9 @@ util (MapOp _ op) = util op
 util (ReduceOp _ _ op) = util op
 
 util (NoOp _) = 1
--- this is actually not underutilizing it as computations
--- still happening, internal state being modified
-util (Crop _ _ op) = util op
-util (Delay dkPairs op) = util op * (fromIntegral $ keptInDKPairs dkPairs) /
-  (fromIntegral $ droppedInDKPairs dkPairs + keptInDKPairs dkPairs)
 util (Underutil denom op) = util op / fromIntegral denom
 -- since pipelined, this doesn't affect clocks per stream
-util (RegRetime _ op) = util op
+util (Delay _ op) = util op
 
 util (ComposePar ops) = utilWeightedByArea ops
 util (ComposeSeq ops) = utilWeightedByArea ops
@@ -454,7 +421,7 @@ inPorts (MemRead _) = []
 inPorts (MemWrite t) = [T_Port "I" 1 t 1]
 -- since CPS includes both emitting and non-emitting times, and taking in
 -- one input per clock, input sequence length equal to CPS
-inPorts lb@(LineBuffer p _ img t) = [T_Port "I" (cps lb) parallelType 1]
+inPorts lb@(LineBuffer p _ img t _) = [T_Port "I" (cps lb) parallelType 1]
   where
     parallelType = foldr (\pDim innerType -> T_Array pDim innerType) t p
 inPorts (Constant_Int _) = []
@@ -479,12 +446,8 @@ inPorts (ReduceOp par numComb op) = renamePorts "I" $ map scaleSeqLen $
     portToDuplicate [] = []
 
 inPorts (NoOp tTypes) = renamePorts "I" $ map (head . oneInSimplePort) tTypes
-inPorts op@(Crop _ _ innerOp) = scalePortsSeqLens
-  (getSeqLenScalingsForAllPorts op [innerOp] inPorts) (inPorts innerOp)
-inPorts op@(Delay dkPairs innerOp) =
-  getPortsWithDKPairsApplied (inPorts innerOp) dkPairs
 inPorts (Underutil _ op) = inPorts op
-inPorts (RegRetime _ op) = inPorts op
+inPorts (Delay _ op) = inPorts op
 
 inPorts cPar@(ComposePar ops) = renamePorts "I" $ scalePortsSeqLens
   (getSeqLenScalingsForAllPorts cPar ops inPorts) (unionPorts inPorts ops)
@@ -504,7 +467,8 @@ lbWarmup (pHd:pTl) (wHd:wTl) (imgHd:imgTl) =
   (((wHd `ceilDiv` pHd) - 1) * lowerDimLBInSeqLen) + lowerDimLBWarmup
   where
     -- cps is the same as input seq length
-    lowerDimLBInSeqLen = pSeqLen $ head $ inPorts $ LineBuffer pTl wTl imgTl T_Int
+    lowerDimLBInSeqLen = pSeqLen $ head $ inPorts $
+      LineBuffer pTl wTl imgTl T_Int Crop
     lowerDimLBWarmup = lbWarmup pTl wTl imgTl
 lbWarmup _ _ _ = 0
 
@@ -535,7 +499,7 @@ outPorts (MemRead t) = oneOutSimplePort t
 outPorts (MemWrite _) = []
 -- go back to (sLen - ((w `ceilDiv` p) - 1)) for out stream length when 
 -- including warmup and shutdown
-outPorts lb@(LineBuffer p w img t) = [T_Port "O" seqLen parallelStencilType 1]
+outPorts lb@(LineBuffer p w img t _) = [T_Port "O" seqLen parallelStencilType 1]
   where
     -- make number of stencials equal to parallelism
     -- first is just one stencil
@@ -561,20 +525,8 @@ outPorts (ReduceOp _ _ op) = renamePorts "O" $ outPorts op
 
 outPorts (NoOp tTypes) = renamePorts "O" $ map (head . oneOutSimplePort) tTypes
 -- verifying assertions stated in STAST.hs
-outPorts (Crop dkPairss _ op) |
-  (length (outPorts op) == length dkPairss) &&
-  (and $
-   map (\(port,dkPairs) -> (droppedInDKPairs dkPairs + keptInDKPairs dkPairs)
-         `mod` pSeqLen port == 0) portsAndDKPairs) = portsWithNewSLens
-  where
-    portsAndDKPairs :: [(PortType, [DropKeepPair])]
-    portsAndDKPairs = zip (outPorts op) dkPairss
-    portsWithNewSLens = map (uncurry modifySeqLenForDropKeepPairs) portsAndDKPairs
-outPorts (Crop _ _ _) = [T_Port "invalidCropValues" 1 T_Unit 1]
-outPorts op@(Delay dkPairs innerOp) =
-  getPortsWithDKPairsApplied (outPorts innerOp) dkPairs
 outPorts (Underutil _ op) = outPorts op
-outPorts (RegRetime _ op) = outPorts op
+outPorts (Delay _ op) = outPorts op
 
 -- output from composePar only on clocks when all ops in it are emitting.
 outPorts cPar@(ComposePar ops) = renamePorts "O" $ scalePortsSeqLens
@@ -611,7 +563,7 @@ isComb (LUT _) = True
 -- this is meaningless for this units that don't have both and input and output
 isComb (MemRead _) = True
 isComb (MemWrite _) = True
-isComb (LineBuffer _ _ _ _) = True
+isComb (LineBuffer _ _ _ _ _) = True
 isComb (Constant_Int _) = True
 isComb (Constant_Bit _) = True
 
@@ -624,11 +576,9 @@ isComb (ReduceOp par numComb op) | par == numComb = isComb op
 isComb (ReduceOp _ _ op) = False
 
 isComb (NoOp tTypes) = True 
-isComb (Crop _ _ op) = isComb op
-isComb (Delay _ op) = isComb op
 isComb (Underutil denom op) = isComb op
 -- since pipelined, this doesn't affect clocks per stream
-isComb (RegRetime _ op) = False
+isComb (Delay _ op) = False
 
 isComb (ComposePar ops) = length (filter isComb ops) > 0
 isComb (ComposeSeq ops) = length (filter isComb ops) > 0
