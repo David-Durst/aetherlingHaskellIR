@@ -1,10 +1,11 @@
 # The Simulator
 
-STSimulate.hs and the files in the SimulatorLib directory implement a
-functional simulator for Aetherling pipelines: this simulator does not
-concern itself with the actual timing of the circuit, but instead
-works with "streams" of input/output values that have a precise
-ordering but not precisely specified timing. This document describes:
+The files in the `Simulator` directory implement a functional
+simulator for Aetherling pipelines: this simulator (which lives in
+`Simulator.Simulator.hs` does not concern itself with the actual
+timing of the circuit, but instead works with "streams" of
+input/output values that have a precise ordering but not precisely
+specified timing. This document describes:
 
 1. How to use the simulator
 2. How to extend the simulator with a combinational leaf op
@@ -112,8 +113,8 @@ ComposeSeq:
 
 This is not the most elegant solution to the issue of handling memory IO.
 
-Note: Some `Op`s may not be simulated properly if one of their input
-streams is empty (particularly combinational ones). Any `Op`s you
+Note: Some ops may not be simulated properly if one of their input
+streams is empty (particularly combinational ones). Any ops you
 implement may do the same (but it's recommended that they report this
 error at the preprocessing stage – see below).
 
@@ -124,7 +125,7 @@ error at the preprocessing stage – see below).
 Suppose that a new `Op` is added to STAST.hs and it needs to be
 implemented in the simulator. This can easily be done without
 understanding the simulator internals if the new `Op` is combinational
-and contains no child `Op`s. Steps:
+and contains no child ops. Steps:
 
 a. Write a `[ValueType]->[ValueType]` function that simulates the
    behavior of the `Op` (say, `Foo`) in one tick: the input is a list
@@ -172,10 +173,10 @@ When `simulateHighLevel` is called, it delegates its work to 3 functions:
 2. `simhlPre`, which recursively "preprocesses" the AST of the Op in order to:
    a. Calculate the intermediate stream lengths, using this for
       warnings about mismatched stream lengths and to find the maximum
-      stream length, which is needed by the `Constant_Int`/`_Bit` `Op`s.
+      stream length, which is needed by the `Constant_Int`/`_Bit` ops.
    b. Check that the memory inputs match the types and count of
       `MemRead` ops.
-   c. Check that the `Op`s in the pipeline are well-formed, producing
+   c. Check that the ops in the pipeline are well-formed, producing
       warnings or errors if needed.
    This is all done by passing the `SimhlPreState` instance through
    recursive calls of `simhlPre`, recording warnings and maximum stream
@@ -196,7 +197,7 @@ long time, so there's a lot of extra paranoid error checking).
 
 In general, the state parameter will not need to be directly modified
 by any call of `simhl`; it only needs to pass on the state parameter to
-any recursive simhl calls on child `Op`s, and return the updated state
+any recursive simhl calls on child ops, and return the updated state
 in case the child op did modify the state. The state's main job is to
 pass out and collect `MemRead`/`MemWrite` data in the DFS order explained
 earlier, and it does not represent any sense of "simulated circuit
@@ -211,7 +212,8 @@ it's not allowed to Reduce over a `MemRead`/`MemWrite`.
 
 To implement a new `Op` in the simulator, you need to implement a
 preprocessor pass for the `Op` and implement the behavior of the
-simulated `Op`.
+simulated `Op`. You don't have to worry about the port-checking pass;
+that's handled automatically.
 
 ## Preprocessor Pass
 
@@ -246,7 +248,7 @@ corresponding to the input port wired to the constant. The functions
 The `simhlPreResult` function helps you return the output tuple. It
 takes as arguments
 
-6. The stack of `Op`s (for error reporting)
+6. The stack of ops (for error reporting)
 7. The list of expected output port stream lengths.
 8. An optional warning to record in the state (as `Maybe [Char]`).
 9. The output state of the last child op (or the input state if no
@@ -350,7 +352,7 @@ Things to note:
 Line 2: Before calling `simhl` recursively on the composed child op, we
 need to collect the child's input. Since the outer dimension of
 `inStrs :: [[ValueType]]` corresponds to input ports, we can just
-collect the first *child op inPort count* entries of the list to get
+collect the first *(child op inPort count)* entries of the list to get
 the child's list of input streams.
 
 Lines 3, 4, 6: Note how the state is carefully passed through the
