@@ -178,7 +178,7 @@ simhl (ReduceOp par numComb op) inStrs state =
 -- simulator -- dealing with the details of clock scheduling and clock
 -- enable is something that we worry about elsewhere.
 simhl (Underutil n op) inStrs state = simhl op inStrs state
-simhl (RegDelay delay op) inStrs state = simhl op inStrs state
+simhl (RegRetime delay op) inStrs state = simhl op inStrs state
 simhl op@(ComposeSeq _) inStrs state =
     simhlSeq simhl op inStrs state
 simhl op@(ComposePar _) inStrs state =
@@ -266,7 +266,7 @@ simhlPre opStack@(DuplicateOutputs _ _:_) inStrLens inState =
     simhlPreDuplicateOutputs simhlPre opStack inStrLens inState
 simhlPre opStack@(Underutil _ op:_) inStrLens inState =
     simhlPre (op:opStack) inStrLens inState
-simhlPre opStack@(RegDelay _ op:_) inStrLens inState =
+simhlPre opStack@(RegRetime _ op:_) inStrLens inState =
     simhlPre (op:opStack) inStrLens inState
 simhlPre opStack@(ComposePar _:_) inStrLens inState =
     simhlPrePar simhlPre opStack inStrLens inState
