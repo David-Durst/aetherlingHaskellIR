@@ -1,5 +1,5 @@
 {-|
-Module: Latency 
+Module: Aetherling.Analysis.Latency 
 Description: Determines the initial latency for how long it takes for a
 pipelined module to receive input, and the max combinational path
 for the highest latency, single cycle part of the circuit.
