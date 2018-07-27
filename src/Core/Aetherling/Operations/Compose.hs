@@ -1,7 +1,7 @@
 module Aetherling.Operations.Compose where
 import Aetherling.Operations.Types
 import Aetherling.Operations.AST
-import Aetherling.Analysis.Ports
+import Aetherling.Analysis.PortsAndThroughput
 
 -- This is for making ComposeSeq
 (|.|) :: Op -> Op -> Op

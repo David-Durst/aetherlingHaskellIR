@@ -1,8 +1,9 @@
 {-|
 Module: Ports
-Description: Analyzes ops' area on chip and utilization of that area.
+Description: Determines the input and output ports of an op, the clocks per 
+sequence used to process the inputs on those ports, and the resulting throughput.
 -}
-module Aetherling.Analysis.Ports where
+module Aetherling.Analysis.PortsAndThroughput where
 import Aetherling.Operations.Types
 import Aetherling.Operations.AST
 import Aetherling.Operations.Properties

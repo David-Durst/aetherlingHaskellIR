@@ -1,4 +1,4 @@
-module Aetherling.Analysis.Time where
+module Aetherling.Analysis.Latency where
 import Aetherling.Operations.AST
 import Aetherling.Operations.Types
 import Aetherling.Operations.Properties

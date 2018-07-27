@@ -6,8 +6,8 @@ module Aetherling.Analysis.Space where
 import Aetherling.Operations.AST
 import Aetherling.Operations.Types
 import Aetherling.Analysis.Metrics
-import Aetherling.Analysis.Time
-import Aetherling.Analysis.Ports
+import Aetherling.Analysis.Latency
+import Aetherling.Analysis.PortsAndThroughput
 
 -- for wire space, only counting input wires, not outputs. This avoids
 -- double counting
