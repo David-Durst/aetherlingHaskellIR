@@ -29,14 +29,14 @@ ghc-options:
     #- -Wall - comeback to this, too many warnings right now to handle
 
 library:
-  source-dirs: src/lib/
+  source-dirs: src/Core/
 
 executables:
   AetherlingSTIR-Example-exe:
     main:                Main.hs
     source-dirs:
-    - src/examples/
-    - src/examplesExe/
+    - src/Examples/
+    - src/ExamplesExe/
     ghc-options:
     - -threaded
     - -rtsopts
@@ -49,7 +49,7 @@ tests:
     main:                TestExamples.hs
     source-dirs:
     - test/ 
-    - src/examples/
+    - src/Examples/
     ghc-options:
     - -threaded
     - -rtsopts

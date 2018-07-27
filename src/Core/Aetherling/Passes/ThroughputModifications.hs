@@ -1,4 +1,4 @@
-module STThroughputPasses where
+module Passes.ThroughputModifications where
 import STTypes
 import STAST
 import STMetrics

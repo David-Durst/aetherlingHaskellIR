@@ -1,4 +1,4 @@
-module STTypes where
+module Aetherling.Operations.Types where
 
 class HasLen a where
   len :: a -> Int
