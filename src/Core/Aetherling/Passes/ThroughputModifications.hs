@@ -1,9 +1,9 @@
 module Aetherling.Passes.ThroughputModifications where
-import STTypes
-import STAST
-import STMetrics
-import STAnalysis
-import STComposeOps
+import Aetherling.Operations.Types
+import Aetherling.Operations.AST
+import Aetherling.Operations.Compose
+import Aetherling.Operations.Properties
+import Aetherling.Analysis.Metrics
 
 -- NOTE: AM I PUSHING TOO MUCH LOGIC INTO THE LEAVES BY HAVING THEM
 -- UNDERUTIL THEMSELVES? SHOULD THE COMPOSESEQs DO UNDERUTIL WHEN CHILDREN CAN'T?
@@ -69,8 +69,8 @@ attemptSpeedUp throughMult op@(MemWrite t) =
 -- Stated rigorously:
 --    (first not full throuhgput dim) % (throuhgMult) / (product of inner px
 --     per clock increases) == 0
-attemptSpeedUp throughMult (LineBuffer p w img t) =
-  (LineBuffer (reverse reversedNewP) w img t, actualMult)
+attemptSpeedUp throughMult (LineBuffer p w img t bc) =
+  (LineBuffer (reverse reversedNewP) w img t bc, actualMult)
   where
     (reversedNewP, actualMult) =
       increaseLBPxPerClock (reverse p) (reverse img) throughMult
@@ -112,14 +112,6 @@ attemptSpeedUp throughMult (ReduceOp par numComb innerOp) =
   in (ReduceOp par numComb spedUpInnerOp, actualMult)
 
 attemptSpeedUp throughMult op@(NoOp _) = (MapOp throughMult op, throughMult)
--- this doesn't work when speeding up a linebuffer, the dkPairs value seems like
--- it needs to be reworked here.
-attemptSpeedUp throughMult (Crop dkPairss cCps innerOp) =
-  (Crop dkPairss cCps spedUpInnerOp, innerMult)
-  where (spedUpInnerOp, innerMult) = attemptSpeedUp throughMult innerOp 
-attemptSpeedUp throughMult (Delay dkPairs innerOp) =
-  (Delay dkPairs spedUpInnerOp, innerMult)
-  where (spedUpInnerOp, innerMult) = attemptSpeedUp throughMult innerOp 
 -- modify underutil if mult divides cleanly into underutil's denominator
 -- or if removing underutil and the denominator divides cleanly into mult
 attemptSpeedUp throughMult (Underutil denom op) |
@@ -137,8 +129,8 @@ attemptSpeedUp throughMult op@(Underutil denom innerOp) =
 
 -- NOTE: what to do if mapping over a reg delay? Nothing? its sequential but,
 -- unlike other sequential things like reduce, linebuffer its cool to duplicate
-attemptSpeedUp throughMult (RegRetime d innerOp) =
-  (RegRetime d spedUpInnerOp, innerMult)
+attemptSpeedUp throughMult (Delay d innerOp) =
+  (Delay d spedUpInnerOp, innerMult)
   where (spedUpInnerOp, innerMult) = attemptSpeedUp throughMult innerOp 
 
 attemptSpeedUp throughMult (ComposePar ops) = 
@@ -249,8 +241,8 @@ attemptSlowDown throughDiv op@(MemWrite t) =
 -- Stated rigorously:
 --    (first not 1 px per clock dim) % (throuhgMult / (product of px per clock
 --     decreases to all outer dimensions)) == 0
-attemptSlowDown throughDiv (LineBuffer p w img t) =
-  (LineBuffer newP w img t, actualDiv)
+attemptSlowDown throughDiv (LineBuffer p w img t bc) =
+  (LineBuffer newP w img t bc, actualDiv)
   where
     (newP, actualDiv) = decreaseLBPxPerClock p img throughDiv
 -- can't shrink this, have to underutil
@@ -298,21 +290,13 @@ attemptSlowDown throughDiv (ReduceOp par numComb innerOp) =
   in (ReduceOp par numComb slowedInnerOp, actualDiv)
 
 attemptSlowDown throughDiv op@(NoOp _) = (MapOp throughDiv op, throughDiv)
--- this doesn't work when speeding up a linebuffer, the dkPairs value seems like
--- it needs to be reworked here.
-attemptSlowDown throughDiv (Crop dkPairss cCps innerOp) =
-  (Crop dkPairss cCps slowedInnerOp, innerDiv)
-  where (slowedInnerOp, innerDiv) = attemptSlowDown throughDiv innerOp 
-attemptSlowDown throughDiv (Delay dkPairs innerOp) =
-  (Delay dkPairs slowedInnerOp, innerDiv)
-  where (slowedInnerOp, innerDiv) = attemptSlowDown throughDiv innerOp 
 attemptSlowDown throughDiv (Underutil denom op) =
   (Underutil (denom * throughDiv) op, throughDiv)
 
 -- NOTE: what to do if mapping over a reg delay? Nothing? its sequential but,
 -- unlike other sequential things like reduce, linebuffer its cool to duplicate
-attemptSlowDown throughDiv (RegRetime d innerOp) =
-  (RegRetime d slowedInnerOp, innerMult)
+attemptSlowDown throughDiv (Delay d innerOp) =
+  (Delay d slowedInnerOp, innerMult)
   where (slowedInnerOp, innerMult) = attemptSlowDown throughDiv innerOp 
 
 attemptSlowDown throughDiv (ComposePar ops) = 

@@ -3,6 +3,8 @@ import Aetherling.Operations.AST
 import Aetherling.Operations.Types
 import Aetherling.Operations.Properties
 import Aetherling.Analysis.Metrics
+import Aetherling.Analysis.PortsAndThroughput
+import Data.Bool
 
 registerInitialLatency = 1
 initialLatency :: Op -> Int
@@ -121,3 +123,36 @@ maxCombPath compSeq@(ComposeSeq ops) = max maxSingleOpPath maxMultiOpPath
     maxMultiOpPath = maximum $ map getCombPathLength $ getMultiOpCombGroupings compSeq
 
 maxCombPath (Failure _) = 0
+
+-- THESE ARE THE HELPER FUNCTIONS FOR COMPOSESEQ'S maxCombPath
+-- in order to get maxCombPath for composeSeq, need to get all combinational 
+-- chains with the starting and stopping sequential nodes to get all max, multiop
+-- combinational paths
+getMultiOpCombGroupings (ComposeSeq ops) = 
+  foldl appendIfCombNewListIfSeq [] ops
+  where 
+    appendIfCombNewListIfSeq :: [[Op]] -> Op -> [[Op]]
+    appendIfCombNewListIfSeq listOfCombLists nextOp | length listOfCombLists == 0 = 
+      [[nextOp]]
+    -- if this is combinational, keep the current list going by appending nothing
+    -- , else stop it by starting the next one
+    appendIfCombNewListIfSeq listOfCombLists nextOp = 
+      init listOfCombLists ++ [last listOfCombLists ++ [nextOp]] ++
+        bool [] [[nextOp]] (isComb nextOp)
+-- this is here to silence incomplete pattern warnings
+getMultiOpCombGroupings _ = undefined
+
+-- assuming here that all ports on a combinational module have the same comb
+-- path length. Not a valid assumption, but good enough to get started
+-- each list is one of the child lists from getMultiOpCombPaths, meaning
+-- only valid locations for sequential elements are at start and end
+getCombPathLength ops = seqStartCombLen ops + seqEndCombLen ops + sumOfCombOpPaths
+  where
+    -- add longest of comb lengths of ports of starting and ending sequential 
+    -- ops. But only do this if the first and last elements are sequential
+    -- Otherwise, this will be handled by sumOfCombOpPaths
+    seqStartCombLen ops | isComb $ head ops = 0
+    seqStartCombLen ops = maximum $ map pCTime (outPorts $ head ops)
+    seqEndCombLen ops | isComb $ head ops = 0
+    seqEndCombLen ops = maximum $ map pCTime (inPorts $ last ops)
+    sumOfCombOpPaths = foldl (+) 0 $ map maxCombPath ops
