@@ -1,7 +1,7 @@
-module STComposeOps where
-import STTypes
-import STAST
-import STAnalysis
+module Aetherling.Operations.Compose where
+import Aetherling.Operations.Types
+import Aetherling.Operations.AST
+import Aetherling.Analysis.Ports
 
 -- This is for making ComposeSeq
 (|.|) :: Op -> Op -> Op

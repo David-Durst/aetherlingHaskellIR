@@ -1,6 +1,5 @@
-module STAST where
-import STTypes
-import STMetrics
+module Aetherling.Operations.AST where
+import Aetherling.Operations.Types
 
 -- These are leaf nodes that can be used in a higher order operator
 data Op =

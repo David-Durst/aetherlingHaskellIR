@@ -1,5 +1,10 @@
-module STMetrics where
-import STTypes
+{-|
+Module: Aetherling.Analysis.Metrics
+Description: This provides helper functions and metrics like space used in the
+analysis of ops
+-}
+module Aetherling.Analysis.Metrics where
+import Aetherling.Operations.Types
 import Data.Ratio
 
 -- helpful functions and constants
@@ -48,8 +53,6 @@ instance MergeOrScale OpsWireArea where
   (|+|) (OWA o0 w0) (OWA o1 w1) = OWA (o0 + o1) (w0 + w1)
   (|*) (OWA o w) i = OWA (o * i) (w * i)
 
-data PortThroughput = PortThroughput {throughputType :: TokenType, 
-  throughputTypePerClock :: Ratio Int} deriving (Show, Eq)
 
 -- get the throughput of a port using only atomic types, T_Bit and T_Int
 -- this guarantees throuhgputs are comparable for equality

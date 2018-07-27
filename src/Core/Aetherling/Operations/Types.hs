@@ -1,4 +1,5 @@
 module Aetherling.Operations.Types where
+import Data.Ratio
 
 class HasLen a where
   len :: a -> Int
@@ -81,3 +82,6 @@ renamePorts :: String -> [PortType] -> [PortType]
 renamePorts templateName ports = snd $ foldl renameAndIncrementCounter (0, []) ports
   where renameAndIncrementCounter (curCounter, processedPorts) (T_Port _ sLen tType pct) =
           (curCounter + 1, processedPorts ++ [T_Port (templateName ++ show curCounter) sLen tType pct])
+
+data PortThroughput = PortThroughput {throughputType :: TokenType, 
+  throughputTypePerClock :: Ratio Int} deriving (Show, Eq)

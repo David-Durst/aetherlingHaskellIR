@@ -1,4 +1,4 @@
-module Passes.ThroughputModifications where
+module Aetherling.Passes.ThroughputModifications where
 import STTypes
 import STAST
 import STMetrics

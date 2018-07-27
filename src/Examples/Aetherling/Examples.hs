@@ -1,9 +1,6 @@
-module Examples where
-import STTypes
-import STMetrics
-import STAST
-import STAnalysis
-import STComposeOps
+module Aetherling.Examples where
+import Aetherling.Operations.AST
+import Aetherling.Operations.Compose
 import Text.Pretty.Simple (pPrint)
 
 combinationalAdd = Add T_Int

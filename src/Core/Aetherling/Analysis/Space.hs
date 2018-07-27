@@ -2,10 +2,12 @@
 Module: Space
 Description: Analyzes ops' area on chip and utilization of that area.
 -}
-module Space where
-import Operations.Types
-import STMetrics
-import STAST
+module Aetherling.Analysis.Space where
+import Aetherling.Operations.AST
+import Aetherling.Operations.Types
+import Aetherling.Analysis.Metrics
+import Aetherling.Analysis.Time
+import Aetherling.Analysis.Ports
 
 -- for wire space, only counting input wires, not outputs. This avoids
 -- double counting
