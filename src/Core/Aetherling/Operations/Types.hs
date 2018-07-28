@@ -1,10 +1,18 @@
+{-|
+Module: Aetherling.Operations.Types
+Description: Describes Aetherling's type system and the ports of operations
+that accept/emit tokens of those types. PortThroughput is also defined here
+as it is a type used for comparing ports when composing sequences of ops.
+-}
 module Aetherling.Operations.Types where
 import Data.Ratio
 
+-- | An instance of this typeclass has a length of the number of bits to express
+-- the data in binary.
 class HasLen a where
   len :: a -> Int
 
--- the types used for tracking data about operators
+-- | The Aetherling Token Type System 
 data TokenType =
   T_Unit
   | T_Int
@@ -19,7 +27,7 @@ instance HasLen TokenType where
   len T_Bit = 1
   len (T_Array i t) = i * len t
 
--- type used to pass values to the simulator.
+-- | The Aetherling types system for passing values to the simulator.
 -- There is a V_Type value type corresponding to each T_Type TokenType.
 data ValueType =
   V_Unit 
@@ -34,7 +42,7 @@ instance HasLen ValueType where
   len (V_Bit _) = 1
   len (V_Array list) = length list
 
--- Function for checking that a ValueType instance matches the given
+-- | Function for checking that a ValueType instance matches the given
 -- TokenType instance. Also checks that arrays are the same length.
 -- V_Unit matches all types (should it really be this way?).
 vtTypesMatch :: ValueType -> TokenType -> Bool

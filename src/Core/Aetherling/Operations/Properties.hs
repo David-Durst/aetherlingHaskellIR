@@ -1,3 +1,9 @@
+{-|
+Module: Aetherling.Operations.Properties
+Description: Describes properties that are intrinsic to operators that do not
+require any analysis, like if the operator has a combinational path from at
+least one input port to one output port.
+-}
 module Aetherling.Operations.Properties where
 import Aetherling.Operations.AST
 

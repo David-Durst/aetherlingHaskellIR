@@ -1,11 +1,15 @@
+{-|
+Module: Aetherling.Operations.Compose
+Description: Provides functions for composing Aetherling operations into a DAG
+-}
 module Aetherling.Operations.Compose where
 import Aetherling.Operations.Types
 import Aetherling.Operations.AST
 import Aetherling.Analysis.PortsAndThroughput
 
--- This is for making ComposeSeq
+-- | This is for making ComposeSeq
 (|.|) :: Op -> Op -> Op
--- if failed in earlier step, keep propagating failures
+-- | if failed in earlier step, keep propagating failures
 (|.|) cf@(Failure _) op1 = Failure $ ComposeFailure PriorFailure (op1, cf)
 (|.|) op0 cf@(Failure _) = Failure $ ComposeFailure PriorFailure (cf, op0)
 -- when checking if can compose, need to match up individual elements, not whole list
@@ -23,12 +27,12 @@ import Aetherling.Analysis.PortsAndThroughput
 (|.|) op0 op1 = Failure $ ComposeFailure (SeqPortMismatch (outThroughput op1) 
   (inThroughput op0)) (op1, op0)
 
--- This is in same spirit as Monad's >>=, kinda abusing notation
+-- | This is in same spirit as Monad's >>=, kinda abusing notation
 -- It's |.| in reverse so that can create pipelines in right order
 (|>>=|) :: Op -> Op -> Op
 (|>>=|) op0 op1 = op1 |.| op0
 
--- only join two sequential nodes if same numbers of ports, toke types match,
+-- | only join two sequential nodes if same numbers of ports, toke types match,
 -- and steady state throughputs match
 canComposeSeq :: Op -> Op -> Bool
 canComposeSeq op0 op1 | (length . outPorts) op0 == (length . inPorts) op1 =
@@ -38,6 +42,7 @@ canComposeSeq op0 op1 | (length . outPorts) op0 == (length . inPorts) op1 =
       portThroughput op1 portOp1
 canComposeSeq _ _ = False
 
+-- | This is for making ComposePar
 (|&|) :: Op -> Op -> Op
 (|&|) (ComposePar ops0) (ComposePar ops1) = ComposePar $ ops0 ++ ops1
 (|&|) (ComposePar ops0) op1 = ComposePar $ ops0 ++ [op1]

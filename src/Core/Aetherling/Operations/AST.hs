@@ -1,7 +1,26 @@
+{-|
+Module: Aetherling.Operations.AST
+Description: Provides the Aetherling Abstract Syntax Tree (AST) and functions
+for identifying errors in that tree.
+-}
 module Aetherling.Operations.AST where
 import Aetherling.Operations.Types
 
--- These are leaf nodes that can be used in a higher order operator
+{-|
+The Aetherling Operations. These are split into four groups:
+1. Leaf, non-modifiable rate - these are arithmetic, boolean logic,
+and bit operations that don't contain any other ops and don't have
+a parameter for making them run with a larger or smaller throughput.
+2. Leaf, modifiable rate - these are ops like linebuffers,
+and space-time type reshapers that have a parameter for changing their
+throughput and typically are not mapped over to change their throuhgput.
+These ops don't have child ops
+3. Parent, non-modifiable rate - these ops like composeSeq and composePar have
+child ops that can have their throughputs' modified, but the parent
+op doesn't have a parameter that affects throughput
+4. Parent, modifiable rate - map is the canonical example. It has child ops
+and can have its throughput modified by changing parallelism.
+-} 
 data Op =
   -- LEAF OPS
   Add TokenType
@@ -23,26 +42,26 @@ data Op =
   | Leq
   | Gt
   | Geq
-  -- Ints are the entries in the table. First entry is index 0
+  -- | Ints are the entries in the table. First entry is index 0
   | LUT [Int]
   | MemRead TokenType
   | MemWrite TokenType
-  -- first arg is pixels per clock in each dimension. First value in list is outer 
-  -- most dimension that iterating over (rows first, columns second in 2d case) 
-  -- second arg is window width in each dimension. Same indexing order 
+  -- | first arg is pixels per clock in each dimension. First value in list is
+  -- outer most dimension that iterating over (rows first, columns second in 2d
+  -- case). second arg is window width in each dimension. Same indexing order.
   -- third arg is the size of the image. Saem indexing order. This is necessary
   -- for internal buffer sizing
   -- Last is the type of the pixel element
   | LineBuffer {pxPerClock :: [Int], windowWidth :: [Int], image :: [Int],
                 lbInT :: TokenType, boundaryCondition :: BoundaryConditions}
-  -- Array is constant produced, int is sequence length
+  -- | Array is constant produced, int is sequence length
   | Constant_Int {intConstProduced :: [Int]}
-  -- Array is constant produced
+  -- | Array is constant produced
   | Constant_Bit {bitConstProduced :: [Bool]}
 
   -- TYPE MANIPULATORS
   --
-  -- Reshapes an input array sequence through space and time.  Buffers
+  -- | Reshapes an input array sequence through space and time.  Buffers
   -- inputs (left-to-right) and emits output only when sufficient
   -- outputs are ready.  Args: input tuple, output tuple, array entry
   -- type. Tuple consists of (sequence length, array length) for the
@@ -50,7 +69,7 @@ data Op =
   -- so, it's treated as atomic and not split between two output
   -- cycles.
   | SequenceArrayRepack (Int, Int) (Int, Int) TokenType
-  -- First is list of input port types, second is output.
+  -- | First is list of input port types, second is output.
   -- Pure combinational device: decomposes the input and output arrays to
   -- a sequence of wires, and wires up inputs to outputs in order.
   | ArrayReshape [TokenType] [TokenType]
@@ -62,9 +81,8 @@ data Op =
 
   -- TIMING HELPERS
   | NoOp [TokenType]
-  -- run underOp at CPS = utilDenominator * old CPS
+  -- | run underOp at CPS = utilDenominator * old CPS
   | Underutil {utilDenominator :: Int, underutilizedOp :: Op}
-  -- this increases latency
   | Delay {delayClocks :: Int, delayedOp :: Op}
 
   -- COMPOSE OPS
@@ -80,16 +98,16 @@ data FailureType =
   | InvalidThroughputModification {attemptedMult :: Int, actualMult :: Int}
   deriving (Eq, Show)
 
--- SeqPortMismatch indicates couldn't do comopse as composeSeq requires 
--- all port types and latencies 
 data ComposeResult = 
   PriorFailure 
+  -- | SeqPortMismatch indicates couldn't do comopse as composeSeq requires 
+  -- all port types and latencies 
   | SeqPortMismatch {outPortsThroughput :: [PortThroughput],
                      inPortsThroughput :: [PortThroughput]}
   | ComposeSuccess
   deriving (Eq, Show)
 
--- debugging help methods for parsing syntax tree
+-- | debugging helper methods for parsing syntax tree
 -- get the ops contained inside other ops, for going down ComposeFailure trees
 getChildOp n op = getChildOps op !! n
 getChildOps :: Op -> [Op]
@@ -131,8 +149,8 @@ getChildOps (ComposeSeq ops) = ops
 getChildOps (Failure (ComposeFailure _ (op0, op1))) = [op0, op1]
 getChildOps (Failure _) = []
 
--- Walk the failure tree and find the first one, preferring failures on the left
--- over the right
+-- | Walk the failure AST tree and find the deepest cause for the failure,
+-- preferring failures on the left over the right
 -- Will return the parent node if not failures
 isFailure (Failure _) = True
 isFailure _ = False

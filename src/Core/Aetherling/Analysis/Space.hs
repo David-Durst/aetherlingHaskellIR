@@ -1,5 +1,5 @@
 {-|
-Module: Space
+Module: Aetherling.Analysis.Space
 Description: Analyzes ops' area on chip and utilization of that area.
 -}
 module Aetherling.Analysis.Space where
