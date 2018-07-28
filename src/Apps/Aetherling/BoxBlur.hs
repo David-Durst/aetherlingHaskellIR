@@ -1,4 +1,4 @@
-module Aetherling.Apps.BoxBlur where
+module Aetherling.BoxBlur where
 import Aetherling.Operations.AST
 import Aetherling.Operations.Compose
 import Aetherling.Operations.Types

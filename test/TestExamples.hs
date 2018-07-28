@@ -2,7 +2,7 @@ import Test.Tasty
 import Test.Tasty.HUnit
 import Aetherling.Analysis.AST
 import Aetherling.Analysis.Metrics
-import Aetherling.Apps.Examples
+import Aetherling.SimpleExamples
 import TestSimulator
 import TestThroughputPasses
 
