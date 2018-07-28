@@ -1,9 +1,9 @@
-module Simulator.Arrays where
+module Aetherling.Simulator.Arrays where
 import Data.Array
-import STAST
-import STTypes
-import Simulator.Combinational
-import Simulator.State
+import Aetherling.Operations.AST
+import Aetherling.Operations.Types
+import Aetherling.Simulator.Combinational
+import Aetherling.Simulator.State
 
 -- Simulator and preprocessor pass implementations for
 -- SequenceArrayRepack, ArrayReshape, and LineBuffer.
@@ -139,9 +139,9 @@ simhlMunchArray op _ _ =
 -- (representing the image being streamed in), making a list of output
 -- windows from that array, and finally splitting that output list
 -- into the [[ValueType]] output expected.
-simhlLineBuffer :: [Int] -> [Int] -> [Int] -> TokenType -> [[ValueType]]
-                -> [[ValueType]]
-simhlLineBuffer [1, pixW] [wH, wW] [iH, iW] t [inStr] =
+simhlLineBuffer :: [Int] -> [Int] -> [Int] -> TokenType -> [[ValueType]] ->
+                BoundaryConditions -> [[ValueType]]
+simhlLineBuffer [1, pixW] [wH, wW] [iH, iW] t [inStr] bc =
     let
       -- Part 1: Make the 2D array.
       -- Note that our array has indicies swapped compared to
@@ -177,7 +177,7 @@ simhlLineBuffer [1, pixW] [wH, wW] [iH, iW] t [inStr] =
           this_array:later_arrays
     in
       [pack windows]
-simhlLineBuffer [pixW] [wW] [iW] t [inStr] =
+simhlLineBuffer [pixW] [wW] [iW] t [inStr] bc =
     let
       bounds = (0, iW-1)
       getValues = simhlSerializeArray (T_Array pixW t)
@@ -199,7 +199,7 @@ simhlLineBuffer [pixW] [wW] [iW] t [inStr] =
           this_array:later_arrays
     in
       [pack windows]
-simhlLineBuffer _ _ _ _ _ =
+simhlLineBuffer _ _ _ _ _ _ =
     error "Aetherling intenal error: Unexpected LineBuffer parameters"
 
 
@@ -254,7 +254,7 @@ simhlPreReshape _ _ _ =
 -- in simhlLineBuffer.
 simhlPreLB :: [Op] -> [Maybe Int] -> SimhlPreState
            -> ([Maybe Int], SimhlPreState)
-simhlPreLB opStack@(LineBuffer [pixW] [wW] [iW] t:_) [inStrLen] inState =
+simhlPreLB opStack@(LineBuffer [pixW] [wW] [iW] t _:_) [inStrLen] inState =
     if (wW-1) `mod` pixW /= 0 || iW `mod` pixW /= 0 || any (<=0) [pixW, wW, iW] then
       error("1D LineBuffer requires all positive parameters and the width of \
             \pxPerClock to divide both the image width and one minus the window \
@@ -275,7 +275,7 @@ simhlPreLB opStack@(LineBuffer [pixW] [wW] [iW] t:_) [inStrLen] inState =
       in
         simhlPreResult opStack [Just strLen] warning' inState
 
-simhlPreLB opStack@(LineBuffer [1, pixW] [wH, wW] [iH, iW] t:_) [inStrLen] inState =
+simhlPreLB opStack@(LineBuffer [1, pixW] [wH, wW] [iH, iW] t _:_) [inStrLen] inState =
     if (wW-1) `mod` pixW /= 0 || iW `mod` pixW /= 0 || any (<=0) [pixW, wH, wW, iH, iW] then
       error("2D LineBuffer requires all positive parameters and the width of \
             \pixPerClock to divide both the image width and one minus the window \
@@ -296,7 +296,7 @@ simhlPreLB opStack@(LineBuffer [1, pixW] [wH, wW] [iH, iW] t:_) [inStrLen] inSta
       in
         simhlPreResult opStack [Just strLen] warning' inState
 
-simhlPreLB opStack@(LineBuffer pix w i t:_) _ _ =
+simhlPreLB opStack@(LineBuffer pix w i t _:_) _ _ =
     error("Only support 1D linebuffers, and 2D linebuffers \
           \with pixel window of form [1,w], at\n"
        ++ (simhlFormatOpStack opStack)

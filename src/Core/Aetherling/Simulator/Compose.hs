@@ -1,8 +1,8 @@
-module Simulator.Compose where
-import STAnalysis
-import STAST
-import STTypes
-import Simulator.State
+module Aetherling.Simulator.Compose where
+import Aetherling.Operations.AST
+import Aetherling.Operations.Types
+import Aetherling.Analysis.PortsAndThroughput
+import Aetherling.Simulator.State
 
 -- Simulator implementations for ComposeSeq and ComposePar.
 simhlSeq :: Simhl -> Op -> [[ValueType]] -> SimhlState

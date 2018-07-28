@@ -1,20 +1,20 @@
-{-# OPTIONS_GHC -fwarn-incomplete-patterns #-}
-module Simulator.Simulator where
-import STTypes
-import STMetrics
-import STAST
-import STAnalysis
+module Aetherling.Simulator.Simulator where
+import Aetherling.Operations.AST
+import Aetherling.Operations.Types
+import Aetherling.Analysis.PortsAndThroughput
+import Aetherling.Analysis.Metrics
+import Aetherling.Simulator.State
 import Data.Bool
 import Data.List
 import Debug.Trace
-import Simulator.Arithmetic
-import Simulator.Arrays
-import Simulator.Combinational
-import Simulator.Compose
-import Simulator.DuplicateOutputs
-import Simulator.MapReduce
-import Simulator.Memory
-import Simulator.State
+import Aetherling.Simulator.Arithmetic
+import Aetherling.Simulator.Arrays
+import Aetherling.Simulator.Combinational
+import Aetherling.Simulator.Compose
+import Aetherling.Simulator.DuplicateOutputs
+import Aetherling.Simulator.MapReduce
+import Aetherling.Simulator.Memory
+import Aetherling.Simulator.State
 
 -- See Simulator/howto.txt for documentation.
 --
@@ -165,8 +165,8 @@ simhl reshape@(ArrayReshape inTypes outTypes) inStrs state =
     (simhlCombinational (simhlReshape reshape) inStrs, state)
 simhl (MemRead t) inStrs state = simhlRead t inStrs state
 simhl (MemWrite t) inStrs state = simhlWrite inStrs state
-simhl (LineBuffer pixelRate windowSize imageSize t) inStrs state =
-    (simhlLineBuffer pixelRate windowSize imageSize t inStrs, state)
+simhl (LineBuffer pixelRate windowSize imageSize t bc) inStrs state =
+    (simhlLineBuffer pixelRate windowSize imageSize t inStrs bc, state)
 simhl op@(DuplicateOutputs _ _) inStrs inState =
     simhlDuplicateOutputs simhl op inStrs inState
 simhl (MapOp par op) inStrs state = simhlMap simhl par op inStrs state
@@ -178,13 +178,13 @@ simhl (ReduceOp par numComb op) inStrs state =
 -- simulator -- dealing with the details of clock scheduling and clock
 -- enable is something that we worry about elsewhere.
 simhl (Underutil n op) inStrs state = simhl op inStrs state
-simhl (RegRetime delay op) inStrs state = simhl op inStrs state
+simhl (Delay delay op) inStrs state = simhl op inStrs state
 simhl op@(ComposeSeq _) inStrs state =
     simhlSeq simhl op inStrs state
 simhl op@(ComposePar _) inStrs state =
     simhlPar simhl op inStrs state
-simhl (ComposeFailure _ _) _ _ =
-    error "Aetherling internal error: ComposeFailure in simulation."
+simhl (Failure _) _ _ =
+    error "Aetherling internal error: Failure in simulation."
 
 -- Preprocess the operators recursively. Does these things:
 --
@@ -254,7 +254,7 @@ simhlPre opStack@(MapOp _ _:_) inStrLens inState =
     simhlPreMap simhlPre opStack inStrLens inState
 simhlPre opStack@(ReduceOp _ _ _:_) inStrLens inState =
     simhlPreReduce simhlPre opStack inStrLens inState
-simhlPre opStack@(LineBuffer _ _ _ _:_) inStrLens inState =
+simhlPre opStack@(LineBuffer _ _ _ _ _:_) inStrLens inState =
     simhlPreLB opStack inStrLens inState
 simhlPre (Constant_Int _:_) _ state = ([Nothing], state)
 simhlPre (Constant_Bit _:_) _ state = ([Nothing], state)
@@ -266,14 +266,14 @@ simhlPre opStack@(DuplicateOutputs _ _:_) inStrLens inState =
     simhlPreDuplicateOutputs simhlPre opStack inStrLens inState
 simhlPre opStack@(Underutil _ op:_) inStrLens inState =
     simhlPre (op:opStack) inStrLens inState
-simhlPre opStack@(RegRetime _ op:_) inStrLens inState =
+simhlPre opStack@(Delay _ op:_) inStrLens inState =
     simhlPre (op:opStack) inStrLens inState
 simhlPre opStack@(ComposePar _:_) inStrLens inState =
     simhlPrePar simhlPre opStack inStrLens inState
 simhlPre opStack@(ComposeSeq _:_) inStrLens inState =
     simhlPreSeq simhlPre opStack inStrLens inState
-simhlPre opStack@(ComposeFailure _ _:_) inStrLens inState =
-    error("ComposeFailure cannot be simulated at\n"
+simhlPre opStack@(Failure _:_) inStrLens inState =
+    error("Failure cannot be simulated at\n"
        ++ (simhlFormatOpStack opStack))
 
 

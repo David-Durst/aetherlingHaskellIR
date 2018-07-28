@@ -1,7 +1,7 @@
-module Simulator.State where
+module Aetherling.Simulator.State where
 import Data.List
-import STAST
-import STTypes
+import Aetherling.Operations.AST
+import Aetherling.Operations.Types
 
 -- Some op simulations require recursive calls to the simulator
 -- implementation (simhl), so to avoid circular dependencies the simhl

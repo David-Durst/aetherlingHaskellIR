@@ -1,8 +1,8 @@
-module Simulator.MapReduce where
-import STAnalysis
-import STAST
-import STTypes
-import Simulator.State
+module Aetherling.Simulator.MapReduce where
+import Aetherling.Operations.AST
+import Aetherling.Operations.Types
+import Aetherling.Analysis.PortsAndThroughput
+import Aetherling.Simulator.State
 
 -- Implementation of simhl MapOp. To avoid circular dependencies, the
 -- simulator implementation function (simhl) must be passed as an
