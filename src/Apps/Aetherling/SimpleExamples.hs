@@ -1,4 +1,4 @@
-module Aetherling.Examples where
+module Aetherling.Apps.SimpleExamples where
 import Aetherling.Operations.Types
 import Aetherling.Operations.AST
 import Aetherling.Operations.Compose

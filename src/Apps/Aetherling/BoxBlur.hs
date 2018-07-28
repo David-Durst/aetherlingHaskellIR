@@ -1,7 +1,7 @@
-module Apps.BoxBlur where
-import STAST
-import STComposeOps
-import STTypes
+module Aetherling.Apps.BoxBlur where
+import Aetherling.Operations.AST
+import Aetherling.Operations.Compose
+import Aetherling.Operations.Types
 
 -- Blur pipeline example.
 
