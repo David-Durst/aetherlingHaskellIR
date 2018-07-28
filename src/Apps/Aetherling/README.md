@@ -1,6 +1,7 @@
-Various example Aetherling pipelines live here. Except SimpleExamples, they're 
-just pipelines without any main program to simulate or compile them. 
+Various example Aetherling pipelines live here. They're just pipelines without 
+any main program to simulate or compile them. 
 You can import pipelines from here and do interesting things with them yourself.
-Main.hs runs the SimpleExamples and Main.output is the output of them, provided
-so that viewers on Github can see the output without running the code 
-themselves.
+
+See src/AppMains for main functions that can run some of the examples from
+the command line. Due to the Stack tool used, each main must be in its own
+folder.

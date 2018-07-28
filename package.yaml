@@ -36,8 +36,8 @@ executables:
   AetherlingSTIR-Example-exe:
     main:                Main.hs
     source-dirs:
-    - src/Examples/
-    - src/ExamplesExe/
+    - src/Apps/Aetherling/
+    - src/AppMains/SimpleExamples/
     ghc-options:
     - -threaded
     - -rtsopts
@@ -50,7 +50,7 @@ tests:
     main:                TestExamples.hs
     source-dirs:
     - test/ 
-    - src/Examples/
+    - src/Apps/Aetherling/
     ghc-options:
     - -threaded
     - -rtsopts

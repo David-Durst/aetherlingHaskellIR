@@ -1,8 +1,8 @@
 import Test.Tasty
 import Test.Tasty.HUnit
-import STAST
-import STMetrics
-import Examples
+import Aetherling.Analysis.AST
+import Aetherling.Analysis.Metrics
+import Aetherling.Apps.Examples
 import TestSimulator
 import TestThroughputPasses
 
