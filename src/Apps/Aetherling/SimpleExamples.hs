@@ -17,9 +17,9 @@ reduce41 = ReduceOp 4 1 (Add T_Int)
 
 map4 = MapOp 4 (Add T_Int)
 
-lb13 = LineBuffer [1] [3] [300] T_Int
+lb13 = LineBuffer [1] [3] [300] T_Int Crop
 
-lb23 = LineBuffer [2] [3] [300] T_Int
+lb23 = LineBuffer [2] [3] [300] T_Int Crop
 
 lb13Underutil = Underutil 2 $ LineBuffer [2] [3] [300] T_Int Crop
 
