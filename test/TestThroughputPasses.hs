@@ -1,11 +1,9 @@
 module TestThroughputPasses where
-import STAST
-import STAnalysis
-import STComposeOps
-import STSimulate
-import STMetrics
-import STTypes
-import STThroughputPasses
+import Aetherling.Operations.AST
+import Aetherling.Operations.Types
+import Aetherling.Analysis.PortsAndThroughput
+import Aetherling.Analysis.Metrics
+import Aetherling.Passes.ThroughputModifications
 import Test.Tasty
 import Test.Tasty.HUnit
 import Data.Ratio

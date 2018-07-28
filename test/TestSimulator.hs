@@ -1,10 +1,10 @@
-{-# OPTIONS_GHC -fwarn-incomplete-patterns #-}
 module TestSimulator where
-import STAST
-import STAnalysis
-import STComposeOps
-import Simulator.Simulator
-import STTypes
+import Aetherling.Operations.AST
+import Aetherling.Operations.Compose
+import Aetherling.Operations.Types
+import Aetherling.Analysis.Metrics
+import Aetherling.Analysis.PortsAndThroughput
+import Aetherling.Simulator.Simulator
 import Data.Bits
 import Data.List
 import Test.Tasty
@@ -327,7 +327,7 @@ simhlCase7 = SimhlTestCase
 -- Use de-morgan's law to turn this into a test for or, not.
 -- Also add a register just for fun.
 simhlVec7LessThanOp =
-  MapOp 7 Gt |>>=| ReduceOp 7 7 (Or T_Bit) |>>=| RegRetime 1 (Not T_Bit)
+  MapOp 7 Gt |>>=| ReduceOp 7 7 (Or T_Bit) |>>=| Delay 1 (Not T_Bit)
 simhlVec7LessThanCombinational :: [ValueType] -> [ValueType]
 simhlVec7LessThanCombinational [V_Array xs, V_Array ys] =
   [V_Bit $ all (\(x,y) -> x < y) $ zip [x | V_Int x <- xs] [y | V_Int y <- ys]]
@@ -342,8 +342,8 @@ simhlCase8 = SimhlTestCase
 -- Read two tapes of input, and output their sums and differences to
 -- memory, and their mins to an output port.
 simhlMemSumDiffMinOp =
-  (RegRetime 1 (DuplicateOutputs 3 (MemRead T_Int |&| MemRead T_Int))) |>>=|
-  (RegRetime 2 (Add T_Int |&| Sub T_Int |&| Min T_Int)) |>>=|
+  (Delay 1 (DuplicateOutputs 3 (MemRead T_Int |&| MemRead T_Int))) |>>=|
+  (Delay 2 (Add T_Int |&| Sub T_Int |&| Min T_Int)) |>>=|
   (MemWrite T_Int |&| MemWrite T_Int |&| simhlNoOp [T_Int])
 simhlMemSumDiffMinImpl :: [[ValueType]] -> [[ValueType]]
                        -> ( [[ValueType]], [[ValueType]] )
@@ -441,7 +441,7 @@ simhlCase11 = SimhlTestCase
 -- Use a 1D line buffer to output the maximum of adjacent inputs (adjacent in time).
 simhlMaxAdjacentOp =
   ArrayReshape [T_Int] [T_Array 1 T_Int] |>>=|
-  LineBuffer [1] [2] [100] T_Int |>>=|
+  LineBuffer [1] [2] [100] T_Int Crop |>>=|
   ArrayReshape [T_Array 1 (T_Array 2 T_Int)] [T_Int, T_Int] |>>=|
   Max T_Int
 simhlMaxAdjacentImpl :: [[ValueType]] -> [[ValueType]]
@@ -466,7 +466,7 @@ simhlXOr10Op =
   ArrayReshape [T_Bit] [T_Array 1 T_Bit] |>>=|
   SequenceArrayRepack (3, 1) (1, 3) T_Bit |>>=|
   Underutil 3 (
-      LineBuffer [3] [10] [300] T_Bit |>>=|
+      LineBuffer [3] [10] [300] T_Bit Crop |>>=|
       MapOp 3 (ReduceOp 10 10 (XOr T_Bit))) |>>=|
   SequenceArrayRepack (1, 3) (3, 1) T_Bit |>>=|
   ArrayReshape [T_Array 1 T_Bit] [T_Bit]
@@ -492,7 +492,7 @@ simhlCase13 = SimhlTestCase
 -- inputs with a regular pattern (5*x + 7*y) and check that the
 -- outputs match that same pattern.
 simhlLineBufferOp =
-  LineBuffer [1, 2] [4, 3] [150, 100] T_Int
+  LineBuffer [1, 2] [4, 3] [150, 100] T_Int Crop
 simhlLineBufferTestData =
       [[
         V_Array [ V_Array [V_Int (5*x + 7*y), V_Int (5*(x+1) + 7*y)] ]

@@ -47,10 +47,10 @@ executables:
 
 tests:
   AetherlingSTIR-Examples-test:
-    main:                TestExamples.hs
+    main:                TestMain.hs
     source-dirs:
     - test/ 
-    - src/Apps/Aetherling/
+    - src/Apps/
     ghc-options:
     - -threaded
     - -rtsopts
