@@ -14,3 +14,9 @@ cabal.config
 *.iml
 .idea
 .stack-work
+GPATH
+GRTAGS
+GTAGS
+TAGS
+.dir-locals.el
+

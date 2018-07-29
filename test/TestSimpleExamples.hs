@@ -1,20 +1,14 @@
+module TestSimpleExamples where
 import Test.Tasty
 import Test.Tasty.HUnit
-import STAST
-import Examples
-import TestSimulator
-
-main :: IO ()
-main = defaultMain tests
-
-tests :: TestTree
-tests = testGroup "Example Tests" [unitTests, simulatorTests]
+import Aetherling.Operations.AST
+import Aetherling.SimpleExamples
 
 isSuccess :: Op -> Bool
-isSuccess (ComposeFailure _ _) = False
+isSuccess (Failure _) = False
 isSuccess _ = True
 
-unitTests = testGroup "Verifying Examples Aren't ComposeFailures"
+simpleExamplesTests = testGroup "Verifying Simple Examples Aren't Failures"
   [
     testCase "basic combinonal adder" $ isSuccess combinationalAdd @?= True,
     testCase "fully parallel 4 ints per clock reduce" $ isSuccess reduce44 @?= True,

@@ -1,7 +1,7 @@
-module Simulator.DuplicateOutputs where
-import STAST
-import STTypes
-import Simulator.State
+module Aetherling.Simulator.DuplicateOutputs where
+import Aetherling.Operations.AST
+import Aetherling.Operations.Types
+import Aetherling.Simulator.State
 
 -- Simulator and preprocessor pass implementation for duplicate outputs.
 

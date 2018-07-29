@@ -1,8 +1,8 @@
-module Simulator.Combinational where
-import STAnalysis
-import STAST
-import STTypes
-import Simulator.State
+module Aetherling.Simulator.Combinational where
+import Aetherling.Operations.AST
+import Aetherling.Operations.Types
+import Aetherling.Analysis.PortsAndThroughput
+import Aetherling.Simulator.State
 
 -- Helper function for simulating combinational devices.  Takes an
 -- implementation function ([ValueType]->[ValueType]) and a list of

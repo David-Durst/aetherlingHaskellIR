@@ -1,5 +1,5 @@
 module Main where
-import Examples
+import Aetherling.SimpleExamples
 
 main = do
   describeMethod "basic combinonal adder" combinationalAdd

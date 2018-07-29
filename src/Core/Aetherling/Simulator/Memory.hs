@@ -1,7 +1,7 @@
-module Simulator.Memory where
-import STAST
-import STTypes
-import Simulator.State
+module Aetherling.Simulator.Memory where
+import Aetherling.Operations.AST
+import Aetherling.Operations.Types
+import Aetherling.Simulator.State
 
 -- Memory read and write implementations.
 -- Two things need to happen to the state object:

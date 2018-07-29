@@ -1,31 +1,32 @@
-module Examples where
-import STTypes
-import STMetrics
-import STAST
-import STAnalysis
-import STComposeOps
+module Aetherling.SimpleExamples where
+import Aetherling.Operations.Types
+import Aetherling.Operations.AST
+import Aetherling.Operations.Compose
+import Aetherling.Analysis.Latency
+import Aetherling.Analysis.PortsAndThroughput
+import Aetherling.Analysis.Space
 import Text.Pretty.Simple (pPrint)
 
 combinationalAdd = Add T_Int
 
 reduce44 = ReduceOp 4 4 (Add T_Int)
 
-reduce44Retimed = RegRetime 2 $ ReduceOp 4 4 (Add T_Int)
+reduce44Retimed = Delay 2 $ ReduceOp 4 4 (Add T_Int)
 
 reduce41 = ReduceOp 4 1 (Add T_Int)
 
 map4 = MapOp 4 (Add T_Int)
 
-lb13 = LineBuffer [1] [3] [300] T_Int
+lb13 = LineBuffer [1] [3] [300] T_Int Crop
 
-lb23 = LineBuffer [2] [3] [300] T_Int
+lb23 = LineBuffer [2] [3] [300] T_Int Crop
 
-lb13Underutil = Underutil 2 $ LineBuffer [2] [3] [300] T_Int
+lb13Underutil = Underutil 2 $ LineBuffer [2] [3] [300] T_Int Crop
 
 lbChain = 
   Constant_Int [1] |>>=|
-  LineBuffer [1] [3] [300] T_Int |>>=|
-  Delay [DKPair 2 298] (LineBuffer [1] [3] [298] (T_Array 3 T_Int))
+  LineBuffer [1] [3] [300] T_Int Crop |>>=|
+  LineBuffer [1] [3] [298] (T_Array 3 T_Int) Crop
 
 -- no support for 2D linebuffers yet
 
@@ -48,18 +49,14 @@ conv1PxPerClock =
     (
       MemRead T_Int |>>=|
       ArrayReshape [T_Int] [T_Array 1 T_Int] |>>=|
-      LineBuffer [1] [3] [300] T_Int |>>=|
-      Delay [DKPair 2 298] (
-        ArrayReshape [T_Array 1 (T_Array 3 T_Int)] [T_Array 3 T_Int]
-      )
+      LineBuffer [1] [3] [300] T_Int Crop |>>=|
+      ArrayReshape [T_Array 1 (T_Array 3 T_Int)] [T_Array 3 T_Int]
     ) |&|
-    Delay [DKPair 2 298] (Constant_Int [1, 1, 1])
+    Constant_Int [1, 1, 1]
   ) |>>=|
-  Delay [DKPair 2 298] (
-    MapOp 3 (Add T_Int) |>>=|
-    ReduceOp 3 3 (Add T_Int) |>>=|
-    MemWrite T_Int
-  )
+  MapOp 3 (Add T_Int) |>>=|
+  ReduceOp 3 3 (Add T_Int) |>>=|
+  MemWrite T_Int
 
 describeMethod name op = do
   print $ "Describing Module: " ++ name
