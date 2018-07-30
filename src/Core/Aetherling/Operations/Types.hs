@@ -1,6 +1,8 @@
 {-|
 Module: Aetherling.Operations.Types
-Description: Describes Aetherling's type system and the ports of operations
+Description: Type system for interfaces of Aetherling's Ops
+
+Describes Aetherling's type system and the ports of operations
 that accept/emit tokens of those types. PortThroughput is also defined here
 as it is a type used for comparing ports when composing sequences of ops.
 -}

@@ -1,4 +1,51 @@
-module Aetherling.Passes.ThroughputModifications where
+{-|
+Module: Aetherling.Passes.ThroughputModifications
+Description: Passes that tradeoff throughput and area
+
+The Aetherling Operations. These are split into four groups:
+
+1. Leaf, non-modifiable rate - these are arithmetic, boolean logic,
+and bit operations that don't contain any other ops and don't have
+a parameter for making them run with a larger or smaller throughput.
+Since these don't have a modifiable rate, they are sped up and slowed
+down by wrapping them in a parent, modifiable rate op such as map and
+underutil.
+
+2. Leaf, modifiable rate - these are ops like linebuffers,
+and space-time type reshapers that have a parameter for changing their
+throughput and typically are not mapped over to change their throuhgput.
+These ops don't have child ops.
+Since these have a modifiable rate, they are sped up and slowed down by
+trying to adjust that rate. In some cases, it may not be possible to adjust
+the rate if the op with the new is invalid given the dimensions of the data
+being operated on. Speed up and slow down may fail in these cases.
+
+3. Parent, non-modifiable rate - these ops like composeSeq and composePar have
+child ops that can have their throughputs' modified, but the parent
+op doesn't have a parameter that affects throughput
+
+4. Parent, modifiable rate - map is the canonical example. It has child ops
+and can have its throughput modified by changing parallelism.
+
+The four groups are have their throughputs increased and decreased using
+different approaches:
+
+1. Leaf, non-modifiable rate - these ops are sped up and slowed down by wrapping
+them in a parent, modifiable rate op such as map and underutil. 
+
+2. Leaf, modifiable rate - these ops are sped up and slowed down by trying to
+adjust their rate. In some cases, it may not be possible to adjust the rate if
+the op with the new is invalid given the dimensions of the data being operated
+on. Speed up and slow down may fail in these cases.
+
+3. Parent, non-modifiable rate - these ops are sped up and slowed by down
+adjusting the throughputs of their child ops. 
+
+4. Parent, modifiable rate - these ops are sped up and slowed down by first
+trying to adjust their rate. If that is not possible, speedUp and slowDown
+try to adjust the throughputs of their child ops.
+-}
+module Aetherling.Passes.ThroughputModifications (speedUp, slowDown) where
 import Aetherling.Operations.Types
 import Aetherling.Operations.AST
 import Aetherling.Operations.Compose
@@ -8,15 +55,27 @@ import Aetherling.Analysis.Metrics
 -- NOTE: AM I PUSHING TOO MUCH LOGIC INTO THE LEAVES BY HAVING THEM
 -- UNDERUTIL THEMSELVES? SHOULD THE COMPOSESEQs DO UNDERUTIL WHEN CHILDREN CAN'T?
 
+-- | Increase the throughput of an Aetherling DAG by increasing area and
+-- utilization. speedUp attempts to increase throughput by increasing
+-- utilization before using more area.
 speedUp throughMult op | actualMult == throughMult = spedUpOp
   where (spedUpOp, actualMult) = attemptSpeedUp throughMult op
 speedUp throughMult op = Failure
   (InvalidThroughputModification throughMult actualMult) 
   where (spedUpOp, actualMult) = attemptSpeedUp throughMult op
 
--- If its combinational, pretty much always just wrap it in map, as if later
--- speed up again, will just increase multiple on map, never see this again
+-- This is the helper function that speeds up an op as much as possible
+-- and returns the amount sped up.
+-- it is split up into the four types of ops described at the top of the file.
+
 attemptSpeedUp :: Int -> Op -> (Op, Int)
+-- LEAF, NON-MODIFIABLE RATE 
+-- can't change rate, can't speed up child ops, so just wrap in a map to
+-- parallelize
+-- ASSUMPTION: the user has specified a type for these ops and passes will not
+-- change the type because that would change the semantics of the
+-- program. For example, one could speed up an Add T_Int my making it a
+-- Add $ T_Array 2 T_Int, but that would change the program's meaning.
 attemptSpeedUp throughMult op@(Add _) = (MapOp throughMult op, throughMult)
 attemptSpeedUp throughMult op@(Sub _) = (MapOp throughMult op, throughMult)
 attemptSpeedUp throughMult op@(Mul _) = (MapOp throughMult op, throughMult)
@@ -37,22 +96,35 @@ attemptSpeedUp throughMult op@Leq = (MapOp throughMult op, throughMult)
 attemptSpeedUp throughMult op@Gt = (MapOp throughMult op, throughMult)
 attemptSpeedUp throughMult op@Geq = (MapOp throughMult op, throughMult)
 attemptSpeedUp throughMult op@(LUT _) = (MapOp throughMult op, throughMult)
--- should it be possible to speed this up? Should I always just speed up by
--- wrapping in an array instead of increasing a wrapping array length if it exists?
--- OLD REASONING - no, can't speed this up or slow it down as don't want to
--- change the meaning of the data it reads every clock.
--- Always reading a token each clock, map to speed up
--- NEW REASONING - the no is wrong. Going to change this to just reading in
--- arrays of ints or bits, as that is what memory is. memory is a 1d array,
--- so these will just make parent array longer or wrap int/bit in array
-attemptSpeedUp throughMult op@(MemRead (T_Array n t)) =
-  (MemRead (T_Array (n*throughMult) t), throughMult)
-attemptSpeedUp throughMult op@(MemRead t) =
-  (MemRead (T_Array throughMult t), throughMult)
-attemptSpeedUp throughMult op@(MemWrite (T_Array n t)) =
-  (MemWrite (T_Array (n*throughMult) t), throughMult)
-attemptSpeedUp throughMult op@(MemWrite t) =
-  (MemWrite (T_Array throughMult t), throughMult)
+
+-- Must map over these because making a single memory wider is a more
+-- expensive operation than banking it (making multiple copies)
+-- NOTE: unclear what expensive means here, just my understanding from
+-- talking with Spatial team, Ross, and other hardware people. I should
+-- figure it out.
+-- maping over a MemRead/MemWrite is banking it, and wrapping
+-- the type with an array is making a single memory read/write more
+-- per clock.
+attemptSpeedUp throughMult op@(MemRead _) = (MapOp throughMult op, throughMult)
+attemptSpeedUp throughMult op@(MemWrite _) = (MapOp throughMult op, throughMult)
+
+-- These are leaf, non-modifiable rate unlike SequenceArrayRepack because,
+-- for these operations, the user has not specified the type separately from the
+-- array length. Therefore, speedup may modify the meaning of the program
+-- by changing the types of these ops.
+attemptSpeedUp throughMult op@(ArrayReshape _ _) =
+  (MapOp throughMult op, throughMult)
+attemptSpeedUp throughMult op@(DuplicateOutputs _ _) =
+  (MapOp throughMult op, throughMult)
+
+attemptSpeedUp throughMult op@(Constant_Int _) = (MapOp throughMult op, throughMult)
+attemptSpeedUp throughMult op@(Constant_Bit _) = (MapOp throughMult op, throughMult)
+
+-- LEAF, MODIFIABLE RATE
+-- If possible, speed up by changing the rate. Otherwise, just try to return
+-- an op with the same or greater throughput than the original.
+-- However, behavior is undefined if requesting an invalid throughput multiplier
+
 -- NOTE: assuming that all pxPerClock are 1 unless inner dims pxPerClock ==
 -- inner img dims
 -- NOTE: for all dimensions, img dimension % pxPerClock == 0
@@ -74,20 +146,37 @@ attemptSpeedUp throughMult (LineBuffer p w img t bc) =
   where
     (reversedNewP, actualMult) =
       increaseLBPxPerClock (reverse p) (reverse img) throughMult
--- don't increase the arr size, duplicate it so it can be fed to other maps
-attemptSpeedUp throughMult op@(Constant_Int _) = (MapOp throughMult op, throughMult)
-attemptSpeedUp throughMult op@(Constant_Bit _) = (MapOp throughMult op, throughMult)
 -- not going to change SLen in as, if 1, don't want to cause it to become
 -- fractional
 attemptSpeedUp throughMult (SequenceArrayRepack (sLenIn, oldArrLenIn)
                               (sLenOut, oldArrLenOut) t) =
   (SequenceArrayRepack (sLenIn, oldArrLenIn * throughMult)
     (sLenOut, oldArrLenOut * throughMult) t, throughMult)
-attemptSpeedUp throughMult op@(ArrayReshape _ _) =
-  (MapOp throughMult op, throughMult)
-attemptSpeedUp throughMult op@(DuplicateOutputs _ _) =
-  (MapOp throughMult op, throughMult)
 
+
+-- PARENT, NON-MODIFIABLE RATE
+-- NOTE: what to do if mapping over a reg delay? Nothing? its sequential but,
+-- unlike other sequential things like reduce, linebuffer its cool to duplicate
+attemptSpeedUp throughMult (Delay d innerOp) =
+  (Delay d spedUpInnerOp, innerMult)
+  where (spedUpInnerOp, innerMult) = attemptSpeedUp throughMult innerOp 
+
+attemptSpeedUp throughMult (ComposePar ops) = 
+  let
+    spedUpOpsAndMults = map (attemptSpeedUp throughMult) ops
+    spedUpOps = map fst spedUpOpsAndMults
+    actualMults = map snd spedUpOpsAndMults
+  in (ComposePar spedUpOps, minimum actualMults)
+attemptSpeedUp throughMult (ComposeSeq ops) = 
+  let
+    spedUpOpsAndMults = map (attemptSpeedUp throughMult) ops
+    (hdSpedUpOps:tlSpedUpOps) = map fst spedUpOpsAndMults
+    actualMults = map snd spedUpOpsAndMults
+  -- doing a fold here instead of just making another composeSeq to make sure all
+  -- ports still match 
+  in (foldl (|>>=|) hdSpedUpOps tlSpedUpOps, minimum actualMults)
+
+-- PARENT, MODIFIABLE RATE 
 -- is this an ok inverse of our decision to only underutil for slowdown of seq operators?
 -- should this try to speed up children before itself?
 attemptSpeedUp throughMult (MapOp par innerOp) | isComb innerOp =
@@ -127,26 +216,6 @@ attemptSpeedUp throughMult op@(Underutil denom innerOp) =
   (Underutil denom innerSpedUpOp, innerMult)
   where (innerSpedUpOp, innerMult) = attemptSpeedUp throughMult innerOp
 
--- NOTE: what to do if mapping over a reg delay? Nothing? its sequential but,
--- unlike other sequential things like reduce, linebuffer its cool to duplicate
-attemptSpeedUp throughMult (Delay d innerOp) =
-  (Delay d spedUpInnerOp, innerMult)
-  where (spedUpInnerOp, innerMult) = attemptSpeedUp throughMult innerOp 
-
-attemptSpeedUp throughMult (ComposePar ops) = 
-  let
-    spedUpOpsAndMults = map (attemptSpeedUp throughMult) ops
-    spedUpOps = map fst spedUpOpsAndMults
-    actualMults = map snd spedUpOpsAndMults
-  in (ComposePar spedUpOps, minimum actualMults)
-attemptSpeedUp throughMult (ComposeSeq ops) = 
-  let
-    spedUpOpsAndMults = map (attemptSpeedUp throughMult) ops
-    (hdSpedUpOps:tlSpedUpOps) = map fst spedUpOpsAndMults
-    actualMults = map snd spedUpOpsAndMults
-  -- doing a fold here instead of just making another composeSeq to make sure all
-  -- ports still match 
-  in (foldl (|>>=|) hdSpedUpOps tlSpedUpOps, minimum actualMults)
 attemptSpeedUp _ op@(Failure _) = (op, 1)
 
 
@@ -179,6 +248,9 @@ increaseLBPxPerClock (pInner:pTl) (imgInner:imgTl) mult |
     (pOuter, multOuter) = increaseLBPxPerClock pTl imgTl remainingMultForOuterDims
 increaseLBPxPerClock p _ _ = (p, 1)
 
+-- | Decrease the throughput an Aetherling DAG by decreasing area and
+-- utilization. slowDown attempts to decrease throughput by decreasing area
+-- before underutilizing.
 slowDown throughDiv op | actualDiv == throughDiv = spedUpOp
   where (spedUpOp, actualDiv) = attemptSlowDown throughDiv op
 slowDown throughDiv op = Failure $ InvalidThroughputModification throughDiv actualDiv

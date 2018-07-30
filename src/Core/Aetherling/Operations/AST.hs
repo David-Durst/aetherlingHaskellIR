@@ -1,26 +1,14 @@
 {-|
 Module: Aetherling.Operations.AST
-Description: Provides the Aetherling Abstract Syntax Tree (AST) and functions
+Description: Aetherling's AST
+
+Provides the Aetherling Abstract Syntax Tree (AST) and functions
 for identifying errors in that tree.
 -}
 module Aetherling.Operations.AST where
 import Aetherling.Operations.Types
 
-{-|
-The Aetherling Operations. These are split into four groups:
-1. Leaf, non-modifiable rate - these are arithmetic, boolean logic,
-and bit operations that don't contain any other ops and don't have
-a parameter for making them run with a larger or smaller throughput.
-2. Leaf, modifiable rate - these are ops like linebuffers,
-and space-time type reshapers that have a parameter for changing their
-throughput and typically are not mapped over to change their throuhgput.
-These ops don't have child ops
-3. Parent, non-modifiable rate - these ops like composeSeq and composePar have
-child ops that can have their throughputs' modified, but the parent
-op doesn't have a parameter that affects throughput
-4. Parent, modifiable rate - map is the canonical example. It has child ops
-and can have its throughput modified by changing parallelism.
--} 
+-- | The operations that can be used to create dataflow DAGs in Aetherling
 data Op =
   -- LEAF OPS
   Add TokenType

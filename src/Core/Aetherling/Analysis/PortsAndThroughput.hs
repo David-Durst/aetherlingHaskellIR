@@ -1,6 +1,8 @@
 {-|
 Module: Aetherling.Analysis.PortsAndThroughput
-Description: Determines the input and output ports of an op, the clocks per 
+Description: Compute interfaces of Aetherling ops
+
+Determines the input and output ports of an op, the clocks per 
 sequence used to process the inputs on those ports, and the resulting throughput
 -}
 module Aetherling.Analysis.PortsAndThroughput where

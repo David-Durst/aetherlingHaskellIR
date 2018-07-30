@@ -1,6 +1,8 @@
 {-|
 Module: Aetherling.Operations.Properties
-Description: Describes properties that are intrinsic to operators that do not
+Description: Properties of Aetherling ops that don't require analysis
+
+Describes properties that are intrinsic to operators that do not
 require any analysis, like if the operator has a combinational path from at
 least one input port to one output port.
 -}
