@@ -137,34 +137,19 @@ attemptSpeedUp throughMult op@(Constant_Bit _) = (MapOp throughMult op, throughM
 -- For linebuffer:
 -- speed up inner most dimension first. Once you have an entire row input per
 -- clock, then speed up the outer dimensions like number of rows per clock.
--- the following assumptions must hold before and after running speed up:
--- ASSUMPTION 1: all pxPerClock are 1 unless all more inner dimensions
--- are already fully parallelized
--- ASSUMPTION 2: for all dimensions, the parallelism cleanly divides into the
--- size of that dimension, or img dimension % pxPerClock == 0
--- In order for assumption 2 to hold, the request mulitplier must make two
--- conditions true:
--- CONDITION 1: must be able to factor the request multiplier so that
--- a different factor makes each of the different fully parallelized dimensions
--- go from its pxPerClock prior to speed up to one that equals the image size
--- for that dimension after that speed up.
--- Stated rigorously: all i where i is number of full throuhgput dimensions:
---    ((\Pi_(0 to i-1) pxPerClock dim i) * requestedMult) %
---     (\Pi_(0 to i-1) product of full throuhgput dims) == 0
--- 2. After making all more inner dimensions full throuhgput, the first 
--- dimension not made fully parallel must consume the rest of requested multiplier
--- and result in a new pxPerClock that cleanly divides into that dimension's
--- size
--- Stated rigorously:
---    (first not full throuhgput dim) % (requestMult / (product of inner px
---     per clock throughput increases)) == 0
+-- see increaseLBPxPerClock for more information. 
+-- NOTE: increaseLBPxPerClock expects dimensions from innermost to outermost
+-- and LineBuffer stores them in the opposite order. Thus, they must be
+-- reversed when calling the helper function.
 attemptSpeedUp throughMult (LineBuffer p w img t bc) =
   (LineBuffer (reverse reversedNewP) w img t bc, actualMult)
   where
     (reversedNewP, actualMult) =
       increaseLBPxPerClock (reverse p) (reverse img) throughMult
--- not going to change SLen in as, if 1, don't want to cause it to become
--- fractional
+
+-- could decrease sLenIn and sLenOut as increase throughput, but not going
+-- to do that as don't want to deal with fractional sequence lengths,
+-- which could happen if dividing sLenIn or sLenOut 
 attemptSpeedUp throughMult (SequenceArrayRepack (sLenIn, oldArrLenIn)
                               (sLenOut, oldArrLenOut) t) =
   (SequenceArrayRepack (sLenIn, oldArrLenIn * throughMult)
@@ -198,32 +183,52 @@ attemptSpeedUp throughMult (ComposeSeq ops) =
 -- PARENT, MODIFIABLE RATE 
 -- speed up the parent by increasing the rate if possible. If not possible,
 -- try to speed up the children.
+-- The default strategy is to adjust the rate, then fallback to speeding up
+-- the children if the rate can't be adjusted.
 
--- is this an ok inverse of our decision to only underutil for slowdown of seq operators?
--- should this try to speed up children before itself?
-attemptSpeedUp throughMult (MapOp par innerOp) | isComb innerOp =
+attemptSpeedUp throughMult (MapOp par innerOp) | not $ hasInternalState innerOp =
   (MapOp (par*throughMult) innerOp, throughMult)
 attemptSpeedUp throughMult (MapOp par innerOp) =
   let (spedUpInnerOp, actualMult) = attemptSpeedUp throughMult innerOp
   in (MapOp par spedUpInnerOp, actualMult)
 
--- only do it
--- 2. less than full parallel and numComb % newPar == 0 or
--- 3. more than parallel and newPar % numComb == 0
--- 4. everything inside is comb,
--- otherwise just speed up inside
--- NOTE: should I not be pushing down here? Should I give up if div doesn't work?
-attemptSpeedUp throughMult (ReduceOp par numComb innerOp) | isComb innerOp &&
-  (((newPar <= numComb) && ((numComb `mod` newPar) == 0)) ||
-  ((newPar > numComb) && ((newPar `mod` numComb) == 0))) =
+-- speed up reduce using four approaches:
+-- 1. child op has internal state: just speed up child op.
+-- Due to state, can't automatically speed up child op by making more
+-- copies as making two independent copies with different state stores
+-- won't behave same as modifying one and to update its state to run
+-- twice as fast
+-- 2. child op has no internal state and speed up so that
+-- afterwards numComb >= newPar: increase parallelism factor to desired amount
+-- ASSUMPTION: newPar must cleanly divide into numComb, or numComb % newPar == 0
+-- 3. child op has no internal state and speed up so that afterwards
+-- numComb < newPar: make par == numComb and map over reduce to get rest
+-- of parallelism
+-- ASSUMPTION: numComb must cleanly divide into newPar, or
+-- newPar % numComb == 0
+attemptSpeedUp throughMult (ReduceOp par numComb innerOp) |
+  (not $ hasInternalState innerOp) &&
+  ((newPar <= numComb) && ((numComb `mod` newPar) == 0)) =
   (ReduceOp newPar numComb innerOp, throughMult)
   where newPar = par*throughMult
+attemptSpeedUp throughMult (ReduceOp par numComb innerOp) |
+  (not $ hasInternalState innerOp) &&
+  ((newPar > numComb) && ((newPar `mod` numComb) == 0)) =
+  (MapOp mapPar $ ReduceOp numComb numComb innerOp, throughMult)
+  where
+    newPar = par*throughMult
+    mapPar = throughMult `ceilDiv` (numComb `ceilDiv` par)
 attemptSpeedUp throughMult (ReduceOp par numComb innerOp) =
   let (spedUpInnerOp, actualMult) = attemptSpeedUp throughMult innerOp
   in (ReduceOp par numComb spedUpInnerOp, actualMult)
 
--- modify underutil if mult divides cleanly into underutil's denominator
--- or if removing underutil and the denominator divides cleanly into mult
+-- cases:
+-- 1. if throughMult less than denom and throughMult divides cleanly
+-- into denom, just decrease the underutil denom
+-- 2. if throughMult greater than denom and denom divides cleanly into
+-- throughMult, remove the underutil and speed up the innerOp using the
+-- remaining part of throughMult
+-- 3. fall back, just speed up the inner op
 attemptSpeedUp throughMult (Underutil denom op) |
   (denom `mod` throughMult) == 0 =
   (Underutil (denom `ceilDiv` throughMult) op, throughMult)
@@ -240,32 +245,55 @@ attemptSpeedUp throughMult op@(Underutil denom innerOp) =
 attemptSpeedUp _ op@(Failure _) = (op, 1)
 
 
--- helper function for linebuffer attemptSpeedUp, goes through, increasing
--- parallelism of each component take an op and make it run x times faster
--- without wrapping it, where x is the second argument.
--- This may not be possible for some ops without wrapping them in a map
--- so the pair returns a best effort speed up op and the amount it was sped up
+-- helper that actually implements linebuffer's attemptSpeedUp 
 -- given a LB's pxPerClock, its image dimesions, and a multiple to speed up,
 -- speed up the pxPerCLock from inner most to outer most.
 -- Returns the new pxPerClock (in reverse order of LB) and the amount sped up
+
 -- NOTE: Unlike for a LB, here the pxPerClock and img dimensions must have the
--- inner most dimension come first this is the reverse of what it is on the linebuffer
+-- inner most dimension come first.
+-- This is the reverse of what it is on the linebuffer
+
+-- the following assumptions must hold before and after running speed up:
+-- ASSUMPTION 1: all pxPerClock are 1 unless all more inner dimensions
+-- are already fully parallelized
+-- ASSUMPTION 2: for all dimensions, the parallelism cleanly divides into the
+-- size of that dimension, or img dimension % pxPerClock == 0
+-- In order for assumption 2 to hold, the request mulitplier must make two
+-- conditions true:
+-- CONDITION 1: must be able to factor the request multiplier so that
+-- a different factor makes each of the different fully parallelized dimensions
+-- go from its pxPerClock prior to speed up to one that equals the image size
+-- for that dimension after that speed up.
+-- Stated rigorously: all i where i is number of full throuhgput dimensions:
+--    ((\Pi_(0 to i-1) pxPerClock dim i) * requestedMult) %
+--     (\Pi_(0 to i-1) product of full throuhgput dims) == 0
+-- 2. After making all more inner dimensions full throuhgput, the first 
+-- dimension not made fully parallel must consume the rest of requested multiplier
+-- and result in a new pxPerClock that cleanly divides into that dimension's
+-- size
+-- Stated rigorously:
+--    (first not full throuhgput dim) % (requestMult / (product of inner px
+--     per clock throughput increases)) == 0
+
 increaseLBPxPerClock :: [Int] -> [Int] -> Int -> ([Int], Int)
 -- if mult is down to 1 or no more dimensions to speed up, return remaining pxPerClock 
 increaseLBPxPerClock [] _ _ = ([], 1)
-increaseLBPxPerClock p img mult | mult == 1 = (p, 1)
+increaseLBPxPerClock p img requestedMult | requestedMult == 1 = (p, 1)
 -- if not filling out this dimension, pInner * mult must divide into imgInner
 -- no need to recurse further as done filling out dimensions
-increaseLBPxPerClock (pInner:pTl) (imgInner:imgTl) mult |
-  imgInner > pInner * mult && (imgInner `mod` (pInner * mult) == 0) =
-  ((pInner * mult) : pTl, mult)
+increaseLBPxPerClock (pInner:pTl) (imgInner:imgTl) requestedMult |
+  imgInner > pInner * requestedMult &&
+  (imgInner `mod` (pInner * requestedMult) == 0) =
+  ((pInner * requestedMult) : pTl, requestedMult)
 -- if filling out this dimension, imgInner must divide into mult * pInner cleanly
-increaseLBPxPerClock (pInner:pTl) (imgInner:imgTl) mult |
-  imgInner <= pInner * mult && ((mult * pInner) `mod` imgInner == 0) =
-  (imgInner : pOuter, mult * multOuter)
+increaseLBPxPerClock (pInner:pTl) (imgInner:imgTl) requestedMult |
+  imgInner <= pInner * requestedMult &&
+  ((requestedMult * pInner) `mod` imgInner == 0) =
+  (imgInner : pOuter, requestedMult * multOuter)
   where
     -- since requiring pInner to always divide into imgInner, this is ok
-    remainingMultForOuterDims = (mult * pInner) `ceilDiv` imgInner
+    remainingMultForOuterDims = (requestedMult * pInner) `ceilDiv` imgInner
     (pOuter, multOuter) = increaseLBPxPerClock pTl imgTl remainingMultForOuterDims
 increaseLBPxPerClock p _ _ = (p, 1)
 
