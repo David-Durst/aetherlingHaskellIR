@@ -124,23 +124,40 @@ attemptSpeedUp throughMult op@(Constant_Bit _) = (MapOp throughMult op, throughM
 -- If possible, speed up by changing the rate. Otherwise, just try to return
 -- an op with the same or greater throughput than the original.
 -- However, behavior is undefined if requesting an invalid throughput multiplier
+-- Not going to speed these up by wrapping them in a map because that would
+-- cause inappropriate behavior in the linebuffer. The linebuffer has complex
+-- internal state and mapping over it will cause it to behave unintuitively.
+-- For example, an LineBuffer [2] [3] [300] T_Int will reading in 2 int per clock
+-- and emit two overlapping windows of consecutive ints.
+-- A Map 2 (LineBuffer [1] [3] [300] T_Int) will emit two windows, but the
+-- ints in the windows will not be consecutive. The first window will have ints
+-- that came in 0, 2, and 4 (0-indexed) and the second window will have ints
+-- indexed 1, 3, and 5.
 
--- NOTE: assuming that all pxPerClock are 1 unless inner dims pxPerClock ==
--- inner img dims
--- NOTE: for all dimensions, img dimension % pxPerClock == 0
--- NOTE: This works by speeding up inner dimensions before outer ones. Only
--- works if throughMult satisfies two conditions:
--- 1. Amount to make each full throuhgput dimension go from current pxPerClock
--- to full throughput divides cleanly into the throughputMult.
+-- For linebuffer:
+-- speed up inner most dimension first. Once you have an entire row input per
+-- clock, then speed up the outer dimensions like number of rows per clock.
+-- the following assumptions must hold before and after running speed up:
+-- ASSUMPTION 1: all pxPerClock are 1 unless all more inner dimensions
+-- are already fully parallelized
+-- ASSUMPTION 2: for all dimensions, the parallelism cleanly divides into the
+-- size of that dimension, or img dimension % pxPerClock == 0
+-- In order for assumption 2 to hold, the request mulitplier must make two
+-- conditions true:
+-- CONDITION 1: must be able to factor the request multiplier so that
+-- a different factor makes each of the different fully parallelized dimensions
+-- go from its pxPerClock prior to speed up to one that equals the image size
+-- for that dimension after that speed up.
 -- Stated rigorously: all i where i is number of full throuhgput dimensions:
---    ((\Pi_(0 to i-1) pxPerClock dim i) * throuhgMult) %
+--    ((\Pi_(0 to i-1) pxPerClock dim i) * requestedMult) %
 --     (\Pi_(0 to i-1) product of full throuhgput dims) == 0
--- 2. After making all inner dimensions full throuhgput, the first dimension not
--- made full throughput must consume the rest of throuhgputMult and result in a
--- new pxPerClock that cleanly divides into that dimension.
+-- 2. After making all more inner dimensions full throuhgput, the first 
+-- dimension not made fully parallel must consume the rest of requested multiplier
+-- and result in a new pxPerClock that cleanly divides into that dimension's
+-- size
 -- Stated rigorously:
---    (first not full throuhgput dim) % (throuhgMult) / (product of inner px
---     per clock increases) == 0
+--    (first not full throuhgput dim) % (requestMult / (product of inner px
+--     per clock throughput increases)) == 0
 attemptSpeedUp throughMult (LineBuffer p w img t bc) =
   (LineBuffer (reverse reversedNewP) w img t bc, actualMult)
   where
@@ -155,8 +172,10 @@ attemptSpeedUp throughMult (SequenceArrayRepack (sLenIn, oldArrLenIn)
 
 
 -- PARENT, NON-MODIFIABLE RATE
--- NOTE: what to do if mapping over a reg delay? Nothing? its sequential but,
--- unlike other sequential things like reduce, linebuffer its cool to duplicate
+-- Speed up their child ops, no rate to modify on these, and no
+-- point in mapping over these as can just defer that to doing over children.
+
+attemptSpeedUp throughMult op@(NoOp _) = (MapOp throughMult op, throughMult)
 attemptSpeedUp throughMult (Delay d innerOp) =
   (Delay d spedUpInnerOp, innerMult)
   where (spedUpInnerOp, innerMult) = attemptSpeedUp throughMult innerOp 
@@ -177,6 +196,9 @@ attemptSpeedUp throughMult (ComposeSeq ops) =
   in (foldl (|>>=|) hdSpedUpOps tlSpedUpOps, minimum actualMults)
 
 -- PARENT, MODIFIABLE RATE 
+-- speed up the parent by increasing the rate if possible. If not possible,
+-- try to speed up the children.
+
 -- is this an ok inverse of our decision to only underutil for slowdown of seq operators?
 -- should this try to speed up children before itself?
 attemptSpeedUp throughMult (MapOp par innerOp) | isComb innerOp =
@@ -200,7 +222,6 @@ attemptSpeedUp throughMult (ReduceOp par numComb innerOp) =
   let (spedUpInnerOp, actualMult) = attemptSpeedUp throughMult innerOp
   in (ReduceOp par numComb spedUpInnerOp, actualMult)
 
-attemptSpeedUp throughMult op@(NoOp _) = (MapOp throughMult op, throughMult)
 -- modify underutil if mult divides cleanly into underutil's denominator
 -- or if removing underutil and the denominator divides cleanly into mult
 attemptSpeedUp throughMult (Underutil denom op) |
