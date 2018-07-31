@@ -2,7 +2,7 @@
 Module: Aetherling.Analysis.Space
 Description: Analyzes ops' area on chip and utilization of that area.
 -}
-module Aetherling.Analysis.Space where
+module Aetherling.Analysis.Space (space, util) where
 import Aetherling.Operations.AST
 import Aetherling.Operations.Types
 import Aetherling.Analysis.Metrics

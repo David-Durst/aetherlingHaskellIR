@@ -2,7 +2,7 @@
 Module: Aetherling.Operations.Compose
 Description: Provides functions for composing Aetherling operations into a DAG
 -}
-module Aetherling.Operations.Compose where
+module Aetherling.Operations.Compose ((|.|), (|>>=|), (|&|)) where
 import Aetherling.Operations.Types
 import Aetherling.Operations.AST
 import Aetherling.Analysis.PortsAndThroughput
@@ -27,8 +27,8 @@ import Aetherling.Analysis.PortsAndThroughput
 (|.|) op0 op1 = Failure $ ComposeFailure (SeqPortMismatch (outThroughput op1) 
   (inThroughput op0)) (op1, op0)
 
--- | This is in same spirit as Monad's >>=, kinda abusing notation
--- It's |.| in reverse so that can create pipelines in right order
+-- | This is |.| but in reverse so can create pipelines in logical order. It's
+-- in same spirit as Monad's >>=, kinda abusing notation
 (|>>=|) :: Op -> Op -> Op
 (|>>=|) op0 op1 = op1 |.| op0
 

@@ -6,7 +6,7 @@ Determines the initial latency for how long it takes for a
 pipelined module to receive input, and the max combinational path
 for the highest latency, single cycle part of the circuit.
 -}
-module Aetherling.Analysis.Latency where
+module Aetherling.Analysis.Latency (initialLatency, maxCombPath) where
 import Aetherling.Operations.AST
 import Aetherling.Operations.Types
 import Aetherling.Operations.Properties
