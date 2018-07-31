@@ -171,7 +171,7 @@ simhl op@(DuplicateOutputs _ _) inStrs inState =
     simhlDuplicateOutputs simhl op inStrs inState
 simhl (MapOp par op) inStrs state = simhlMap simhl par op inStrs state
 simhl (ReduceOp numTokens par op) inStrs state =
-    simhlReduce simhl par numTokens op inStrs state
+    simhlReduce simhl numTokens par op inStrs state
 
 -- We only care about meaningful inputs and outputs.  Therefore,
 -- underutil and register delays should be no-ops in this high level

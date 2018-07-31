@@ -96,7 +96,7 @@ simhlMapFoldLambda simhl lastTuple laneInput =
 -- numTokens inputs. The reg should be cleared for the next set of numTokens inputs.
 simhlReduce :: Simhl -> Int -> Int -> Op -> [[ValueType]] -> SimhlState
             -> ( [[ValueType]], SimhlState )
-simhlReduce simhl par numTokens theReducedOp inStrs inState
+simhlReduce simhl numTokens par theReducedOp inStrs inState
   | numTokens `mod` par /= 0 || numTokens == 0 =
       error("Simulator assumes paralellism of a reduce evenly divides "
             ++ "its nonzero combine count (simulating "
