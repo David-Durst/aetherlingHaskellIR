@@ -52,9 +52,6 @@ import Aetherling.Operations.Compose
 import Aetherling.Operations.Properties
 import Aetherling.Analysis.Metrics
 
--- NOTE: AM I PUSHING TOO MUCH LOGIC INTO THE LEAVES BY HAVING THEM
--- UNDERUTIL THEMSELVES? SHOULD THE COMPOSESEQs DO UNDERUTIL WHEN CHILDREN CAN'T?
-
 -- | Increase the throughput of an Aetherling DAG by increasing area and
 -- utilization. speedUp attempts to increase throughput by increasing
 -- utilization before using more area.
@@ -124,6 +121,7 @@ attemptSpeedUp throughMult op@(Constant_Bit _) = (MapOp throughMult op, throughM
 -- If possible, speed up by changing the rate. Otherwise, just try to return
 -- an op with the same or greater throughput than the original.
 -- However, behavior is undefined if requesting an invalid throughput multiplier
+-- that doesn't match the divisibility requirements such as those for linebuffer.
 -- Not going to speed these up by wrapping them in a map because that would
 -- cause inappropriate behavior in the linebuffer. The linebuffer has complex
 -- internal state and mapping over it will cause it to behave unintuitively.
@@ -134,7 +132,6 @@ attemptSpeedUp throughMult op@(Constant_Bit _) = (MapOp throughMult op, throughM
 -- that came in 0, 2, and 4 (0-indexed) and the second window will have ints
 -- indexed 1, 3, and 5.
 
--- For linebuffer:
 -- speed up inner most dimension first. Once you have an entire row input per
 -- clock, then speed up the outer dimensions like number of rows per clock.
 -- see increaseLBPxPerClock for more information. 
@@ -186,26 +183,29 @@ attemptSpeedUp throughMult (ComposeSeq ops) =
 -- The default strategy is to adjust the rate, then fallback to speeding up
 -- the children if the rate can't be adjusted.
 
+-- If child op has internal state, can't automatically speed up child op by
+-- changing par and making more copies. Making two independent copies with
+-- different state won't behave same as modifying op to update its state to run
+-- twice as fast
 attemptSpeedUp throughMult (MapOp par innerOp) | not $ hasInternalState innerOp =
   (MapOp (par*throughMult) innerOp, throughMult)
 attemptSpeedUp throughMult (MapOp par innerOp) =
   let (spedUpInnerOp, actualMult) = attemptSpeedUp throughMult innerOp
   in (MapOp par spedUpInnerOp, actualMult)
 
--- speed up reduce using four approaches:
+-- speed up reduce based on three cases:
 -- 1. child op has internal state: just speed up child op.
--- Due to state, can't automatically speed up child op by making more
--- copies as making two independent copies with different state stores
--- won't behave same as modifying one and to update its state to run
--- twice as fast
--- 2. child op has no internal state and speed up so that
+-- Due to state, can't make multiple copies of child op for same reason as map
+-- 2. child op has no internal state and throughMult has value so that
 -- afterwards numComb >= newPar: increase parallelism factor to desired amount
 -- ASSUMPTION: newPar must cleanly divide into numComb, or numComb % newPar == 0
--- 3. child op has no internal state and speed up so that afterwards
+-- 3. child op has no internal state and throughMult has value so that afterwards
 -- numComb < newPar: make par == numComb and map over reduce to get rest
 -- of parallelism
 -- ASSUMPTION: numComb must cleanly divide into newPar, or
 -- newPar % numComb == 0
+-- 4. Child has no internal state, but the other conditions don't hold: speed up
+-- the child
 attemptSpeedUp throughMult (ReduceOp par numComb innerOp) |
   (not $ hasInternalState innerOp) &&
   ((newPar <= numComb) && ((numComb `mod` newPar) == 0)) =
@@ -305,8 +305,13 @@ slowDown throughDiv op | actualDiv == throughDiv = spedUpOp
 slowDown throughDiv op = Failure $ InvalidThroughputModification throughDiv actualDiv
   where (spedUpOp, actualDiv) = attemptSlowDown throughDiv op
 
--- If its combinational, pretty much always just wrap it in underutil, as if later
--- slow down again, will just increase multiple on underutil, never see this again
+-- This is the helper function that slows down an op as much as possible
+-- and returns the amount slowed down.
+
+-- LEAF, NON-MODIFIABLE RATE 
+-- can't change rate, can't slow child ops, so just wrap in an underutil to
+-- slow down. This is the same approach as speed up, but with underutil instead
+-- of map, with same assumption regarding not changing the type.
 attemptSlowDown :: Int -> Op -> (Op, Int)
 attemptSlowDown throughDiv op@(Add _) = (Underutil throughDiv op, throughDiv)
 attemptSlowDown throughDiv op@(Sub _) = (Underutil throughDiv op, throughDiv)
@@ -328,94 +333,55 @@ attemptSlowDown throughDiv op@Leq = (Underutil throughDiv op, throughDiv)
 attemptSlowDown throughDiv op@Gt = (Underutil throughDiv op, throughDiv)
 attemptSlowDown throughDiv op@Geq = (Underutil throughDiv op, throughDiv)
 attemptSlowDown throughDiv op@(LUT _) = (MapOp throughDiv op, throughDiv)
--- should it be possible to speed this up? Should I always just speed up by
--- wrapping in an array instead of increasing a wrapping array length if it exists?
--- OLD REASONING - no, can't speed this up or slow it down as don't want to
--- change the meaning of the data it reads every clock.
--- Always reading a token each clock, map to speed up
--- NEW REASONING - the no is wrong. Going to change this to just reading in
--- arrays of ints or bits, as that is what memory is. memory is a 1d array,
--- so these will just make parent array longer or wrap int/bit in array
-attemptSlowDown throughDiv op@(MemRead (T_Array n t)) |
-  n `mod` throughDiv == 0 =
-  (MemRead (T_Array (n `ceilDiv` throughDiv) t), throughDiv)
-attemptSlowDown throughDiv op@(MemRead t) =
+
+-- underutil instead of changing type for same reason as speedUp using map,
+-- want to do banking instead of making wider memories
+attemptSlowDown throughDiv op@(MemRead _) = (Underutil throughDiv op, throughDiv)
+attemptSlowDown throughDiv op@(MemWrite _) = (Underutil throughDiv op, throughDiv)
+
+attemptSlowDown throughDiv op@(ArrayReshape _ _) =
   (Underutil throughDiv op, throughDiv)
-attemptSlowDown throughDiv op@(MemWrite (T_Array n t)) |
-  n `mod` throughDiv == 0 =
-  (MemWrite (T_Array (n `ceilDiv` throughDiv) t), throughDiv)
-attemptSlowDown throughDiv op@(MemWrite t) =
+attemptSlowDown throughDiv op@(DuplicateOutputs _ _) =
   (Underutil throughDiv op, throughDiv)
--- NOTE: assuming that all pxPerClock are 1 unless inner dims pxPerClock ==
--- inner img dims
--- NOTE: for all dimensions, img dimension % pxPerClock == 0
--- NOTE: This works by slowing down outer dimensions before inner ones. Only
--- works if throughDiv satisfies two conditions:
--- 1. Amount to make each non-full throuhgput dimension go from current pxPerClock
--- to 1 divides cleanly into the throughputDiv.
--- Stated rigorously: all i where i is number of non-full throuhgput dimensions:
---    ((\Pi_(0 to i-1) pxPerClock dim i) * throuhgMult) %
---     (\Pi_(0 to i-1) product of non-full throuhgput dims) == 0
--- 2. After making all outer dimensions 1 px per clock, the first dimension not
--- made 1 px per clock must consume the rest of throuhgputMult and result in a
--- new pxPerClock that cleanly divides into that dimension.
--- Stated rigorously:
---    (first not 1 px per clock dim) % (throuhgMult / (product of px per clock
---     decreases to all outer dimensions)) == 0
-attemptSlowDown throughDiv (LineBuffer p w img t bc) =
-  (LineBuffer newP w img t bc, actualDiv)
-  where
-    (newP, actualDiv) = decreaseLBPxPerClock p img throughDiv
--- can't shrink this, have to underutil
+
 attemptSlowDown throughDiv op@(Constant_Int _) =
   (Underutil throughDiv op, throughDiv)
 attemptSlowDown throughDiv op@(Constant_Bit _) =
   (Underutil throughDiv op, throughDiv)
+
+-- LEAF, MODIFIABLE RATE
+-- If possible, slow down by changing the rate. Otherwise, just try to return
+-- an op with the same or slower throughput than the original.
+-- Behavior undefined in same case as for attemptSpeedUp.
+-- Not worth supporting slowdown using underutil in event of being unable
+-- to adjust rate as can do symmetric behavior for speed up. While you
+-- can wrap underutil around a stateful operator like a linebuffer, you can't
+-- wrap a map around it for the reasons discussed in the attemptSpeedUp comments.
+-- Thus, to keep the symmetry, not going to underutil linebuffers.
+
+-- Slow down outer most dimension first, then slow down more inner dimensions.
+-- see decreaseLBPxPerClock for more information
+-- NOTE: decreaseLBPxPerClock expects dimensions from outermost to innermost
+-- which matches the order for LineBuffer.
+attemptSlowDown throughDiv (LineBuffer p w img t bc) =
+  (LineBuffer newP w img t bc, actualDiv)
+  where
+    (newP, actualDiv) = decreaseLBPxPerClock p img throughDiv
+
 -- not going to change SLen in consistency with speed up
--- can only slow down if divisible
+-- can only slow down if both array lengths are divisible by throughDiv
 attemptSlowDown throughDiv (SequenceArrayRepack (sLenIn, oldArrLenIn)
                               (sLenOut, oldArrLenOut) t) |
   (oldArrLenIn `mod` throughDiv == 0) && (oldArrLenOut `mod` throughDiv == 0) =
   (SequenceArrayRepack (sLenIn, oldArrLenIn `ceilDiv` throughDiv)
     (sLenOut, oldArrLenOut `ceilDiv` throughDiv) t, throughDiv)
 attemptSlowDown throughDiv op@(SequenceArrayRepack _ _ _) = (op, 1)
-attemptSlowDown throughDiv op@(ArrayReshape _ _) =
-  (Underutil throughDiv op, throughDiv)
-attemptSlowDown throughDiv op@(DuplicateOutputs _ _) =
-  (Underutil throughDiv op, throughDiv)
 
--- NOTE: should I not be pushing down here? Should I give up if div doesn't work?
-attemptSlowDown throughDiv (MapOp par innerOp) | isComb innerOp &&
-  (par `mod` throughDiv == 0) =
-  (MapOp (par `ceilDiv` throughDiv) innerOp, throughDiv)
-attemptSlowDown throughDiv (MapOp par innerOp) =
-  let (slowedInnerOp, actualDiv) = attemptSlowDown throughDiv innerOp
-  in (MapOp par slowedInnerOp, actualDiv)
-
--- only do it
--- 1. par divisible by throughDiv,
--- 2. less than full parallel and numComb % newPar == 0 or
--- 3. more than parallel and newPar % numComb == 0
--- 4. everything inside is comb,
--- otherwise just speed up inside
--- NOTE: should I not be pushing down here? Should I give up if div doesn't work?
-attemptSlowDown throughDiv (ReduceOp par numComb innerOp) |
-  isComb innerOp &&
-  (par `mod` throughDiv == 0) &&
-  (((newPar <= numComb) && (numComb `mod` newPar == 0)) ||
-  ((newPar > numComb) && (newPar `mod` numComb == 0))) =
-  (ReduceOp newPar numComb innerOp, throughDiv)
-  where newPar = par `ceilDiv` throughDiv
-attemptSlowDown throughDiv (ReduceOp par numComb innerOp) =
-  let (slowedInnerOp, actualDiv) = attemptSlowDown throughDiv innerOp
-  in (ReduceOp par numComb slowedInnerOp, actualDiv)
+-- PARENT, NON-MODIFIABLE RATE
+-- Slow their child ops, no rate to modify on these, and no
+-- point in underutiling these as can just defer that to children.
 
 attemptSlowDown throughDiv op@(NoOp _) = (MapOp throughDiv op, throughDiv)
-attemptSlowDown throughDiv (Underutil denom op) =
-  (Underutil (denom * throughDiv) op, throughDiv)
-
--- NOTE: what to do if mapping over a reg delay? Nothing? its sequential but,
--- unlike other sequential things like reduce, linebuffer its cool to duplicate
 attemptSlowDown throughDiv (Delay d innerOp) =
   (Delay d slowedInnerOp, innerMult)
   where (slowedInnerOp, innerMult) = attemptSlowDown throughDiv innerOp 
@@ -434,8 +400,68 @@ attemptSlowDown throughDiv (ComposeSeq ops) =
   -- doing a fold here instead of just making another composeSeq to make sure all
   -- ports still match 
   in (foldl (|>>=|) hdSlowedOps tlSlowedOps, maximum actualDivs)
+
+-- PARENT, MODIFIABLE RATE
+-- Slow the parent by decreasing the rate if possible. If not possible,
+-- try to slow the children.
+-- The default strategy is to adjust the rate, then fall back to slowing
+-- the children if the rate can't be adjusted
+
+-- If child has internal state, can't automatically slow down child as changing
+-- number of child ops is different from running each one at a lower rate when
+-- each child op is managing state. This is the same reasoning as speed up.
+attemptSlowDown throughDiv (MapOp par innerOp) | not $ hasInternalState innerOp &&
+  (par `mod` throughDiv == 0) =
+  (MapOp (par `ceilDiv` throughDiv) innerOp, throughDiv)
+attemptSlowDown throughDiv (MapOp par innerOp) =
+  let (slowedInnerOp, actualDiv) = attemptSlowDown throughDiv innerOp
+  in (MapOp par slowedInnerOp, actualDiv)
+
+-- slow down reduce based on three cases:
+-- 1. child op has internal state: just slow down child op
+-- Due to state, can't change number of copies of child op for same reason as map
+-- 2. child op has no internal state: decrease parallelism factor to desired
+-- amount
+-- ASSUMPTION: throughDiv must cleanly divide into Par, or par % throughDiv == 0
+-- ASSUMPTION: newPar must cleanly divide into numComb, or numComb % newPar == 0
+-- 3. child op has no internal state but other conditions don't hold: slow down
+-- the child op
+attemptSlowDown throughDiv (ReduceOp par numComb innerOp) |
+  (not $ hasInternalState innerOp) &&
+  (par `mod` throughDiv == 0) &&
+  (numComb `mod` newPar == 0) =
+  (ReduceOp newPar numComb innerOp, throughDiv)
+  where newPar = par `ceilDiv` throughDiv
+attemptSlowDown throughDiv (ReduceOp par numComb innerOp) =
+  let (slowedInnerOp, actualDiv) = attemptSlowDown throughDiv innerOp
+  in (ReduceOp par numComb slowedInnerOp, actualDiv)
+
+attemptSlowDown throughDiv (Underutil denom op) =
+  (Underutil (denom * throughDiv) op, throughDiv)
+
 attemptSlowDown _ op@(Failure _) = (op, 1)
 
+-- helper that actually implements linebuffer's attemptSlowDown 
+-- given a LB's pxPerClock, its image dimesions, and a multiple to slow down,
+-- speed up the pxPerCLock from inner most to outer most.
+-- Returns the new pxPerClock (in reverse order of LB) and the amount sped up
+
+-- NOTE: assuming that all pxPerClock are 1 unless inner dims pxPerClock ==
+-- inner img dims
+-- NOTE: for all dimensions, img dimension % pxPerClock == 0
+-- NOTE: This works by slowing down outer dimensions before inner ones. Only
+-- works if throughDiv satisfies two conditions:
+-- 1. Amount to make each non-full throuhgput dimension go from current pxPerClock
+-- to 1 divides cleanly into the throughputDiv.
+-- Stated rigorously: all i where i is number of non-full throuhgput dimensions:
+--    ((\Pi_(0 to i-1) pxPerClock dim i) * throuhgMult) %
+--     (\Pi_(0 to i-1) product of non-full throuhgput dims) == 0
+-- 2. After making all outer dimensions 1 px per clock, the first dimension not
+-- made 1 px per clock must consume the rest of throuhgputMult and result in a
+-- new pxPerClock that cleanly divides into that dimension.
+-- Stated rigorously:
+--    (first not 1 px per clock dim) % (throuhgMult / (product of px per clock
+--     decreases to all outer dimensions)) == 0
 -- given a LB's pxPerClock, its image dimesions, and a divisor to slow down,
 -- speed up the pxPerCLock from inner most to outer most.
 -- Returns the new pxPerClock (in reverse order of LB) and the amount sped up
