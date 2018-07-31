@@ -197,7 +197,8 @@ attemptSpeedUp requestedMult (MapOp par innerOp) =
 -- 1. child op has internal state: just speed up child op.
 -- Due to state, can't make multiple copies of child op for same reason as map
 -- 2. child op has no internal state and requestedMult has value so that
--- afterwards numComb >= newPar: increase parallelism factor to desired amount
+-- numComb >= the amount of parallelism post speed up (newPar):
+-- increase parallelism factor to desired amount
 -- ASSUMPTION: newPar must cleanly divide into numComb, or numComb % newPar == 0
 -- 3. child op has no internal state and requestedMult has value so that afterwards
 -- numComb < newPar: make par == numComb and map over reduce to get rest
@@ -432,7 +433,8 @@ attemptSlowDown requestedDiv (MapOp par innerOp) =
 -- 2. child op has no internal state: decrease parallelism factor to desired
 -- amount
 -- ASSUMPTION: requestedDiv must cleanly divide into Par, or par % requestedDiv == 0
--- ASSUMPTION: newPar must cleanly divide into numComb, or numComb % newPar == 0
+-- ASSUMPTION: The amount of parallelism post slow down (newPar) must cleanly
+-- divide into numComb, or numComb % newPar == 0
 -- 3. child op has no internal state but other conditions don't hold: slow down
 -- the child op
 attemptSlowDown requestedDiv (ReduceOp par numComb innerOp) |
