@@ -250,6 +250,9 @@ attemptSpeedUp _ op@(Failure _) = (op, 1)
 -- speed up the pxPerCLock from inner most to outer most.
 -- Returns the new pxPerClock (in reverse order of LB) and the amount sped up
 
+-- This operates by speeding up the inner most dimension first. Once a dimension
+-- is fully parallel, then it speeds up the outer dimensions.
+
 -- NOTE: Unlike for a LB, here the pxPerClock and img dimensions must have the
 -- inner most dimension come first.
 -- This is the reverse of what it is on the linebuffer
@@ -259,34 +262,40 @@ attemptSpeedUp _ op@(Failure _) = (op, 1)
 -- are already fully parallelized
 -- ASSUMPTION 2: for all dimensions, the parallelism cleanly divides into the
 -- size of that dimension, or img dimension % pxPerClock == 0
--- In order for assumption 2 to hold, the request mulitplier must make two
+-- In order for assumption 2 to hold, the requested mulitplier must make two
 -- conditions true:
 -- CONDITION 1: must be able to factor the request multiplier so that
 -- a different factor makes each of the different fully parallelized dimensions
 -- go from its pxPerClock prior to speed up to one that equals the image size
 -- for that dimension after that speed up.
--- Stated rigorously: all i where i is number of full throuhgput dimensions:
---    ((\Pi_(0 to i-1) pxPerClock dim i) * requestedMult) %
---     (\Pi_(0 to i-1) product of full throuhgput dims) == 0
--- 2. After making all more inner dimensions full throuhgput, the first 
+-- Stated rigorously: Let D be the set of dimensions that are fully parallel 
+-- post slow down 
+--    ((\Pi_(d \in D) pxPerClock dim d) * requestedMult) %
+--     (\Pi_(d \in D) imgSize dim d) == 0
+-- CONDITION 2. After making all more inner dimensions full throuhgput, the first 
 -- dimension not made fully parallel must consume the rest of requested multiplier
 -- and result in a new pxPerClock that cleanly divides into that dimension's
 -- size
 -- Stated rigorously:
---    (first not full throuhgput dim) % (requestMult / (product of inner px
---     per clock throughput increases)) == 0
+--    (size of first not full throuhgput dim) % (requestMult /
+--      (product of inner px per clock throughput increases)) == 0
 
 increaseLBPxPerClock :: [Int] -> [Int] -> Int -> ([Int], Int)
 -- if mult is down to 1 or no more dimensions to speed up, return remaining pxPerClock 
 increaseLBPxPerClock [] _ _ = ([], 1)
 increaseLBPxPerClock p img requestedMult | requestedMult == 1 = (p, 1)
--- if not filling out this dimension, pInner * mult must divide into imgInner
--- no need to recurse further as done filling out dimensions
+-- if not making this dimension fully parallel, new amount of parallelism for
+-- the dimension (pInner * mult) must divide into the dimension's size
+-- (imgInner). No need to recurse further as used up all of requested multiplier
+-- for speeding up
 increaseLBPxPerClock (pInner:pTl) (imgInner:imgTl) requestedMult |
   imgInner > pInner * requestedMult &&
   (imgInner `mod` (pInner * requestedMult) == 0) =
   ((pInner * requestedMult) : pTl, requestedMult)
--- if filling out this dimension, imgInner must divide into mult * pInner cleanly
+-- if making this dimension fully parallel, imgInner must divide into
+-- requestedMult * pInner cleanly so you can make the new parallelism for this
+-- dimension equal to imgInner and then recur on speeding up the outer
+-- dimensions with the remaining part of requestedMult
 increaseLBPxPerClock (pInner:pTl) (imgInner:imgTl) requestedMult |
   imgInner <= pInner * requestedMult &&
   ((requestedMult * pInner) `mod` imgInner == 0) =
@@ -444,18 +453,25 @@ attemptSlowDown _ op@(Failure _) = (op, 1)
 -- helper that actually implements linebuffer's attemptSlowDown 
 -- given a LB's pxPerClock, its image dimesions, and a multiple to slow down,
 -- speed up the pxPerCLock from inner most to outer most.
--- Returns the new pxPerClock (in reverse order of LB) and the amount sped up
+-- Returns the new pxPerClock (in the same order as LB) and the amount slowed
 
--- NOTE: assuming that all pxPerClock are 1 unless inner dims pxPerClock ==
--- inner img dims
--- NOTE: for all dimensions, img dimension % pxPerClock == 0
--- NOTE: This works by slowing down outer dimensions before inner ones. Only
--- works if throughDiv satisfies two conditions:
--- 1. Amount to make each non-full throuhgput dimension go from current pxPerClock
--- to 1 divides cleanly into the throughputDiv.
--- Stated rigorously: all i where i is number of non-full throuhgput dimensions:
---    ((\Pi_(0 to i-1) pxPerClock dim i) * throuhgMult) %
---     (\Pi_(0 to i-1) product of non-full throuhgput dims) == 0
+-- This operates by slowing down the outer most dimension first. Once that
+-- dimension is fully sequential, then it slows down more inner dimensions.
+
+-- the following assumptions must hold before and after running speed up:
+-- NOTE: these are the same assumptions as for increaseLBPxPerClock
+-- ASSUMPTION 1: all pxPerClock are 1 unless all more inner dimensions
+-- are already fully parallelized
+-- ASSUMPTION 2: for all dimensions, the parallelism cleanly divides into the
+-- size of that dimension, or img dimension % pxPerClock == 0
+-- In order for assumption 2 to hold, the requested divisor must make two
+-- conditions true:
+-- CONDITION 1: must be able to factor the requested divisor so that
+-- a different factor makes each of the different fully sequential dimensions
+-- go from its pxPerClock prior to speed up to 1 after the slow down
+-- Stated rigorously: Let D be the set of dimensions that are fully sequential
+-- post slow down 
+--    requestedDiv % (\Pi_(d \in D) pxPerClock for dimension d pre slowdown) == 0
 -- 2. After making all outer dimensions 1 px per clock, the first dimension not
 -- made 1 px per clock must consume the rest of throuhgputMult and result in a
 -- new pxPerClock that cleanly divides into that dimension.
@@ -467,20 +483,24 @@ attemptSlowDown _ op@(Failure _) = (op, 1)
 -- Returns the new pxPerClock (in reverse order of LB) and the amount sped up
 -- NOTE: pxPerClcok and imgDimensions come in same order as for LB
 decreaseLBPxPerClock :: [Int] -> [Int] -> Int -> ([Int], Int)
--- if no more dimensions to speed up, return remaining pxPerClock 
+-- if no more dimensions to slow, return remaining pxPerClock 
 decreaseLBPxPerClock [] _ _ = ([], 1)
--- if not reducing to 1 out this dimension, pOuter / div must divide into imgOuter
--- and div must divide into pOuter.
--- no need to recurse further as done filling out dimensions
-decreaseLBPxPerClock (pOuter:pTl) (imgOuter:imgTl) div |
-  div < pOuter && (pOuter `mod` div == 0) &&
-  ((imgOuter * div) `mod` pOuter == 0) = ((pOuter `ceilDiv` div) : pTl, div)
--- if reducing dim to 1 px per clock, pOuter must must divide into div  cleanly
-decreaseLBPxPerClock (pOuter:pTl) (imgOuter:imgTl) div |
-  div >= pOuter && (div `mod` pOuter == 0) = 
-  (1 : pInner, div * divInner)
+-- if not making this dimension fully sequential, new amount of parallelism post
+-- slow down (pOuter / div) must divide into the dimension's size (imgOuter).
+-- Also, div must divide into pOuter for this to work.
+-- No need to recurse further as used up all of requested div 
+-- for slowing down. 
+decreaseLBPxPerClock (pOuter:pTl) (imgOuter:imgTl) requestedDiv |
+  requestedDiv < pOuter && (pOuter `mod` requestedDiv == 0) &&
+  ((imgOuter * requestedDiv) `mod` pOuter == 0) =
+  ((pOuter `ceilDiv` requestedDiv) : pTl, requestedDiv)
+-- if making this dimension fully sequential, the pre-slow down parallelism
+-- (pOuter) must divide cleanly into the requested div
+decreaseLBPxPerClock (pOuter:pTl) (imgOuter:imgTl) requestedDiv |
+  requestedDiv >= pOuter && (requestedDiv `mod` pOuter == 0) = 
+  (1 : pInner, requestedDiv * divInner)
   where
     -- since requiring pOuter to always divide into imgOuter, this is ok
-    remainingDivForInnerDims = div `ceilDiv` pOuter
+    remainingDivForInnerDims = requestedDiv `ceilDiv` pOuter
     (pInner, divInner) = decreaseLBPxPerClock pTl imgTl remainingDivForInnerDims
 decreaseLBPxPerClock p _ _ = (p, 1)
