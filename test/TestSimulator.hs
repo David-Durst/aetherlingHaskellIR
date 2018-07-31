@@ -230,7 +230,7 @@ simhlCase2 = SimhlTestCase
   []
 
 -- Check that every entry of a 5-array is even.
--- This tests the combinational case of ReduceOp (par = numComb).
+-- This tests the combinational case of ReduceOp (par = numTokens).
 simhlAllEvenOp =
   (simhlNoOp [T_Array 5 T_Int] |&| Constant_Int [1,1,1,1,1]) |>>=|
   (And (T_Array 5 T_Int)   |&| Constant_Int [1]) |>>=|
@@ -273,7 +273,7 @@ simhlMul7Max15SpaceOp =
   (Underutil 5 (ArrayReshape (replicate 15 T_Int) [T_Array 15 T_Int])) |>>=|
   (SequenceArrayRepack (1, 15) (5, 3) T_Int |&| Underutil 5 (Constant_Int [7]))
   |>>=|
-  (ReduceOp 3 15 (Max T_Int) |&| Underutil 5 (simhlUnbox T_Int))
+  (ReduceOp 15 3 (Max T_Int) |&| Underutil 5 (simhlUnbox T_Int))
   |>>=|
   Underutil 5 (Mul T_Int)
 simhlMul7Max15Combinational :: [ValueType] -> [ValueType]
@@ -290,7 +290,7 @@ simhlCase5 = SimhlTestCase
 -- Same thing, but take 15 inputs sequentially.
 simhlMul7Max15TimeOp =
   (simhlBox T_Int |&| Underutil 15 (Constant_Int [7])) |>>=|
-  (ReduceOp 1 15 (Max T_Int) |&| Underutil 15 (simhlUnbox T_Int)) |>>=|
+  (ReduceOp 15 1 (Max T_Int) |&| Underutil 15 (simhlUnbox T_Int)) |>>=|
   Underutil 15 (Mul T_Int)
 simhlMul7Max15TimeImpl :: [[ValueType]] -> [[ValueType]]
                        -> ( [[ValueType]], [[ValueType]] )

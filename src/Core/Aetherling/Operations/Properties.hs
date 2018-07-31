@@ -43,7 +43,7 @@ isComb (ArrayReshape _ _) = True
 isComb (DuplicateOutputs _ _) = True
 
 isComb (MapOp _ op) = isComb op
-isComb (ReduceOp par numComb op) | par == numComb = isComb op
+isComb (ReduceOp numTokens par op) | par == numTokens = isComb op
 isComb (ReduceOp _ _ op) = False
 
 isComb (NoOp tTypes) = True 
@@ -89,7 +89,7 @@ hasInternalState (ArrayReshape _ _) = False
 hasInternalState (DuplicateOutputs _ _) = False
 
 hasInternalState (MapOp _ op) = hasInternalState op
-hasInternalState (ReduceOp par numComb op) | par == numComb = hasInternalState op
+hasInternalState (ReduceOp numTokens par op) | par == numTokens = hasInternalState op
 hasInternalState (ReduceOp _ _ op) = True
 
 hasInternalState (NoOp tTypes) = False

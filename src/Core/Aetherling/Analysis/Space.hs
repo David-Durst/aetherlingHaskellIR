@@ -69,16 +69,16 @@ space (MapOp par op) = (space op) |* par
 -- area of reduce is area of reduce tree, with area for register for partial
 -- results and counter for tracking iteration time if input is sequence of more
 -- than what is passed in one clock
-space (ReduceOp par numComb op) | par == numComb = (space op) |* (par - 1)
-space rOp@(ReduceOp par numComb op) =
+space (ReduceOp numTokens par op) | par == numTokens = (space op) |* (par - 1)
+space rOp@(ReduceOp numTokens par op) =
   reduceTreeSpace |+| (space op) |+| (registerSpace $ map pTType $ outPorts op)
-  |+| (counterSpace $ numComb * (denominator opThroughput) `ceilDiv` (numerator opThroughput))
+  |+| (counterSpace $ numTokens * (denominator opThroughput) `ceilDiv` (numerator opThroughput))
   where 
     reduceTreeSpace = space (ReduceOp par par op)
     -- need to be able to count all clocks in steady state, as that is when
     -- will be doing reset every nth
-    -- thus, divide numComb by throuhgput in steady state to get clocks for
-    -- numComb to be absorbed
+    -- thus, divide numTokens by throuhgput in steady state to get clocks for
+    -- numTokens to be absorbed
     -- only need throughput from first port as all ports have same throuhgput
     (PortThroughput _ opThroughput) = portThroughput op $ head $ inPorts op
 

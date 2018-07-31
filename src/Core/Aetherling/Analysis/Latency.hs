@@ -56,11 +56,11 @@ initialLatency (ArrayReshape _ _) = 1
 initialLatency (DuplicateOutputs _ _) = 1
 
 initialLatency (MapOp _ op) = initialLatency op
-initialLatency (ReduceOp par numComb op) | par `mod` numComb == 0 && isComb op = 1
-initialLatency (ReduceOp par numComb op) | par `mod` numComb == 0 = initialLatency op * (ceilLog par)
-initialLatency (ReduceOp par numComb op) =
+initialLatency (ReduceOp numTokens par op) | par == numTokens && isComb op = 1
+initialLatency (ReduceOp numTokens par op) | par == numTokens = initialLatency op * (ceilLog par)
+initialLatency (ReduceOp numTokens par op) =
   -- pipelinng means only need to wait on latency of tree first time
-  reduceTreeInitialLatency + (numComb `ceilDiv` par) * (initialLatency op + registerInitialLatency)
+  reduceTreeInitialLatency + (numTokens `ceilDiv` par) * (initialLatency op + registerInitialLatency)
   where 
     reduceTreeInitialLatency = initialLatency (ReduceOp par par op)
     -- op adds nothing if its combinational, its CPS else
@@ -129,7 +129,7 @@ maxCombPath (MapOp _ op) = maxCombPath op
 maxCombPath (ReduceOp par _ op) | isComb op = maxCombPath op * ceilLog par
 -- since connecting each op to a copy, and all are duplicates, 
 -- maxCombPath is either internal to each op, or from combining two of them
-maxCombPath (ReduceOp par numComb op) = max (maxCombPath op) maxCombPathFromOutputToInput
+maxCombPath (ReduceOp numTokens par op) = max (maxCombPath op) maxCombPathFromOutputToInput
   where
     -- since same output goes to both inputs, just take max of input comb path 
     -- plus output path as that is max path
