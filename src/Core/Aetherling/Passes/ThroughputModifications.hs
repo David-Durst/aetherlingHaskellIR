@@ -197,31 +197,31 @@ attemptSpeedUp requestedMult (MapOp par innerOp) =
 -- 1. child op has internal state: just speed up child op.
 -- Due to state, can't make multiple copies of child op for same reason as map
 -- 2. child op has no internal state and requestedMult has value so that
--- numComb >= the amount of parallelism post speed up (newPar):
+-- numTokens >= the amount of parallelism post speed up (newPar):
 -- increase parallelism factor to desired amount
--- ASSUMPTION: newPar must cleanly divide into numComb, or numComb % newPar == 0
+-- ASSUMPTION: newPar must cleanly divide into numTokens, or numTokens % newPar == 0
 -- 3. child op has no internal state and requestedMult has value so that afterwards
--- numComb < newPar: make par == numComb and map over reduce to get rest
+-- numTokens < newPar: make par == numTokens and map over reduce to get rest
 -- of parallelism
--- ASSUMPTION: numComb must cleanly divide into newPar, or
--- newPar % numComb == 0
+-- ASSUMPTION: numTokens must cleanly divide into newPar, or
+-- newPar % numTokens == 0
 -- 4. Child has no internal state, but the other conditions don't hold: speed up
 -- the child
-attemptSpeedUp requestedMult (ReduceOp par numComb innerOp) |
+attemptSpeedUp requestedMult (ReduceOp numTokens par innerOp) |
   (not $ hasInternalState innerOp) &&
-  ((newPar <= numComb) && ((numComb `mod` newPar) == 0)) =
-  (ReduceOp newPar numComb innerOp, requestedMult)
+  ((newPar <= numTokens) && ((numTokens `mod` newPar) == 0)) =
+  (ReduceOp numTokens newPar innerOp, requestedMult)
   where newPar = par*requestedMult
-attemptSpeedUp requestedMult (ReduceOp par numComb innerOp) |
+attemptSpeedUp requestedMult (ReduceOp numTokens par innerOp) |
   (not $ hasInternalState innerOp) &&
-  ((newPar > numComb) && ((newPar `mod` numComb) == 0)) =
-  (MapOp mapPar $ ReduceOp numComb numComb innerOp, requestedMult)
+  ((newPar > numTokens) && ((newPar `mod` numTokens) == 0)) =
+  (MapOp mapPar $ ReduceOp numTokens numTokens innerOp, requestedMult)
   where
     newPar = par*requestedMult
-    mapPar = requestedMult `ceilDiv` (numComb `ceilDiv` par)
-attemptSpeedUp requestedMult (ReduceOp par numComb innerOp) =
+    mapPar = requestedMult `ceilDiv` (numTokens `ceilDiv` par)
+attemptSpeedUp requestedMult (ReduceOp numTokens par innerOp) =
   let (spedUpInnerOp, actualMult) = attemptSpeedUp requestedMult innerOp
-  in (ReduceOp par numComb spedUpInnerOp, actualMult)
+  in (ReduceOp numTokens par spedUpInnerOp, actualMult)
 
 -- cases:
 -- 1. if requestedMult less than or equal to than denom and requestedMult
@@ -434,18 +434,18 @@ attemptSlowDown requestedDiv (MapOp par innerOp) =
 -- amount
 -- ASSUMPTION: requestedDiv must cleanly divide into Par, or par % requestedDiv == 0
 -- ASSUMPTION: The amount of parallelism post slow down (newPar) must cleanly
--- divide into numComb, or numComb % newPar == 0
+-- divide into numTokens, or numTokens % newPar == 0
 -- 3. child op has no internal state but other conditions don't hold: slow down
 -- the child op
-attemptSlowDown requestedDiv (ReduceOp par numComb innerOp) |
+attemptSlowDown requestedDiv (ReduceOp numTokens par innerOp) |
   (not $ hasInternalState innerOp) &&
   (par `mod` requestedDiv == 0) &&
-  (numComb `mod` newPar == 0) =
-  (ReduceOp newPar numComb innerOp, requestedDiv)
+  (numTokens `mod` newPar == 0) =
+  (ReduceOp numTokens newPar innerOp, requestedDiv)
   where newPar = par `ceilDiv` requestedDiv
-attemptSlowDown requestedDiv (ReduceOp par numComb innerOp) =
+attemptSlowDown requestedDiv (ReduceOp numTokens par innerOp) =
   let (slowedInnerOp, actualDiv) = attemptSlowDown requestedDiv innerOp
-  in (ReduceOp par numComb slowedInnerOp, actualDiv)
+  in (ReduceOp numTokens par slowedInnerOp, actualDiv)
 
 attemptSlowDown requestedDiv (Underutil denom op) =
   (Underutil (denom * requestedDiv) op, requestedDiv)

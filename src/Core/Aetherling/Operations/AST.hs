@@ -65,7 +65,7 @@ data Op =
 
   -- HIGHER ORDER OPS
   | MapOp {mapParallelism :: Int, mappedOp :: Op}
-  | ReduceOp {reduceParallelism :: Int, reduceNumCombined :: Int, reducedOp :: Op}
+  | ReduceOp {reduceNumTokens :: Int, reduceParallelism :: Int, reducedOp :: Op}
 
   -- TIMING HELPERS
   | NoOp [TokenType]
