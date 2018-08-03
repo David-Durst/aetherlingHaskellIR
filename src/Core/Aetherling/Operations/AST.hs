@@ -79,7 +79,19 @@ data Op =
   | Failure FailureType 
   deriving (Eq, Show)
 
-data BoundaryConditions = Crop | KeepGarbage deriving (Eq, Show)
+-- | The how to handle boundaries where LineBuffer emits invalid data.
+-- this is here so that LineBuffer signature doesn't have warmup.
+-- The warmup makes synchronously timing the circuit very difficult
+-- as need downstream ops to have weird underutilization patterns
+-- that are hard to automatically change in a speed up or slow down.
+data BoundaryConditions =
+  -- | Crop means to have the system automatically remove these values
+  -- from the output using an op at the end of the DAG
+  Crop
+  -- | KeepGarbage means to leave in the outputs during invalid clocks.
+  -- The user will handle them.
+  | KeepGarbage
+  deriving (Eq, Show)
 
 data FailureType =
   ComposeFailure ComposeResult (Op, Op)
