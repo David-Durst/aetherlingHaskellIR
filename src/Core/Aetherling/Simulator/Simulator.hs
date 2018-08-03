@@ -1,4 +1,16 @@
-module Aetherling.Simulator.Simulator where
+{-|
+Module: Aetherling.Simulator.Simulator
+Description: This is the one module to import for users of the simulator.
+-}
+module Aetherling.Simulator.Simulator (
+    simulateHighLevel,
+    simulateHighLevel',
+    vBits,
+    vInts,
+    vBitArray,
+    vIntArray,
+    vIntArrayStream
+) where
 import Aetherling.Operations.AST
 import Aetherling.Operations.Types
 import Aetherling.Analysis.PortsAndThroughput
@@ -16,7 +28,8 @@ import Aetherling.Simulator.MapReduce
 import Aetherling.Simulator.Memory
 import Aetherling.Simulator.State
 
--- See Simulator/howto.txt for documentation.
+-- | See Core/Aetherling/Simulator/README.md for more thorough
+-- discussion.
 --
 -- High level (functional) simulator for Aetherling pipelines (Op
 -- instances).  Useful for verifying that the logic of the circuit is
@@ -31,6 +44,10 @@ import Aetherling.Simulator.State
 -- "meaningful" clock cycle. (i.e.  skip garbage inputs -- for devices
 -- that aren't underutilized and have no warmup, this corresponds to a
 -- list of inputs on each clock cycle).
+--
+-- Example: [[V_Int 1, V_Int 2], [V_Int 3, V_Int 4]], in a
+-- non-underutilized circuit, means that I0 gets 1 and I1 gets 3 on
+-- clock 0, then I0 gets 2 and I1 gets 4 on clock 1.
 --
 -- NOTE: Implementors: be careful if some ports have a longer/shorter
 -- stream of inputs than expected.
@@ -54,13 +71,17 @@ import Aetherling.Simulator.State
 -- output of the simulated op's output ports, in the same format as
 -- the port inputs.  The second is the output of all MemWrites, in the
 -- same format as input memory, and same numbering scheme.
---
--- The simulateHighLevel' version also returns an addition warnings value.
--- 
--- TODO: More convenient error messages?
--- TODO: Warnings when input stream lengths don't match.
--- TODO: Replace 4-space with 2-space indents.
--- TODO: Split up the file into smaller files ... eventually.
+simulateHighLevel :: Op -> [[ValueType]] -> [[ValueType]]
+                  -> ( [[ValueType]], [[ValueType]] )
+simulateHighLevel op portInputs memoryInputs =
+    let
+      (out, memOut, _) = simulateHighLevel' op portInputs memoryInputs
+    in
+      (out, memOut)
+  
+-- | Identical to simulateHighLevel, except that we return a 3-tuple.
+-- The last entry is a warnings string, the first two are the port and
+-- memory outputs as before.
 simulateHighLevel' :: Op -> [[ValueType]] -> [[ValueType]]
                   -> ( [[ValueType]], [[ValueType]], String )
 -- Check for type mismatches, then run the preprocessor
@@ -100,14 +121,6 @@ simulateHighLevel' op portInputs memoryInputs =
     else
       error("Aetherling internal error: Something's wrong with the inputs,\n"
          ++ "but no error was reported by type-checker.")
-
-simulateHighLevel :: Op -> [[ValueType]] -> [[ValueType]]
-                  -> ( [[ValueType]], [[ValueType]] )
-simulateHighLevel op portInputs memoryInputs =
-    let
-      (out, memOut, _) = simulateHighLevel' op portInputs memoryInputs
-    in
-      (out, memOut)
 
 -- Implementation function for high level simulator.
 -- There's some amount of state that needs to be taken care of by the
@@ -278,27 +291,32 @@ simhlPre opStack@(Failure _:_) inStrLens inState =
 
 
 -- Helper functions for making it easier to create ValueType instances.
+
+-- | Convert a list of Haskell Bools to a list of V_Bits with the same values.
 vBits :: [Bool] -> [ValueType]
 vBits bools = map V_Bit bools
 
+-- | Convert a list of Haskell Ints to a list of V_Ints with the same values.
 vInts :: [Int] -> [ValueType]
 vInts ints = map V_Int ints
 
+-- | Convert a list of Haskell Bools to a single V_Array of V_Bits.
 vBitArray :: [Bool] -> ValueType
 vBitArray bools = V_Array $ vBits bools
 
+-- | Convert a list of Haskell Ints to a single V_Array of V_Ints.
 vIntArray :: [Int] -> ValueType
 vIntArray ints = V_Array $ vInts ints
 
 -- Convert a list of values into a list of length-n lists
-vpartition :: Int -> [a] -> [[a]]
-vpartition _ [] = []
-vpartition n s = (take n s) : vpartition n (drop n s)
+vPartition :: Int -> [a] -> [[a]]
+vPartition _ [] = []
+vPartition n s = (take n s) : vPartition n (drop n s)
 
--- Convert a flat list of integers into a list of V_arrays of size n
--- Useful for constructing inputs to throughput > 1 pipelines 
-vIntArrayArray :: Int -> [Int] -> [ValueType]
-vIntArrayArray n ints = map V_Array (vpartition n (vInts ints))
+-- | Convert a flat list of integers into a list of V_arrays of size n.
+-- Useful for constructing inputs to throughput > 1 pipelines.
+vIntArrayStream :: Int -> [Int] -> [ValueType]
+vIntArrayStream n ints = map V_Array (vPartition n (vInts ints))
 
 -- Checking functions (put at the end since they're of least interest)
 -- Inspect the inPorts of op and see if they match the streams of ValueType

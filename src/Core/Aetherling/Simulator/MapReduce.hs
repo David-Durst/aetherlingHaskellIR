@@ -1,12 +1,17 @@
-module Aetherling.Simulator.MapReduce where
+module Aetherling.Simulator.MapReduce (
+    simhlMap,
+    simhlReduce,
+    simhlPreMap,
+    simhlPreReduce
+) where
 import Aetherling.Operations.AST
 import Aetherling.Operations.Types
 import Aetherling.Analysis.PortsAndThroughput
 import Aetherling.Simulator.State
 
--- Implementation of simhl MapOp. To avoid circular dependencies, the
--- simulator implementation function (simhl) must be passed as an
--- argument.
+-- | Simulator implementation of simhl MapOp. To avoid circular
+-- dependencies, the simulator implementation function (simhl) must be
+-- passed as an argument.
 simhlMap :: Simhl -> Int -> Op -> [[ValueType]] -> SimhlState
          -> ( [[ValueType]], SimhlState )
 simhlMap simhl par theMappedOp inStrs inState =
@@ -75,16 +80,8 @@ simhlMapFoldLambda simhl lastTuple laneInput =
     in
       (theMappedOp, lastOutputs ++ [thisOpOutputs], nextState)
 
--- Restrictions on ReduceOp reducedOp in simulator:
--- 1. No MemRead/MemWrite allowed anywhere is sub-op (reducedOp).
--- 2. 2 input ports, 1 output port.
--- 3. The reduced op's output stream must be the same length as the
---    shortest of the 2 input streams.
---
--- Furthermore, parallellism must evenly divide the combine count,
--- which itself must be nonzero.
---
--- Implementation of simhl ReduceOp
+
+-- Implementation of simhl ReduceOp overview:
 -- A Reduce circuit has 2 parts generally.
 --   1. A tree of reducedOps that takes par (paralellism) inputs and
 --   makes one output.
@@ -94,6 +91,16 @@ simhlMapFoldLambda simhl lastTuple laneInput =
 --   (assuming combinational reducedOp).
 -- After (numTokens/par) cycles, the reg's input contains the result of reducing
 -- numTokens inputs. The reg should be cleared for the next set of numTokens inputs.
+
+-- | ReduceOp simulator implementation.
+-- Restrictions on ReduceOp reducedOp in simulator:
+-- 1. No MemRead/MemWrite allowed anywhere is sub-op (reducedOp).
+-- 2. 2 input ports, 1 output port.
+-- 3. The reduced op's output stream must be the same length as the
+--    shortest of the 2 input streams.
+--
+-- Furthermore, parallellism must evenly divide the combine count,
+-- which itself must be nonzero.
 simhlReduce :: Simhl -> Int -> Int -> Op -> [[ValueType]] -> SimhlState
             -> ( [[ValueType]], SimhlState )
 simhlReduce simhl numTokens par theReducedOp inStrs inState
@@ -211,7 +218,7 @@ simhlReduceReg simhl par numTokens theReducedOp treeOutStr =
           (tail valList)
 
 
--- Preprossessor passes for MapOp and ReduceOp
+-- | Preprossessor pass implementation for MapOp.
 simhlPreMap :: SimhlPre -> [Op] -> [Maybe Int] -> SimhlPreState
             -> ([Maybe Int], SimhlPreState)
 simhlPreMap simhlPre opStack@(MapOp par op:_) inStrLens inState
@@ -243,6 +250,7 @@ simhlPreMap simhlPre opStack@(MapOp par op:_) inStrLens inState
       simhlPreResult opStack outStrLens Nothing newState
 simhlPreMap _ _ _ _ = error "Aetherling internal error: expected MapOp"
 
+-- | Preprossessor pass implementation for ReduceOp.
 simhlPreReduce :: SimhlPre -> [Op] -> [Maybe Int] -> SimhlPreState
                -> ([Maybe Int], SimhlPreState)
 simhlPreReduce simhlPre opStack@(ReduceOp numTokens par op:_) inStrLens inState

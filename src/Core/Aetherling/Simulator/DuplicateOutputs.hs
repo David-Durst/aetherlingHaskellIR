@@ -3,8 +3,7 @@ import Aetherling.Operations.AST
 import Aetherling.Operations.Types
 import Aetherling.Simulator.State
 
--- Simulator and preprocessor pass implementation for duplicate outputs.
-
+-- | Simulator and implementation for duplicate outputs.
 simhlDuplicateOutputs :: Simhl -> Op -> [[ValueType]] -> SimhlState
                       -> ( [[ValueType]], SimhlState )
 simhlDuplicateOutputs simhl (DuplicateOutputs n op) inStrs inState =
@@ -12,7 +11,7 @@ simhlDuplicateOutputs simhl (DuplicateOutputs n op) inStrs inState =
     in (concat $ replicate n rawOutStrs, outState)
 simhlDuplicateOutputs _ _ _ _ = error "Aetherling internal error: expected DuplicateOutputs"
 
-
+-- | Preprocessor pass implementation for duplicate outputs.
 simhlPreDuplicateOutputs :: SimhlPre
                          -> [Op] -> [Maybe Int] -> SimhlPreState
                          -> ([Maybe Int], SimhlPreState)

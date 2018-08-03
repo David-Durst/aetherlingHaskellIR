@@ -1,10 +1,16 @@
-module Aetherling.Simulator.Combinational where
+module Aetherling.Simulator.Combinational (
+    simhlCombinational,
+    simhlBinaryOp,
+    simhlUnaryOp,
+    simhlIntCmpOp,
+    simhlPreCombinational
+) where
 import Aetherling.Operations.AST
 import Aetherling.Operations.Types
 import Aetherling.Analysis.PortsAndThroughput
 import Aetherling.Simulator.State
 
--- Helper function for simulating combinational devices.  Takes an
+-- | Helper function for simulating combinational devices.  Takes an
 -- implementation function ([ValueType]->[ValueType]) and a list of
 -- lists of ValueType in the usual format for
 -- simulateHighLevel. Implementation function takes a list with
@@ -29,8 +35,8 @@ simhlCombinational impl inStrs =
     [outputNow:outputLater
     |(outputNow, outputLater) <- zip outputsNow outputsLater]
 
--- Given implementations for Ints and Bools, create a [ValueType] -> [ValueType]
--- function suitable for simhlCombinational.
+-- | Given implementations for Ints and Bools, create a [ValueType] ->
+-- [ValueType] function suitable for simhlCombinational.
 simhlBinaryOp :: (Int -> Int -> Int) -> (Bool -> Bool -> Bool)
                   -> [ValueType] -> [ValueType]
 simhlBinaryOp intImpl bitImpl [V_Unit, _] = [V_Unit]
@@ -42,7 +48,8 @@ simhlBinaryOp intImpl bitImpl [V_Array xs, V_Array ys] =
     | (x, y) <- zip xs ys]]
 simhlBinaryOp _ _ _ = error "Aetherling internal error: binary op no match"
 
--- Similar function for unary operators.
+-- | Given implementations for Ints and Bools, create a [ValueType] ->
+-- [ValueType] function suitable for simhlCombinational.
 simhlUnaryOp :: (Int -> Int) -> (Bool -> Bool)
                 -> [ValueType] -> [ValueType]
 simhlUnaryOp intImpl bitImpl [V_Unit] = [V_Unit]
@@ -52,17 +59,19 @@ simhlUnaryOp intImpl bitImpl [V_Array xs] =
     [V_Array $ concat [simhlUnaryOp intImpl bitImpl [x] | x <- xs]]
 simhlUnaryOp _ _ _ = error "Aetherling internal error: unary op no match"
 
--- Similar function for int comparison operators (int + int -> bool).
+-- | Given an (Int -> Int -> Bool) implementation function,
+-- create a [ValueType] -> [ValueType] function suitable for simhlCombinational.
 simhlIntCmpOp :: (Int -> Int -> Bool) -> [ValueType] -> [ValueType]
 simhlIntCmpOp intImpl [V_Unit, _] = [V_Unit]
 simhlIntCmpOp intImpl [_, V_Unit] = [V_Unit]
 simhlIntCmpOp intImpl [V_Int x, V_Int y] = [V_Bit $ intImpl x y]
 simhlIntCmpOp _ _ = error "Aetherling internal error: int cmp op no match"
 
--- As far as the preprocessor pass is concerned, basically all combinational
+-- | As far as the preprocessor pass is concerned, basically all combinational
 -- devices are the same. They just produce output streams as long as their
 -- shortest input stream. Combinational ops can just delegate to this
 -- function for their preprocessor pass (as long as they have no child ops).
+-- See README.md for elaboration.
 simhlPreCombinational :: [Op] -> [Maybe Int] -> SimhlPreState
                       -> ([Maybe Int], SimhlPreState)
 simhlPreCombinational [] _ _ =

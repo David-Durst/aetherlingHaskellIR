@@ -1,4 +1,11 @@
-module Aetherling.Simulator.Arrays where
+module Aetherling.Simulator.Arrays (
+    simhlRepack,
+    simhlReshape,
+    simhlLineBuffer,
+    simhlPreRepack,
+    simhlPreReshape,
+    simhlPreLB
+) where
 import Data.Array
 import Aetherling.Operations.AST
 import Aetherling.Operations.Types
@@ -8,7 +15,8 @@ import Aetherling.Simulator.State
 -- Simulator and preprocessor pass implementations for
 -- SequenceArrayRepack, ArrayReshape, and LineBuffer.
 
--- Reshape sequence of arrays through space and time.
+-- | Simulator implementation function for ArrayReshape (reshapes
+-- sequence of arrays through space and time).
 simhlRepack :: (Int,Int) -> (Int,Int) -> TokenType -> [[ValueType]]
             -> [[ValueType]]
 simhlRepack (inSeqLen, inWidth) (outSeqLen, outWidth) t [inStr] =
@@ -42,7 +50,7 @@ simhlRepackRepack outWidth values =
       then (V_Array nowArray):(simhlRepackRepack outWidth futureValues)
       else []
 
--- Combinational device that decomposes arrays into fundamental types
+-- | Combinational device that decomposes arrays into fundamental types
 -- and puts them back together in a different order. This function
 -- takes an ArrayReshape Op and returns an implementation function
 -- suitable for simhlCombinational (list of in port values in one
@@ -125,7 +133,9 @@ simhlMunchArray op t (value:values) =
 simhlMunchArray op _ _ =
     error ("Aetherling internal error: broken munch for " ++ show op)
 
--- Line buffer simulator implementation.
+-- | Line buffer simulator implementation.
+--
+-- THIS FUNCTION IS OUT-OF-DATE DUE TO The Line Buffer Manifesto.
 --
 -- For now I'm only simulating 1D and 2D linebuffers. There's some
 -- important restrictions on pixels-per-clock UPDATE THIS IF/WHEN
@@ -203,8 +213,7 @@ simhlLineBuffer _ _ _ _ _ _ =
     error "Aetherling intenal error: Unexpected LineBuffer parameters"
 
 
--- Preprocessor pass implementations for ArrayReshape,
--- SequenceArrayRepack, and LineBuffer.
+-- | Preprocessor pass implementation for SequenceArrayRepack.
 simhlPreRepack :: [Op] -> [Maybe Int] -> SimhlPreState
                -> ([Maybe Int], SimhlPreState)
 simhlPreRepack
@@ -230,10 +239,10 @@ simhlPreRepack
         warning = warning' inStrLen
       in
         simhlPreResult opStack [outStrLen] warning inState
-
 simhlPreRepack _ _ _ =
     error "Aetherling internal error: expected SequenceArrayRepack"
 
+-- | Preprocessor pass implementation for ArrayReshape.
 simhlPreReshape :: [Op] -> [Maybe Int] -> SimhlPreState
                 -> ([Maybe Int], SimhlPreState)
 simhlPreReshape opStack@(ArrayReshape inTypes outTypes:_) inStrLens inState
@@ -250,6 +259,8 @@ simhlPreReshape opStack@(ArrayReshape inTypes outTypes:_) inStrLens inState
 simhlPreReshape _ _ _ =
     error "Aetherling internal error: expected ArrayReshape"
 
+-- | Preprocessor pass implementation for LineBuffer.
+--
 -- Check that the LineBuffer conforms to the restrictions commented on
 -- in simhlLineBuffer.
 simhlPreLB :: [Op] -> [Maybe Int] -> SimhlPreState

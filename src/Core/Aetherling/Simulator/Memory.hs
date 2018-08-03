@@ -1,4 +1,9 @@
-module Aetherling.Simulator.Memory where
+module Aetherling.Simulator.Memory (
+    simhlRead,
+    simhlWrite,
+    simhlPreRead,
+    simhlPreWrite
+) where
 import Aetherling.Operations.AST
 import Aetherling.Operations.Types
 import Aetherling.Simulator.State
