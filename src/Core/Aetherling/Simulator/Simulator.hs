@@ -186,6 +186,9 @@ simhl (MapOp par op) inStrs state = simhlMap simhl par op inStrs state
 simhl (ReduceOp numTokens par op) inStrs state =
     simhlReduce simhl numTokens par op inStrs state
 
+-- No-Op pass through operator
+simhl (NoOp types) inStrs state = (inStrs, state)
+
 -- We only care about meaningful inputs and outputs.  Therefore,
 -- underutil and register delays should be no-ops in this high level
 -- simulator -- dealing with the details of clock scheduling and clock
@@ -267,6 +270,8 @@ simhlPre opStack@(MapOp _ _:_) inStrLens inState =
     simhlPreMap simhlPre opStack inStrLens inState
 simhlPre opStack@(ReduceOp _ _ _:_) inStrLens inState =
     simhlPreReduce simhlPre opStack inStrLens inState
+simhlPre opStack@(NoOp _:_) inStrLens inState =
+    simhlPreResult opStack inStrLens Nothing inState
 simhlPre opStack@(LineBuffer _ _ _ _ _:_) inStrLens inState =
     simhlPreLB opStack inStrLens inState
 simhlPre (Constant_Int _:_) _ state = ([Nothing], state)
