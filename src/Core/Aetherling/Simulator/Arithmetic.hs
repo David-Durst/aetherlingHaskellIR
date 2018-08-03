@@ -1,13 +1,34 @@
-module Aetherling.Simulator.Arithmetic where
+module Aetherling.Simulator.Arithmetic (
+    simhlAdd,
+    simhlSub,
+    simhlMul,
+    simhlDiv,
+    simhlMax,
+    simhlMin,
+    simhlAshr,
+    simhlShl,
+    simhlAbs,
+    simhlNot,
+    simhlAnd,
+    simhlOr,
+    simhlXOr,
+    simhlEq,
+    simhlNeq,
+    simhlLt,
+    simhlLeq,
+    simhlGt,
+    simhlGeq,
+    simhlLUT,
+) where
 import Data.Bool
 import Data.Bits
 import Aetherling.Operations.AST
 import Aetherling.Operations.Types
 import Aetherling.Simulator.Combinational
 
--- These are all combinational device implementations.  These are then
--- passed to simhlCombinational in the simhl function to complete the
--- device implementations in the simulator.
+-- | These are all combinational device implementations: they take a
+-- list of one clock cycle's inputs (N in ports = N-list input) and
+-- produce a list of one clock cycle's outputs.
 simhlAdd :: [ValueType] -> [ValueType]
 simhlAdd = simhlBinaryOp (\x y -> x+y) xor
 
@@ -65,9 +86,9 @@ simhlGt = simhlIntCmpOp (>)
 simhlGeq :: [ValueType] -> [ValueType]
 simhlGeq = simhlIntCmpOp (>=)
 
--- This will be used in the simulator by passing in the lookup table
+-- | This will be used in the simulator by passing in the lookup table
 -- as first argument list of ints. This will partially evaulated then
--- handed to simhlCombinational
+-- handed to simhlCombinational.
 simhlLUT :: [Int] -> [ValueType] -> [ValueType]
 simhlLUT table [V_Int i] | i < length table = [V_Int $ table !! i]
 simhlLUT table [V_Int i] = [V_Int 0]
