@@ -7,6 +7,7 @@ for identifying errors in that tree.
 -}
 module Aetherling.Operations.AST where
 import Aetherling.Operations.Types
+import Aetherling.LineBufferManifestoModule
 
 -- | The operations that can be used to create dataflow DAGs in Aetherling
 data Op =
@@ -42,6 +43,13 @@ data Op =
   -- Last is the type of the pixel element
   | LineBuffer {pxPerClock :: [Int], windowWidth :: [Int], image :: [Int],
                 lbInT :: TokenType, boundaryCondition :: BoundaryConditions}
+
+  -- Temporary line buffer op based on semantics in "The Line Buffer
+  -- Manifesto".  I need a working line buffer to make progress on my
+  -- work. Later when we refine our main line buffer to work I can go back
+  -- and port uses of LineBufferManifesto to the main line buffer.
+  | LineBufferManifesto ManifestoData
+
   -- | Array is constant produced, int is sequence length
   | Constant_Int {intConstProduced :: [Int]}
   -- | Array is constant produced
@@ -134,6 +142,7 @@ getChildOps (LUT _) = []
 getChildOps (MemRead _) = []
 getChildOps (MemWrite _) = []
 getChildOps (LineBuffer _ _ _ _ _) = []
+getChildOps (LineBufferManifesto _) = []
 getChildOps (Constant_Int _) = []
 getChildOps (Constant_Bit _) = []
 getChildOps (SequenceArrayRepack _ _ _) = []

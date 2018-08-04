@@ -46,7 +46,8 @@ initialLatency (LUT _) = 1
 initialLatency (MemRead _) = 1
 initialLatency (MemWrite _) = 1
 -- intiial latency is just number of warmup clocks
-initialLatency lb@(LineBuffer p w _ _ _) = 1 
+initialLatency lb@(LineBuffer p w _ _ _) = 1
+
 initialLatency (Constant_Int _) = 1
 initialLatency (Constant_Bit _) = 1
 

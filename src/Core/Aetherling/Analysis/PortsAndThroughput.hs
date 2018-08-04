@@ -17,6 +17,7 @@ import Aetherling.Operations.Properties
 import Aetherling.Analysis.Metrics
 import Data.Bool
 import Data.Ratio
+import Aetherling.LineBufferManifestoModule
 
 -- | Compute the in ports of a module.
 inPorts :: Op -> [PortType]
@@ -48,6 +49,9 @@ inPorts (MemWrite t) = [T_Port "I" 1 t 1]
 inPorts lb@(LineBuffer p _ img t _) = [T_Port "I" (cps lb) parallelType 1]
   where
     parallelType = foldr (\pDim innerType -> T_Array pDim innerType) t p
+
+inPorts (LineBufferManifesto lb) = manifestoInPorts lb
+
 inPorts (Constant_Int _) = []
 inPorts (Constant_Bit _) = []
 
@@ -118,6 +122,9 @@ outPorts lb@(LineBuffer p w img t _) = [T_Port "O" seqLen parallelStencilType 1]
       foldr (\pDim innerType -> T_Array pDim innerType) singleStencilType p
     -- seqLen is same as inputs, except with nothing on warmup inputs
     seqLen = (pSeqLen $ head $ inPorts lb)
+
+outPorts (LineBufferManifesto lb) = manifestoOutPorts lb
+
 outPorts (Constant_Int ints) = [T_Port "O" 1 (T_Array (length ints) T_Int) 1]
 outPorts (Constant_Bit bits) = [T_Port "O" 1 (T_Array (length bits) T_Bit) 1]
 
@@ -228,6 +235,9 @@ clocksPerSequence (LineBuffer (pHd:[]) _ (imgHd:[]) t _) = imgHd `ceilDiv` pHd
 clocksPerSequence (LineBuffer (pHd:pTl) (_:wTl) (imgHd:imgTl) t bc) =
   (imgHd `ceilDiv` pHd) * (cps $ LineBuffer pTl wTl imgTl t bc)
 clocksPerSequence (LineBuffer _ _ _ _ _) = -1
+
+clocksPerSequence (LineBufferManifesto lb) = manifestoCPS lb
+
 clocksPerSequence (Constant_Int _) = combinationalCPS
 clocksPerSequence (Constant_Bit _) = combinationalCPS
 

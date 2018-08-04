@@ -47,7 +47,7 @@ manifestoOutPorts lb =
     imgArea = imgX * imgY
     
     -- The number of parallel window outputs needed.
-    parallelism = min 1 (div (xPerClk * yPerClk) strideArea)
+    parallelism = max 1 (div (xPerClk * yPerClk) strideArea)
 
     windowCount = div imgArea strideArea
     seqLen = div windowCount parallelism

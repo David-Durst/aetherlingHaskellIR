@@ -35,6 +35,7 @@ isComb (LUT _) = True
 isComb (MemRead _) = True
 isComb (MemWrite _) = True
 isComb (LineBuffer _ _ _ _ _) = True
+isComb (LineBufferManifesto _) = False -- Why is LineBuffer True???
 isComb (Constant_Int _) = True
 isComb (Constant_Bit _) = True
 
@@ -81,6 +82,7 @@ hasInternalState (LUT _) = False
 hasInternalState (MemRead _) = True
 hasInternalState (MemWrite _) = True
 hasInternalState (LineBuffer _ _ _ _ _) = True
+hasInternalState (LineBufferManifesto _) = True
 hasInternalState (Constant_Int _) = False
 hasInternalState (Constant_Bit _) = False
 
