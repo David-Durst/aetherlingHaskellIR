@@ -168,3 +168,14 @@ hasChildWithError op = (<) 0 $ length $
 getFirstError op | hasChildWithError op = head $ map getFirstError $ getChildOps op
 getFirstError op | isFailure op = op
 getFirstError op = op
+
+-- Function for making a line buffer (based on The Line Buffer Manifesto).
+manifestoLineBuffer :: (Int, Int) -> (Int, Int) -> (Int, Int)
+                    -> (Int, Int) -> (Int, Int) -> TokenType
+                     -> Op
+manifestoLineBuffer pxPerClk window image stride origin token =
+  case manifestoCheckAssumptions
+       (ManifestoData pxPerClk window image stride origin token) of
+    Left message -> error message
+    Right lb -> LineBufferManifesto lb
+

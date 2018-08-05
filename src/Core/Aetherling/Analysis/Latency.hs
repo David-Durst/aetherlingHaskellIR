@@ -13,6 +13,7 @@ import Aetherling.Operations.Properties
 import Aetherling.Analysis.Metrics
 import Aetherling.Analysis.PortsAndThroughput
 import Data.Bool
+import Aetherling.LineBufferManifestoModule
 
 -- | Compute the number of clocks from when the first input token is supplied to
 -- a module's input port until the first token is emitted from one of its output
@@ -47,6 +48,7 @@ initialLatency (MemRead _) = 1
 initialLatency (MemWrite _) = 1
 -- intiial latency is just number of warmup clocks
 initialLatency lb@(LineBuffer p w _ _ _) = 1
+initialLatency (LineBufferManifesto lb) = manifestoInitialLatency lb
 
 initialLatency (Constant_Int _) = 1
 initialLatency (Constant_Bit _) = 1
