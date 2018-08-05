@@ -2,19 +2,21 @@
 -- in "The Line Buffer Manifesto". Later these changes can be
 -- incorporated into the main line buffer, but for now this line
 -- buffer's quite experimental so here it is.
-module Aetherling.LineBufferManifestoModule (
-  ManifestoData(ManifestoData),
-  manifestoCheckAssumptions,
-  manifestoInPorts,
-  manifestoOutPorts,
-  manifestoCPS,
-  manifestoInitialLatency,
-  manifestoSimulate,
-  manifestoPreprocess
-)
+module Aetherling.LineBufferManifestoModule
+  -- (
+--   ManifestoData(ManifestoData),
+--   manifestoCheckAssumptions,
+--   manifestoInPorts,
+--   manifestoOutPorts,
+--   manifestoCPS,
+--   manifestoInitialLatency,
+--   manifestoSimulate,
+--   manifestoPreprocess
+-- )
 where
 import Aetherling.Operations.Types
 import Data.Array
+import Debug.Trace
 
 data ManifestoData = ManifestoData {
   lbPxPerClk :: (Int, Int),
@@ -210,14 +212,14 @@ manifestoSimulate lb [inStr] =
     -- Convert input array to stream of xPerClk pixels (assumed yPerClk = 1).
     unpackInput :: ValueType -> [ValueType]
     unpackInput V_Unit = replicate xPerClk V_Unit
-    unpackInput (V_Array a) = a
-    unpackInput _ = error "Aetherling internal error: expected array\ 
+    unpackInput (V_Array [V_Array a]) = a
+    unpackInput _ = error "Aetherling internal error: expected 1-by-x array \
       \input in line buffer."
 
     -- Use the fact that pixels are in lexicographical order to make
     -- the array. If the input was too short, fill the end with
     -- V_Unit.
-    values = concat [unpackInput a | a <- inStr] ++ repeat V_Unit
+    values = concat (map unpackInput inStr) ++ repeat V_Unit
     pixelArray = listArray bounds values
 
     -- Create the output windows using this here helper function.
@@ -229,8 +231,8 @@ manifestoSimulate lb [inStr] =
           | x' <- [x..x+windowX-1]
         ] | y' <- [y..y+windowY-1]
       ]
-    windowYs = [originY, originY+strideY, originY+imgY-1]
-    windowXs = [originX, originX+strideX, originX-imgY-1]
+    windowYs = [originY,originY+strideY..originY+imgY-1]
+    windowXs = [originX,originX+strideX..originX+imgX-1]
     windows = [mkWindow y x | y <- windowYs, x <- windowXs]
 
     -- Now, we need to calculate the parallelism to know how many
@@ -242,7 +244,7 @@ manifestoSimulate lb [inStr] =
     pack windows =
       let
         (theseWindows, laterWindows) = splitAt parallelism windows
-        thisOut = V_Array [ V_Array theseWindows]
+        thisOut = V_Array [ V_Array theseWindows ]
         laterOut = pack laterWindows
       in
         thisOut:laterOut
