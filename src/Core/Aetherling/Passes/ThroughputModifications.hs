@@ -30,6 +30,7 @@ and can have its throughput modified by changing parallelism.
 The four groups are have their throughputs increased and decreased using
 different approaches:
 
+MAYBE I SHOULD CALL THESE "Leaf, directly scalable"
 1. Leaf, non-modifiable rate - these ops are sped up and slowed down by wrapping
 them in a parent, modifiable rate op such as map and underutil. 
 
@@ -144,6 +145,10 @@ attemptSpeedUp requestedMult (LineBuffer p w img t bc) =
     (reversedNewP, actualMult) =
       increaseLBPxPerClock (reverse p) (reverse img) requestedMult
 
+-- speeding up SequenceArrayRepack means handling streams with
+-- more bits per element of the stream.
+-- For example, attemptSpeedUp 2 $ SequenceArrayRepack (4, 1) (2, 2) T_Int ==
+-- SequenceArrayRepack (4, 2) (2, 4) T_Int
 -- could decrease sLenIn and sLenOut as increase throughput, but not going
 -- to do that as don't want to deal with fractional sequence lengths,
 -- which could happen if dividing sLenIn or sLenOut 
@@ -378,6 +383,10 @@ attemptSlowDown requestedDiv (LineBuffer p w img t bc) =
   where
     (newP, actualDiv) = decreaseLBPxPerClock p img requestedDiv
 
+-- slowing down SequenceArrayRepack means handling streams with
+-- fewer bits per element of the stream.
+-- For example, attemptSlowDown 2 $ SequenceArrayRepack (4, 2) (2, 4) T_Int ==
+-- SequenceArrayRepack (4, 1) (2, 2) T_Int
 -- not going to change SLen in consistency with speed up
 -- can only slow down if both array lengths are divisible by requestedDiv
 attemptSlowDown requestedDiv (SequenceArrayRepack (sLenIn, oldArrLenIn)
