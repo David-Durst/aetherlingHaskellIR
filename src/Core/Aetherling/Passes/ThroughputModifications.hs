@@ -80,10 +80,13 @@ attemptSpeedUp :: Int -> Op -> (Op, Int)
 -- LEAF, INDIRECTLY SCALABLE 
 -- can't change throughput parameter, can't speed up child ops, so just wrap in
 -- a map to parallelize
--- ASSUMPTION: the user has specified a type for these ops and passes will not
--- change the type because that would change the semantics of the
--- program. For example, one could speed up an Add T_Int my making it a
--- Add $ T_Array 2 T_Int, but that would change the program's meaning.
+-- ASSUMPTION: the user has specified a basic unit of data that these types
+-- operate over. changing this data type will change the meaning of the program.
+-- For example, operating over 3 color channel, 8 bit depth image data should
+-- has a base type of T_Array 3 (T_Array 8 T_Bit). Speed up and slow down will
+-- not change the type because that would change the semantics of the program.
+-- The passes will make the program handle greater of fewer of these RGB pixels
+-- per clock.
 attemptSpeedUp requestedMult op@(Add _) = (MapOp requestedMult op, requestedMult)
 attemptSpeedUp requestedMult op@(Sub _) = (MapOp requestedMult op, requestedMult)
 attemptSpeedUp requestedMult op@(Mul _) = (MapOp requestedMult op, requestedMult)
