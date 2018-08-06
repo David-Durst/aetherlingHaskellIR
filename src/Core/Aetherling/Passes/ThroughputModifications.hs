@@ -4,45 +4,45 @@ Description: Passes that tradeoff throughput and area
 
 The Aetherling Operations. These are split into four groups:
 
-1. Leaf, non-modifiable rate - these are arithmetic, boolean logic,
+1. Leaf, indirectly scalable - these are arithmetic, boolean logic,
 and bit operations that don't contain any other ops and don't have
 a parameter for making them run with a larger or smaller throughput.
-Since these don't have a modifiable rate, they are sped up and slowed
-down by wrapping them in a parent, modifiable rate op such as map and
+Since these don't have a directly scalable, they are sped up and slowed
+down by wrapping them in a parent, directly scalable op such as map and
 underutil.
 
-2. Leaf, modifiable rate - these are ops like linebuffers,
+2. Leaf, directly scalable - these are ops like linebuffers,
 and space-time type reshapers that have a parameter for changing their
 throughput and typically are not mapped over to change their throuhgput.
 These ops don't have child ops.
-Since these have a modifiable rate, they are sped up and slowed down by
+Since these have a directly scalable, they are sped up and slowed down by
 trying to adjust that rate. In some cases, it may not be possible to adjust
 the rate if the op with the new is invalid given the dimensions of the data
 being operated on. Speed up and slow down may fail in these cases.
 
-3. Parent, non-modifiable rate - these ops like composeSeq and composePar have
+3. Parent, indirectly scalable - these ops like composeSeq and composePar have
 child ops that can have their throughputs' modified, but the parent
 op doesn't have a parameter that affects throughput
 
-4. Parent, modifiable rate - map is the canonical example. It has child ops
+4. Parent, directly scalable - map is the canonical example. It has child ops
 and can have its throughput modified by changing parallelism.
 
 The four groups are have their throughputs increased and decreased using
 different approaches:
 
 MAYBE I SHOULD CALL THESE "Leaf, directly scalable"
-1. Leaf, non-modifiable rate - these ops are sped up and slowed down by wrapping
-them in a parent, modifiable rate op such as map and underutil. 
+1. Leaf, indirectly scalable - these ops are sped up and slowed down by wrapping
+them in a parent, directly scalable op such as map and underutil. 
 
-2. Leaf, modifiable rate - these ops are sped up and slowed down by trying to
+2. Leaf, directly scalable - these ops are sped up and slowed down by trying to
 adjust their rate. In some cases, it may not be possible to adjust the rate if
 the op with the new is invalid given the dimensions of the data being operated
 on. Speed up and slow down may fail in these cases.
 
-3. Parent, non-modifiable rate - these ops are sped up and slowed by down
+3. Parent, indirectly scalable - these ops are sped up and slowed by down
 adjusting the throughputs of their child ops. 
 
-4. Parent, modifiable rate - these ops are sped up and slowed down by first
+4. Parent, directly scalable - these ops are sped up and slowed down by first
 trying to adjust their rate. If that is not possible, speedUp and slowDown
 try to adjust the throughputs of their child ops.
 -}
@@ -67,7 +67,7 @@ speedUp requestedMult op = Failure
 -- it is split up into the four types of ops described at the top of the file.
 
 attemptSpeedUp :: Int -> Op -> (Op, Int)
--- LEAF, NON-MODIFIABLE RATE 
+-- LEAF, INDIRECTLY SCALABLE 
 -- can't change rate, can't speed up child ops, so just wrap in a map to
 -- parallelize
 -- ASSUMPTION: the user has specified a type for these ops and passes will not
@@ -106,7 +106,7 @@ attemptSpeedUp requestedMult op@(LUT _) = (MapOp requestedMult op, requestedMult
 attemptSpeedUp requestedMult op@(MemRead _) = (MapOp requestedMult op, requestedMult)
 attemptSpeedUp requestedMult op@(MemWrite _) = (MapOp requestedMult op, requestedMult)
 
--- These are leaf, non-modifiable rate unlike SequenceArrayRepack because,
+-- These are leaf, indirectly scalable unlike SequenceArrayRepack because,
 -- for these operations, the user has not specified the type separately from the
 -- array length. Therefore, speedup may modify the meaning of the program
 -- by changing the types of these ops.
@@ -118,7 +118,7 @@ attemptSpeedUp requestedMult op@(DuplicateOutputs _ _) =
 attemptSpeedUp requestedMult op@(Constant_Int _) = (MapOp requestedMult op, requestedMult)
 attemptSpeedUp requestedMult op@(Constant_Bit _) = (MapOp requestedMult op, requestedMult)
 
--- LEAF, MODIFIABLE RATE
+-- LEAF, DIRECTLY SCALABLE
 -- If possible, speed up by changing the rate. Otherwise, just try to return
 -- an op with the same or greater throughput than the original.
 -- However, behavior is undefined if requesting an invalid throughput multiplier
@@ -158,7 +158,7 @@ attemptSpeedUp requestedMult (SequenceArrayRepack (sLenIn, oldArrLenIn)
     (sLenOut, oldArrLenOut * requestedMult) t, requestedMult)
 
 
--- PARENT, NON-MODIFIABLE RATE
+-- PARENT, INDIRECTLY SCALABLE
 -- Speed up their child ops, no rate to modify on these, and no
 -- point in mapping over these as can just defer that to doing over children.
 
@@ -182,7 +182,7 @@ attemptSpeedUp requestedMult (ComposeSeq ops) =
   -- ports still match 
   in (foldl (|>>=|) hdSpedUpOps tlSpedUpOps, minimum actualMults)
 
--- PARENT, MODIFIABLE RATE 
+-- PARENT, DIRECTLY SCALABLE 
 -- speed up the parent by increasing the rate if possible. If not possible,
 -- try to speed up the children.
 -- The default strategy is to adjust the rate, then fallback to speeding up
@@ -323,7 +323,7 @@ slowDown requestedDiv op = Failure $ InvalidThroughputModification requestedDiv 
 -- This is the helper function that slows down an op as much as possible
 -- and returns the amount slowed down.
 
--- LEAF, NON-MODIFIABLE RATE 
+-- LEAF, INDIRECTLY SCALABLE 
 -- can't change rate, can't slow child ops, so just wrap in an underutil to
 -- slow down. This is the same approach as speed up, but with underutil instead
 -- of map, with same assumption regarding not changing the type.
@@ -364,7 +364,7 @@ attemptSlowDown requestedDiv op@(Constant_Int _) =
 attemptSlowDown requestedDiv op@(Constant_Bit _) =
   (Underutil requestedDiv op, requestedDiv)
 
--- LEAF, MODIFIABLE RATE
+-- LEAF, DIRECTLY SCALABLE
 -- If possible, slow down by changing the rate. Otherwise, just try to return
 -- an op with the same or slower throughput than the original.
 -- Behavior undefined in same case as for attemptSpeedUp.
@@ -396,7 +396,7 @@ attemptSlowDown requestedDiv (SequenceArrayRepack (sLenIn, oldArrLenIn)
     (sLenOut, oldArrLenOut `ceilDiv` requestedDiv) t, requestedDiv)
 attemptSlowDown requestedDiv op@(SequenceArrayRepack _ _ _) = (op, 1)
 
--- PARENT, NON-MODIFIABLE RATE
+-- PARENT, INDIRECTLY SCALABLE
 -- Slow their child ops, no rate to modify on these, and no
 -- point in underutiling these as can just defer that to children.
 
@@ -420,7 +420,7 @@ attemptSlowDown requestedDiv (ComposeSeq ops) =
   -- ports still match 
   in (foldl (|>>=|) hdSlowedOps tlSlowedOps, maximum actualDivs)
 
--- PARENT, MODIFIABLE RATE
+-- PARENT, DIRECTLY SCALABLE
 -- Slow the parent by decreasing the rate if possible. If not possible,
 -- try to slow the children.
 -- The default strategy is to adjust the rate, then fall back to slowing
