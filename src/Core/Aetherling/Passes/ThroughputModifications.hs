@@ -35,12 +35,6 @@ it may not be possible to adjust the parameter. This will happen if the op with
 the new parameter is invalid given the dimensions of the data being operated on.
 Speed up and slow down may fail in these cases.
 
-these ops have a parameter that impacts their
-throughput. They are sped up and slowed down by trying to adjust that parameter.
-In some cases, it may not be possible to set the parameter to the certain values
-as this would make the op invalid given the dimensions of the data being
-operated on. Speed up and slow down may fail in these cases.
-
 3. Parent, indirectly scalable - Since these aren't directly scalable, they are
 sped up and slowed down by trying to scale their children.
 
@@ -71,8 +65,8 @@ speedUp requestedMult op = Failure
 
 attemptSpeedUp :: Int -> Op -> (Op, Int)
 -- LEAF, INDIRECTLY SCALABLE 
--- can't change rate, can't speed up child ops, so just wrap in a map to
--- parallelize
+-- can't change throughput parameter, can't speed up child ops, so just wrap in
+-- a map to parallelize
 -- ASSUMPTION: the user has specified a type for these ops and passes will not
 -- change the type because that would change the semantics of the
 -- program. For example, one could speed up an Add T_Int my making it a
@@ -122,8 +116,8 @@ attemptSpeedUp requestedMult op@(Constant_Int _) = (MapOp requestedMult op, requ
 attemptSpeedUp requestedMult op@(Constant_Bit _) = (MapOp requestedMult op, requestedMult)
 
 -- LEAF, DIRECTLY SCALABLE
--- If possible, speed up by changing the rate. Otherwise, just try to return
--- an op with the same or greater throughput than the original.
+-- If possible, speed up by changing the throughput parameter. Otherwise, just
+-- try to return an op with the same or greater throughput than the original.
 -- However, behavior is undefined if requesting an invalid throughput multiplier
 -- that doesn't match the divisibility requirements such as those for linebuffer.
 -- Not going to speed these up by wrapping them in a map because that would
@@ -162,7 +156,7 @@ attemptSpeedUp requestedMult (SequenceArrayRepack (sLenIn, oldArrLenIn)
 
 
 -- PARENT, INDIRECTLY SCALABLE
--- Speed up their child ops, no rate to modify on these, and no
+-- Speed up their child ops, no throughput parameter to modify on these, and no
 -- point in mapping over these as can just defer that to doing over children.
 
 attemptSpeedUp requestedMult op@(NoOp _) = (MapOp requestedMult op, requestedMult)
@@ -186,12 +180,10 @@ attemptSpeedUp requestedMult (ComposeSeq ops) =
   in (foldl (|>>=|) hdSpedUpOps tlSpedUpOps, minimum actualMults)
 
 -- PARENT, DIRECTLY SCALABLE 
--- speed up the parent by increasing the rate if possible. If not possible,
--- try to speed up the children.
--- The default strategy is to adjust the rate, then fallback to speeding up
--- the children if the rate can't be adjusted.
+-- speed up the parent by increasing the throughput parameter if possible. If
+-- not possible, try to speed up the children.
 
--- If child op has internal state, can't automatically speed up child op by
+-- If child op has internal state, can't automatically speed up by
 -- changing par and making more copies. Making two independent copies with
 -- different state won't behave same as modifying op to update its state to run
 -- twice as fast
@@ -327,9 +319,10 @@ slowDown requestedDiv op = Failure $ InvalidThroughputModification requestedDiv 
 -- and returns the amount slowed down.
 
 -- LEAF, INDIRECTLY SCALABLE 
--- can't change rate, can't slow child ops, so just wrap in an underutil to
--- slow down. This is the same approach as speed up, but with underutil instead
--- of map, with same assumption regarding not changing the type.
+-- can't change throughput parameter, can't slow child ops, so just wrap in an
+-- underutil to slow down. This is the same approach as speed up, but with
+-- underutil instead of map, with same assumption regarding not changing the
+-- type.
 attemptSlowDown :: Int -> Op -> (Op, Int)
 attemptSlowDown requestedDiv op@(Add _) = (Underutil requestedDiv op, requestedDiv)
 attemptSlowDown requestedDiv op@(Sub _) = (Underutil requestedDiv op, requestedDiv)
@@ -368,14 +361,14 @@ attemptSlowDown requestedDiv op@(Constant_Bit _) =
   (Underutil requestedDiv op, requestedDiv)
 
 -- LEAF, DIRECTLY SCALABLE
--- If possible, slow down by changing the rate. Otherwise, just try to return
--- an op with the same or slower throughput than the original.
+-- If possible, slow down by changing the throughput parameter. Otherwise, just
+-- try to return an op with the same or slower throughput than the original.
 -- Behavior undefined in same case as for attemptSpeedUp.
--- Not worth supporting slowdown using underutil in event of being unable
--- to adjust rate as can do symmetric behavior for speed up. While you
--- can wrap underutil around a stateful operator like a linebuffer, you can't
--- wrap a map around it for the reasons discussed in the attemptSpeedUp comments.
--- Thus, to keep the symmetry, not going to underutil linebuffers.
+-- Not worth supporting slowdown using underutil in event of being unable to
+-- adjust throughput parameter as can't do symmetric behavior for speed up.
+-- While you can wrap underutil around a stateful operator like a linebuffer,
+-- you can't wrap a map around it for the reasons discussed in the
+-- attemptSpeedUp comments. Thus, to kee
 
 -- Slow down outer most dimension first, then slow down more inner dimensions.
 -- see decreaseLBPxPerClock for more information
@@ -400,8 +393,8 @@ attemptSlowDown requestedDiv (SequenceArrayRepack (sLenIn, oldArrLenIn)
 attemptSlowDown requestedDiv op@(SequenceArrayRepack _ _ _) = (op, 1)
 
 -- PARENT, INDIRECTLY SCALABLE
--- Slow their child ops, no rate to modify on these, and no
--- point in underutiling these as can just defer that to children.
+-- Slow their child ops. No throughput parameter to modify on these and no
+-- point in underutilizing these as can just defer that to children.
 
 attemptSlowDown requestedDiv op@(NoOp _) = (MapOp requestedDiv op, requestedDiv)
 attemptSlowDown requestedDiv (Delay d innerOp) =
@@ -424,14 +417,13 @@ attemptSlowDown requestedDiv (ComposeSeq ops) =
   in (foldl (|>>=|) hdSlowedOps tlSlowedOps, maximum actualDivs)
 
 -- PARENT, DIRECTLY SCALABLE
--- Slow the parent by decreasing the rate if possible. If not possible,
--- try to slow the children.
--- The default strategy is to adjust the rate, then fall back to slowing
--- the children if the rate can't be adjusted
+-- Slow the parent by decreasing the throughput parameter if possible. If not
+-- possible, try to slow the children.
 
--- If child has internal state, can't automatically slow down child as changing
--- number of child ops is different from running each one at a lower rate when
--- each child op is managing state. This is the same reasoning as speed up.
+-- If child has internal state, can't automatically slow down by changing par.
+-- Changing number of child ops is different from running each one at a lower
+-- throuhgput when each child op is managing state. This is the same reasoning
+-- as speed up.
 attemptSlowDown requestedDiv (MapOp par innerOp) | not $ hasInternalState innerOp &&
   (par `mod` requestedDiv == 0) =
   (MapOp (par `ceilDiv` requestedDiv) innerOp, requestedDiv)
