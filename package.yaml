@@ -44,6 +44,8 @@ executables:
     - -with-rtsopts=-N
     dependencies:
     - AetherlingSTIR
+    - JuicyPixels >= 3.0
+    - bytestring >= 0.10
 
 tests:
   AetherlingSTIR-Examples-test:
