@@ -2,7 +2,20 @@
 Module: Aetherling.Passes.ThroughputModifications
 Description: Passes that tradeoff throughput and area
 
-The Aetherling Operations. These are split into four groups:
+The Aetherling Operations.
+
+Ops are split using two sets of categories:
+
+1. Parent or Leaf - An op is a parent op if it contains child ops. An op is
+a leaf op if it does not contain child ops. This is the same terminology as
+all other tree data structures.
+
+2. Directly or indirectly scalable - An op is directly scalable if it has a
+parameter for directly scaling its throughput. An op is indirectly scalable
+if it does not have such a parameter. Indirectly scalable ops are scaled
+either by wrapping them in other ops or by scaling their child ops.
+
+These categories form four groups:
 
 1. Leaf, indirectly scalable - These ops both do not contain any child ops and
 also do not have a parameter for directly scaling their throughput. Examples of
