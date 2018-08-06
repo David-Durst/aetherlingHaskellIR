@@ -2,9 +2,12 @@
 Module: Aetherling.Passes.ThroughputModifications
 Description: Passes that tradeoff throughput and area
 
-The Aetherling Operations.
+The two main passes that modify the throughput of Aetherling operations are
+speedup and slowdown. These increase and decrease the throughput of the
+operations while preserving the order and values of inputs and outputs.
 
-Ops are split using two sets of categories:
+For the purposes of speedup and slowdown, Aetherling ops are split using two
+sets of categories:
 
 1. Parent or Leaf - An op is a parent op if it contains child ops. An op is
 a leaf op if it does not contain child ops. This is the same terminology as
