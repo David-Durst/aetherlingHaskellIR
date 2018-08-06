@@ -4,47 +4,50 @@ Description: Passes that tradeoff throughput and area
 
 The Aetherling Operations. These are split into four groups:
 
-1. Leaf, indirectly scalable - these are arithmetic, boolean logic,
-and bit operations that don't contain any other ops and don't have
-a parameter for making them run with a larger or smaller throughput.
-Since these don't have a directly scalable, they are sped up and slowed
-down by wrapping them in a parent, directly scalable op such as map and
-underutil.
+1. Leaf, indirectly scalable - These ops both do not contain any child ops and
+also do not have a parameter for directly scaling their throughput. Examples of
+these ops are arithmetic, boolean logic, and bit operations.
 
-2. Leaf, directly scalable - these are ops like linebuffers,
-and space-time type reshapers that have a parameter for changing their
-throughput and typically are not mapped over to change their throuhgput.
-These ops don't have child ops.
-Since these have a directly scalable, they are sped up and slowed down by
-trying to adjust that rate. In some cases, it may not be possible to adjust
-the rate if the op with the new is invalid given the dimensions of the data
-being operated on. Speed up and slow down may fail in these cases.
+2. Leaf, directly scalable - These ops do not contain any child ops. They do
+have a parameter for directly scaling their throuhgput. Examples of these ops
+are linebuffers and space-time type reshapers. 
 
-3. Parent, indirectly scalable - these ops like composeSeq and composePar have
-child ops that can have their throughputs' modified, but the parent
-op doesn't have a parameter that affects throughput
+3. Parent, indirectly scalable - These ops contain child ops which can be
+directly or indirectly scaled. These ops do not have a parameter for directly
+scaling their throughput. Examples of these ops are composeSeq and composePar.
 
-4. Parent, directly scalable - map is the canonical example. It has child ops
-and can have its throughput modified by changing parallelism.
+4. Parent, directly scalable - These ops both do contain child ops and have a
+parameter for directly scaling their throughput. Examples of these ops are map
+and reduce. There may be restrictions on the types of ops that can be children
+of these ops. These restrictions enable the throughput parameter to be modified
+while ensuring that the input and output remains the same modulo throughput.
 
 The four groups are have their throughputs increased and decreased using
 different approaches:
 
-MAYBE I SHOULD CALL THESE "Leaf, directly scalable"
-1. Leaf, indirectly scalable - these ops are sped up and slowed down by wrapping
-them in a parent, directly scalable op such as map and underutil. 
+1. Leaf, indirectly scalable - Since these aren't directly scalable, they are
+sped up and slowed down by wrapping them in a parent, directly scalable op such
+as map and underutil.
 
-2. Leaf, directly scalable - these ops are sped up and slowed down by trying to
-adjust their rate. In some cases, it may not be possible to adjust the rate if
-the op with the new is invalid given the dimensions of the data being operated
-on. Speed up and slow down may fail in these cases.
+2. Leaf, directly scalable - Since these are directly scalable, they are sped up
+and slowed down by trying to adjust their throughput parameters. In some cases,
+it may not be possible to adjust the parameter. This will happen if the op with
+the new parameter is invalid given the dimensions of the data being operated on.
+Speed up and slow down may fail in these cases.
 
-3. Parent, indirectly scalable - these ops are sped up and slowed by down
-adjusting the throughputs of their child ops. 
+these ops have a parameter that impacts their
+throughput. They are sped up and slowed down by trying to adjust that parameter.
+In some cases, it may not be possible to set the parameter to the certain values
+as this would make the op invalid given the dimensions of the data being
+operated on. Speed up and slow down may fail in these cases.
 
-4. Parent, directly scalable - these ops are sped up and slowed down by first
-trying to adjust their rate. If that is not possible, speedUp and slowDown
-try to adjust the throughputs of their child ops.
+3. Parent, indirectly scalable - Since these aren't directly scalable, they are
+sped up and slowed down by trying to scale their children.
+
+4. Parent, directly scalable - Since these are directly scalable, they are sped
+up and slowed down by trying to adjust their throughput parameters. If that is
+not possible (for the same reasons as case #2), then speed up and slow down try
+to scale the throughputs of their child ops.
 -}
 module Aetherling.Passes.ThroughputModifications (speedUp, slowDown) where
 import Aetherling.Operations.Types
