@@ -90,23 +90,23 @@ simhlMapFoldLambda simhl lastTuple laneInput =
 --   makes one output.
 --   2. A register whose input is the output of a reducedOp, which itself
 --   takes the output of said register and the tree as inputs (this part
---   can be omitted if numComb == par, i.e. the reduce is combinational.
+--   can be omitted if numTokens == par, i.e. the reduce is combinational.
 --   (assuming combinational reducedOp).
--- After (numComb/par) cycles, the reg's input contains the result of reducing
--- numComb inputs. The reg should be cleared for the next set of numComb inputs.
+-- After (numTokens/par) cycles, the reg's input contains the result of reducing
+-- numTokens inputs. The reg should be cleared for the next set of numTokens inputs.
 simhlReduce :: Simhl -> Int -> Int -> Op -> [[ValueType]] -> SimhlState
             -> ( [[ValueType]], SimhlState )
-simhlReduce simhl par numComb theReducedOp inStrs inState
-  | numComb `mod` par /= 0 || numComb == 0 =
+simhlReduce simhl numTokens par theReducedOp inStrs inState
+  | numTokens `mod` par /= 0 || numTokens == 0 =
       error("Simulator assumes paralellism of a reduce evenly divides "
             ++ "its nonzero combine count (simulating "
-            ++ show (ReduceOp par numComb theReducedOp)
+            ++ show (ReduceOp numTokens par theReducedOp)
             ++ ")")
   | (length $ inPorts theReducedOp) /= 2 ||
     (length $ outPorts theReducedOp) /= 1 =
       error("Simulator assumes ReduceOp op has 2 inputs/1 output. "
              ++ "simulating ("
-             ++ show (ReduceOp par numComb theReducedOp)
+             ++ show (ReduceOp numTokens par theReducedOp)
              ++ ")")
   | otherwise =
     let
@@ -114,9 +114,9 @@ simhlReduce simhl par numComb theReducedOp inStrs inState
       (treeOutStr, outState)
           = simhlReduceTree simhl theReducedOp laneInStrs inState
     in
-      if par == numComb
+      if par == numTokens
       then ([treeOutStr], outState) -- Part 2 device unused.
-      else ([simhlReduceReg simhl par numComb theReducedOp treeOutStr], outState)
+      else ([simhlReduceReg simhl par numTokens theReducedOp treeOutStr], outState)
       -- We have to put the output stream in a 1-list for the 1
       -- output port of ReduceOp.
 
@@ -179,25 +179,25 @@ simhlReduceTreeLevel simhl theReducedOp inLanes _ = error(
 -- ReduceOp device. Takes a stream of tree outputs and produces the
 -- stream of outputs that would come out the full ReduceOp by
 -- reducing each subsequence of N tree outputs to 1 output, where N =
--- numComb/par.
+-- numTokens/par.
 --
 -- We have to assume that theReduceOp is combinational here, so take
 -- some liberties in calling it over-and-over again and hiding
 -- SimhlState from it.
 simhlReduceReg :: Simhl -> Int -> Int -> Op -> [ValueType] -> [ValueType]
 simhlReduceReg _ _ _ _ [] = []
-simhlReduceReg simhl par numComb theReducedOp treeOutStr =
-    if par == 0 || numComb == 0 || numComb `mod` par /= 0
-    then error "Aetherling internal error: check reduce par/numComb."
+simhlReduceReg simhl par numTokens theReducedOp treeOutStr =
+    if par == 0 || numTokens == 0 || numTokens `mod` par /= 0
+    then error "Aetherling internal error: check reduce par/numTokens."
     else
       let
-        cyclesNeeded = numComb `div` par
+        cyclesNeeded = numTokens `div` par
         (nowReduce, laterReduce) = splitAt cyclesNeeded treeOutStr
       in
         if length nowReduce < cyclesNeeded
         then []
         else (reduceList nowReduce):
-             (simhlReduceReg simhl par numComb theReducedOp laterReduce)
+             (simhlReduceReg simhl par numTokens theReducedOp laterReduce)
   -- Reduce a subsequence of the tree output stream (subseq length =
   -- cycles needed per output) into one output. Use foldl since it's
   -- the same order the actual circuit will evaluate the outputs
@@ -245,13 +245,13 @@ simhlPreMap _ _ _ _ = error "Aetherling internal error: expected MapOp"
 
 simhlPreReduce :: SimhlPre -> [Op] -> [Maybe Int] -> SimhlPreState
                -> ([Maybe Int], SimhlPreState)
-simhlPreReduce simhlPre opStack@(ReduceOp par numComb op:_) inStrLens inState
+simhlPreReduce simhlPre opStack@(ReduceOp numTokens par op:_) inStrLens inState
     | length (inPorts op) /= 2 || length (outPorts op) /= 1 =
       error("Simulator assumes reducedOp has 2 inputs and 1 output, at\n"
          ++ simhlFormatOpStack opStack
       )
-    | numComb `mod` par /= 0 =
-      error("Need numComb to be divisible by paralellism at "
+    | numTokens `mod` par /= 0 =
+      error("Need numTokens to be divisible by paralellism at "
          ++ simhlFormatOpStack opStack
       )
     | fst (simhlPre (op:opStack) (replicate 2 (head inStrLens)) inState)
@@ -269,7 +269,7 @@ simhlPreReduce simhlPre opStack@(ReduceOp par numComb op:_) inStrLens inState
         -- checked above that it has predictable behavior on its
         -- output port lengths.
         inStrLen = head inStrLens
-        ratio = numComb `div` par
+        ratio = numTokens `div` par
         outStrLen' Nothing = Nothing
         outStrLen' (Just x) = Just $ x `div` ratio
         outStrLen = outStrLen' $ inStrLen

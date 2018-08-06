@@ -1,6 +1,8 @@
 {-|
 Module: Aetherling.Analysis.PortsAndThroughput
-Description: Determines the input and output ports of an op, the clocks per 
+Description: Compute interfaces of Aetherling ops
+
+Determines the input and output ports of an op, the clocks per 
 sequence used to process the inputs on those ports, and the resulting throughput
 -}
 module Aetherling.Analysis.PortsAndThroughput where
@@ -53,12 +55,12 @@ inPorts (DuplicateOutputs _ op) = inPorts op
 
 inPorts (MapOp par op) = renamePorts "I" $ liftPortsTypes par (inPorts op)
 -- take the first port of the op and duplicate it par times, don't duplicate both
--- ports of reducer as reducing numComb things in total, not per port
-inPorts (ReduceOp par numComb op) = renamePorts "I" $ map scaleSeqLen $
+-- ports of reducer as reducing numTokens things in total, not per port
+inPorts (ReduceOp numTokens par op) = renamePorts "I" $ map scaleSeqLen $
   liftPortsTypes par $ portToDuplicate $ inPorts op
   where 
     scaleSeqLen (T_Port name origSLen tType pct) =
-      T_Port name (origSLen * (numComb `ceilDiv` par)) tType pct
+      T_Port name (origSLen * (numTokens `ceilDiv` par)) tType pct
     portToDuplicate ((T_Port name sLen tType pct):_) = [T_Port name sLen tType pct]
     portToDuplicate [] = []
 
@@ -236,16 +238,16 @@ clocksPerSequence (MapOp _ op) = cps op
 -- reduce needs to get a complete sequence. If less than parallel,
 -- need to write to register all but last, if fully parallel or more,
 -- reduce is combinational
-clocksPerSequence (ReduceOp par numComb op) |
-  isComb op = combinationalCPS * (numComb `ceilDiv` par)
+clocksPerSequence (ReduceOp numTokens par op) |
+  isComb op = combinationalCPS * (numTokens `ceilDiv` par)
 -- Why not including tree height? Because can always can pipeline.
 -- Putting inputs in every clock where can accept inputs.
--- Just reset register every numComb/par if not fully parallel.
+-- Just reset register every numTokens/par if not fully parallel.
 -- What does it mean to reduce a linebuffer?
 -- can't. Can't reduce anything with a warmup as this will create
 -- an asymmetry between inputs and outputs leading to horrific tree
 -- structure
-clocksPerSequence (ReduceOp par numComb op) = cps op * (numComb `ceilDiv` par)
+clocksPerSequence (ReduceOp numTokens par op) = cps op * (numTokens `ceilDiv` par)
 
 clocksPerSequence (NoOp _) = combinationalCPS
 clocksPerSequence (Underutil denom op) = denom * cps op

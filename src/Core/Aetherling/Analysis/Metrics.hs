@@ -1,7 +1,6 @@
 {-|
 Module: Aetherling.Analysis.Metrics
-Description: This provides helper functions and metrics like space used in the
-analysis of ops
+Description: Types and helper functions for analyzing Aetherling ops
 -}
 module Aetherling.Analysis.Metrics where
 import Aetherling.Operations.Types
