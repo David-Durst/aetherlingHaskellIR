@@ -1,4 +1,21 @@
-module Aetherling.ImageIO where
+module Aetherling.ImageIO (
+  vFromY8,
+  vFromRGB8,
+  vFromRGBA8,
+  vReadY8,
+  vReadRGB8,
+  vReadRGBA8,
+  vToRGBA8,
+  vWriteRGBA8,
+  vParFromY8,
+  vParFromRGB8,
+  vParFromRGBA8,
+  vParReadY8,
+  vParReadRGB8,
+  vParReadRGBA8,
+  vParToRGBA8,
+  vParWriteRGBA8
+) where
 import Codec.Picture
 import Data.Array
 import Data.Word
@@ -57,40 +74,42 @@ instance ValueTypePixelRGBA8 PixelRGB8 where
 instance ValueTypePixelRGBA8 PixelRGBA8 where
   vPixelRGBA8 (PixelRGBA8 r g b a) = V_Array (map (V_Int . fromIntegral) [r,g,b,a])
 
--- Image-to-ValueType-stream functions. Convert image to a stream
--- (list) of V_Int or V_Array ValueTypes, given that the image is made
--- of pixels convertable to the requested pixel type (Y8, RGB8,
+-- Image-to-ValueType-stream functions. Convert image to image
+-- dimensions (height, width) and a stream (list) of V_Int (for Y8) or
+-- V_Array of V_Ints (RGB8, RGBA8) ValueTypes, given that the image is
+-- made of pixels convertable to the requested pixel type (Y8, RGB8,
 -- RGBA8). The stream's in left-to-right, then top-to-bottom order.
-vFromY8 :: ValueTypePixelY8 pix => Image pix -> [ValueType]
+vFromY8 :: ValueTypePixelY8 pix => Image pix -> ((Int, Int), [ValueType])
 vFromY8 img =
   let
-    maxX = (imageWidth img) - 1
-    maxY = (imageHeight img) - 1
-    coords = [(x,y) | y <- [0..maxY], x <- [0..maxX]]
+    imgX = (imageWidth img)
+    imgY = (imageHeight img)
+    coords = [(x,y) | y <- [0..imgY-1], x <- [0..imgX-1]]
   in
-    map (vPixelY8 . uncurry (pixelAt img)) coords
+    ((imgY, imgX), map (vPixelY8 . uncurry (pixelAt img)) coords)
 
-vFromRGB8 :: ValueTypePixelRGB8 pix => Image pix -> [ValueType]
+vFromRGB8 :: ValueTypePixelRGB8 pix => Image pix -> ((Int, Int), [ValueType])
 vFromRGB8 img =
   let
-    maxX = (imageWidth img) - 1
-    maxY = (imageHeight img) - 1
-    coords = [(x,y) | y <- [0..maxY], x <- [0..maxX]]
+    imgX = (imageWidth img)
+    imgY = (imageHeight img)
+    coords = [(x,y) | y <- [0..imgY-1], x <- [0..imgX-1]]
   in
-    map (vPixelRGB8 . uncurry (pixelAt img)) coords
+    ((imgY, imgX), map (vPixelRGB8 . uncurry (pixelAt img)) coords)
 
-vFromRGBA8 :: ValueTypePixelRGBA8 pix => Image pix -> [ValueType]
+vFromRGBA8 :: ValueTypePixelRGBA8 pix => Image pix -> ((Int, Int), [ValueType])
 vFromRGBA8 img =
   let
-    maxX = (imageWidth img) - 1
-    maxY = (imageHeight img) - 1
-    coords = [(x,y) | y <- [0..maxY], x <- [0..maxX]]
+    imgX = (imageWidth img)
+    imgY = (imageHeight img)
+    coords = [(x,y) | y <- [0..imgY-1], x <- [0..imgX-1]]
   in
-    map (vPixelRGBA8 . uncurry (pixelAt img)) coords
+    ((imgY, imgX), map (vPixelRGBA8 . uncurry (pixelAt img)) coords)
 
 -- Versions of the above function, except that we load the image
--- from disk, and return as an IO (Left String in case of disaster).
-vReadY8 :: FilePath -> IO (Either String [ValueType])
+-- from disk, and return as an IO (Left String in case of disaster,
+-- pair of image dimensions (h, w) and ValueType stream otherwise).
+vReadY8 :: FilePath -> IO (Either String ((Int,Int), [ValueType]))
 vReadY8 path =
   do
     img' <- readImage path
@@ -102,7 +121,7 @@ vReadY8 path =
       mkResult (Right _) = Left ("Cannot convert to Y8 format " ++ path)
     return (mkResult img')
 
-vReadRGB8 :: FilePath -> IO (Either String [ValueType])
+vReadRGB8 :: FilePath -> IO (Either String ((Int, Int), [ValueType]))
 vReadRGB8 path =
   do
     img' <- readImage path
@@ -114,7 +133,7 @@ vReadRGB8 path =
       mkResult (Right _) = Left ("Cannot convert to RGB8 format " ++ path)
     return (mkResult img')
 
-vReadRGBA8 :: FilePath -> IO (Either String [ValueType])
+vReadRGBA8 :: FilePath -> IO (Either String ((Int, Int), [ValueType]))
 vReadRGBA8 path =
   do
     img' <- readImage path
@@ -232,33 +251,37 @@ vSerialize par (V_Array arr:more) =
 vSerialize par (bad:_) =
   error(show bad ++ " not V_Unit or V_Array; cannot serialize.")
 
+applyToSnd f (a, b) = (a, f b)
 
-vParFromY8 :: ValueTypePixelY8 pix => Int -> Image pix -> [ValueType]
-vParFromY8 par img = (vParallelize par) (vFromY8 img)
+vParFromY8 :: ValueTypePixelY8 pix => Int -> Image pix
+           -> ((Int, Int), [ValueType])
+vParFromY8 par img = (applyToSnd (vParallelize par)) (vFromY8 img)
 
-vParFromRGB8 :: ValueTypePixelRGB8 pix => Int -> Image pix -> [ValueType]
-vParFromRGB8 par img = (vParallelize par) (vFromRGB8 img)
+vParFromRGB8 :: ValueTypePixelRGB8 pix => Int -> Image pix
+             -> ((Int, Int), [ValueType])
+vParFromRGB8 par img = (applyToSnd (vParallelize par)) (vFromRGB8 img)
 
-vParFromRGBA8 :: ValueTypePixelRGBA8 pix => Int -> Image pix -> [ValueType]
-vParFromRGBA8 par img = (vParallelize par) (vFromRGBA8 img)
+vParFromRGBA8 :: ValueTypePixelRGBA8 pix => Int -> Image pix
+              -> ((Int, Int), [ValueType])
+vParFromRGBA8 par img = (applyToSnd (vParallelize par)) (vFromRGBA8 img)
 
-vParReadY8 :: Int -> FilePath -> IO (Either String [ValueType])
+vParReadY8 :: Int -> FilePath -> IO (Either String ((Int, Int), [ValueType]))
 vParReadY8 par path =
   do
     img <- vReadY8 path
-    return $ either Left (Right . vParallelize par) img
+    return $ either Left (Right . applyToSnd (vParallelize par)) img
 
-vParReadRGB8 :: Int -> FilePath -> IO (Either String [ValueType])
+vParReadRGB8 :: Int -> FilePath -> IO (Either String ((Int, Int), [ValueType]))
 vParReadRGB8 par path =
   do
     img <- vReadRGB8 path
-    return $ either Left (Right . vParallelize par) img
+    return $ either Left (Right . applyToSnd (vParallelize par)) img
 
-vParReadRGBA8 :: Int -> FilePath -> IO (Either String [ValueType])
+vParReadRGBA8 :: Int -> FilePath -> IO (Either String ((Int, Int), [ValueType]))
 vParReadRGBA8 par path =
   do
     img <- vReadRGBA8 path
-    return $ either Left (Right . vParallelize par) img
+    return $ either Left (Right . applyToSnd (vParallelize par)) img
 
 
 vParToRGBA8 :: Int -> (Int, Int) -> (Int, Int) -> (Int, Int)
