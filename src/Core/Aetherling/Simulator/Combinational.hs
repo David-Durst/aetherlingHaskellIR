@@ -19,7 +19,7 @@ import Aetherling.Simulator.State
 simhlCombinational :: ([ValueType]->[ValueType]) -> [[ValueType]] -> [[ValueType]]
 simhlCombinational impl inStrs | any null inStrs =
   error "Aetherling internal error: cannot simulate 0-input-stream device."
-simhlCombinational impl inStrs | any (\x -> length x == 1) inStrs =
+simhlCombinational impl inStrs | any (null . tail) inStrs =
   let
     inputsNow = map head inStrs
     outputsNow = impl inputsNow

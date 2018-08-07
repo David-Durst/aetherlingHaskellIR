@@ -268,7 +268,8 @@ manifestoPreprocess lb [Just length] =
     expected_length = pSeqLen $ head $ manifestoInPorts lb
     warning =
       if expected_length == length then Nothing
-      else Just "Stream length not as expected."
+      else Just $ "Stream length (" ++ show length
+                  ++ ") not as expected (" ++ show expected_length ++ ")."
   in
     (warning, [Just $ pSeqLen $ head $ manifestoOutPorts lb])
 manifestoPreprocess _ _ =

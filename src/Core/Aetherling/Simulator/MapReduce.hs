@@ -4,6 +4,7 @@ module Aetherling.Simulator.MapReduce (
     simhlPreMap,
     simhlPreReduce
 ) where
+import Data.List
 import Aetherling.Operations.AST
 import Aetherling.Operations.Types
 import Aetherling.Analysis.PortsAndThroughput
@@ -15,7 +16,7 @@ import Aetherling.Simulator.State
 simhlMap :: Simhl -> Int -> Op -> [[ValueType]] -> SimhlState
          -> ( [[ValueType]], SimhlState )
 simhlMap simhl par theMappedOp inStrs inState =
-    let (_, mapOutputs, endState) = foldl (simhlMapFoldLambda simhl)
+    let (_, mapOutputs, endState) = foldl' (simhlMapFoldLambda simhl)
                                           (theMappedOp, [], inState)
                                           (simhlSplitMapInputs par inStrs)
     in (simhlJoinMapOutputs par mapOutputs, endState)
@@ -210,7 +211,7 @@ simhlReduceReg simhl par numTokens theReducedOp treeOutStr =
   -- the same order the actual circuit will evaluate the outputs
   -- (past-to-future).
   where reduceList valList =
-          foldl
+          foldl'
           (\x y -> head $ head $ fst $
                    simhl theReducedOp [[x],[y]] (SimhlState 1 [] 0 [])
           )
@@ -244,8 +245,8 @@ simhlPreMap simhlPre opStack@(MapOp par op:_) inStrLens inState
           (newOutStrLens, fOutState)
 
       (outStrLens, newState) =
-        foldl f (replicate (length $ outPorts op) Nothing, inState)
-                (replicate par op)
+        foldl' f (replicate (length $ outPorts op) Nothing, inState)
+                 (replicate par op)
     in
       simhlPreResult opStack outStrLens Nothing newState
 simhlPreMap _ _ _ _ = error "Aetherling internal error: expected MapOp"
