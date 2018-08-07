@@ -4,15 +4,17 @@ import Aetherling.Operations.Compose
 import Aetherling.Operations.Types
 
 -- Convolution pipeline implementation.  Takes a kernel (convolution
--- matrix) as [[Int]] (list of rows), a divisor as Int, and image size
--- as (height, width). Since the new line buffer emits some windows
--- with garbage pixels on the edges, the rule for us is that we
--- output garbage on the upper and left margins, with height/width
--- equal to 1 less than the window height/width.
+-- matrix) as an [[Int]] and Int (list of rows and a right shift
+-- count; the weights are the values of the [[Int]] arg divided by
+-- 2^shift), and image size as (height, width). Since the new line
+-- buffer emits some windows with garbage pixels on the edges, the
+-- rule for us is that we output garbage on the upper and left
+-- margins, with height/width equal to 1 less than the window
+-- height/width.
 --
 -- Input and output of the pipeline are both Int streams.
 appsMakeConvolution :: [[Int]] -> Int -> (Int, Int) -> Op
-appsMakeConvolution kernelRows divisor (iY, iX) =
+appsMakeConvolution kernelRows shift (iY, iX) =
   let
     kernelHeight =
       if length kernelRows == 0 then error "Empty kernel"
@@ -40,13 +42,6 @@ appsMakeConvolution kernelRows divisor (iY, iX) =
         |>>=| manifestoLineBuffer (1,1) (kernelHeight, kernelWidth) (iY, iX)
                                   (1,1) (-kernelHeight+1, -kernelWidth+1) T_Int
         |>>=| ArrayReshape [T_Array 1 $ T_Array 1 array2D] [array2D]
-
-    -- Thing that divides by the divisor.
-    -- (This really could be easier to write).
-    divide =
-      (ArrayReshape [T_Int] [T_Array 1 T_Int] |&| Constant_Int [divisor])
-      |>>=| Div (T_Array 1 T_Int)
-      |>>=| ArrayReshape [T_Array 1 T_Int] [T_Int]
   in
     -- Now we just have to apply the kernel in one fell swoop.
     -- Elementwise multiply the windows with the kernel, flatten the
@@ -55,7 +50,7 @@ appsMakeConvolution kernelRows divisor (iY, iX) =
     |>>=| Mul array2D
     |>>=| ArrayReshape [array2D] [T_Array kernelSize T_Int]
     |>>=| ReduceOp kernelSize kernelSize (Add T_Int)
-    |>>=| divide
+    |>>=| Ashr shift T_Int
 
 -- Gaussian Blur pipeline (7 x 7 stencil for given (height, width)
 -- image size. Outputs 6 rows of garbage, then height-6 rows of valid
@@ -72,4 +67,4 @@ appsGaussianBlur7 = appsMakeConvolution
      [2, 52, 430, 872, 430, 52, 2],
      [0, 2, 13, 25, 13, 2, 0]
     ]
-    65536
+    16
