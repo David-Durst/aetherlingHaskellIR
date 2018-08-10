@@ -1,4 +1,6 @@
-module Aetherling.MipMap where
+module Aetherling.MipMap (
+    appsMipMap
+) where
 import Aetherling.Operations.AST
 import Aetherling.Operations.Compose
 import Aetherling.Operations.Types
