@@ -117,8 +117,16 @@ data FailureType =
 
 data ComposeResult = 
   PriorFailure 
-  -- | SeqPortMismatch indicates couldn't do comopse as composeSeq requires 
-  -- all port types and latencies 
+  -- | ReadyValidMismatch indicates that we tried to compose a synchronous op
+  -- with an op that has a ready-valid interface.
+  | ReadyValidMismatch
+  | PortCountMismatch
+  -- | TokenTypeMismatch indicates that we tried to glue two ports of
+  -- different type together.
+  | TokenTypeMismatch PortType PortType
+  -- | SeqPortMismatch indicates couldn't do comopse as composeSeq
+  -- requires all port types and latencies (for reasons besides 2
+  -- above -- I think just throughput mismatches?)
   | SeqPortMismatch {outPortsThroughput :: [PortThroughput],
                      inPortsThroughput :: [PortThroughput]}
   | ComposeSuccess
