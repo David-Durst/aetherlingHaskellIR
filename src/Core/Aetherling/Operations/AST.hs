@@ -88,7 +88,12 @@ data Op =
   -- COMPOSE OPS
   | ComposePar [Op]
   | ComposeSeq [Op]
-  | Failure FailureType 
+  | Failure FailureType
+
+  -- Ready-valid meta-op.
+  -- Wraps the whole op with a ready-valid interface. Connections
+  -- between child ops within the wrapped op are not affected.
+  | ReadyValid Op
   deriving (Eq, Show)
 
 -- | The how to handle boundaries where LineBuffer emits invalid data.
@@ -163,6 +168,7 @@ getChildOps (Underutil _ op) = [op]
 getChildOps (Delay _ op) = [op]
 getChildOps (ComposePar ops) = ops
 getChildOps (ComposeSeq ops) = ops
+getChildOps (ReadyValid op) = [op]
 getChildOps (Failure (ComposeFailure _ (op0, op1))) = [op0, op1]
 getChildOps (Failure _) = []
 
@@ -292,3 +298,6 @@ manifestoLineBuffer pxPerClk window image stride origin token =
     Left message -> error message
     Right lb -> LineBufferManifesto lb
 
+-- Function for wrapping an op in a ready-valid interface.
+readyValid :: Op -> Op
+readyValid op = ReadyValid op

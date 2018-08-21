@@ -47,10 +47,10 @@ inPorts Geq = twoInSimplePorts T_Int
 inPorts (LUT _) = oneInSimplePort T_Int
 
 inPorts (MemRead _) = []
-inPorts (MemWrite t) = [T_Port "I" 1 t 1]
+inPorts (MemWrite t) = [T_Port "I" 1 t 1 False]
 -- since CPS includes both emitting and non-emitting times, and taking in
 -- one input per clock, input sequence length equal to CPS
-inPorts lb@(LineBuffer p _ img t _) = [T_Port "I" (cps lb) parallelType 1]
+inPorts lb@(LineBuffer p _ img t _) = [T_Port "I" (cps lb) parallelType 1 False]
   where
     parallelType = foldr (\pDim innerType -> T_Array pDim innerType) t p
 
@@ -60,7 +60,7 @@ inPorts (Constant_Int _) = []
 inPorts (Constant_Bit _) = []
 
 inPorts (SequenceArrayRepack (inSeq, inWidth) _ inType) =
-  [T_Port "I" inSeq (T_Array inWidth inType) 1]
+  [T_Port "I" inSeq (T_Array inWidth inType) 1 False]
 inPorts (ArrayReshape inTypes _) = renamePorts "I" $ map makePort inTypes
   where makePort t = head $ oneInSimplePort t
 -- for in ports, no duplicates
@@ -72,9 +72,10 @@ inPorts (MapOp par op) = renamePorts "I" $ liftPortsTypes par (inPorts op)
 inPorts (ReduceOp numTokens par op) = renamePorts "I" $ map scaleSeqLen $
   liftPortsTypes par $ portToDuplicate $ inPorts op
   where 
-    scaleSeqLen (T_Port name origSLen tType pct) =
-      T_Port name (origSLen * (numTokens `ceilDiv` par)) tType pct
-    portToDuplicate ((T_Port name sLen tType pct):_) = [T_Port name sLen tType pct]
+    scaleSeqLen (T_Port name origSLen tType pct readyValid) =
+      T_Port name (origSLen * (numTokens `ceilDiv` par)) tType pct readyValid
+    portToDuplicate ((T_Port name sLen tType pct readyValid):_) =
+      [T_Port name sLen tType pct readyValid]
     portToDuplicate [] = []
 
 inPorts (NoOp tTypes) = renamePorts "I" $ map (head . oneInSimplePort) tTypes
@@ -87,6 +88,8 @@ inPorts cPar@(ComposePar ops) = renamePorts "I" $ scalePortsSeqLens
 inPorts (ComposeSeq []) = []
 inPorts cSeq@(ComposeSeq (hd:_)) = renamePorts "I" $
   scalePortsSeqLens (getSeqLenScalingsForAllPorts cSeq [hd] inPorts) (inPorts hd)
+inPorts (ReadyValid op) =
+  [T_Port name seq pt pct True | T_Port name seq pt pct _ <- inPorts op]
 inPorts (Failure _) = []
 
 -- | Compute the out ports of a module.
@@ -120,7 +123,7 @@ outPorts (MemRead t) = oneOutSimplePort t
 outPorts (MemWrite _) = []
 -- go back to (sLen - ((w `ceilDiv` p) - 1)) for out stream length when 
 -- including warmup and shutdown
-outPorts lb@(LineBuffer p w img t _) = [T_Port "O" seqLen parallelStencilType 1]
+outPorts lb@(LineBuffer p w img t _) = [T_Port "O" seqLen parallelStencilType 1 False]
   where
     -- make number of stencials equal to parallelism
     -- first is just one stencil
@@ -133,11 +136,11 @@ outPorts lb@(LineBuffer p w img t _) = [T_Port "O" seqLen parallelStencilType 1]
 
 outPorts (LineBufferManifesto lb) = manifestoOutPorts lb
 
-outPorts (Constant_Int ints) = [T_Port "O" 1 (T_Array (length ints) T_Int) 1]
-outPorts (Constant_Bit bits) = [T_Port "O" 1 (T_Array (length bits) T_Bit) 1]
+outPorts (Constant_Int ints) = [T_Port "O" 1 (T_Array (length ints) T_Int) 1 False]
+outPorts (Constant_Bit bits) = [T_Port "O" 1 (T_Array (length bits) T_Bit) 1 False]
 
 outPorts (SequenceArrayRepack _ (outSeq, outWidth) outType) =
-  [T_Port "O" outSeq (T_Array outWidth outType) 1]
+  [T_Port "O" outSeq (T_Array outWidth outType) 1 False]
 outPorts (ArrayReshape _ outTypes) = renamePorts "O" $ map makePort outTypes
   where makePort t = head $ oneOutSimplePort t
 
@@ -160,18 +163,20 @@ outPorts (ComposeSeq []) = []
 outPorts cSeq@(ComposeSeq ops) = renamePorts "O" $ scalePortsSeqLens
   (getSeqLenScalingsForAllPorts cSeq [lastOp] outPorts) (outPorts lastOp)
   where lastOp = last ops
+outPorts (ReadyValid op) =
+  [T_Port name seq pt pct True | T_Port name seq pt pct _ <- outPorts op]
 outPorts (Failure _) = []
 
 -- | commonly used in port that takes a type t in every with 1 seq len so can be
 -- scaled to anything
-oneInSimplePort t = [T_Port "I" 1 t 1]
+oneInSimplePort t = [T_Port "I" 1 t 1 False]
 -- | commonly used pair of in ports that each take a type t in every with 1 seq
 -- len so can be scaled to anything
-twoInSimplePorts t = [T_Port "I0" 1 t 1,  T_Port "I1" 1 t 1]
+twoInSimplePorts t = [T_Port "I0" 1 t 1 False,  T_Port "I1" 1 t 1 False]
 
 -- | commonly used out port that emits t once, can have seq len scaled any
 -- amount as length is just 1
-oneOutSimplePort t = [T_Port "O" 1 t 1]
+oneOutSimplePort t = [T_Port "O" 1 t 1 False]
 
 -- |Helper function that gets all the in or out ports for a collection ops
 -- This is used by composePar to get all the in or out ports from its children 
@@ -202,8 +207,8 @@ getSeqLenScalingsForAllPorts containerOp ops portGetter = ssScalings
 scalePortsSeqLens :: [Int] -> [PortType] -> [PortType]
 scalePortsSeqLens sLenScalings ports = map updatePort $ zip ports sLenScalings
   where
-    updatePort (T_Port name origSLen tType pct, sLenScaling) = 
-      T_Port name (origSLen * sLenScaling) tType pct
+    updatePort (T_Port name origSLen tType pct readyValid, sLenScaling) = 
+      T_Port name (origSLen * sLenScaling) tType pct readyValid
 
 -- | This is shorthand for clocksPerSequence
 cps op = clocksPerSequence op
@@ -287,6 +292,10 @@ clocksPerSequence (Delay _ op) = cps op
 clocksPerSequence (ComposePar ops) = foldl lcm 1 $ map cps ops
 -- this depends on only wiring up things that have matching throughputs
 clocksPerSequence (ComposeSeq ops) = foldl lcm 1 $ map cps ops
+
+-- For ready-valid, clocksPerSequence is the ideal rate if the op
+-- upstream from here is always valid when we need it.
+clocksPerSequence (ReadyValid op) = clocksPerSequence op
 clocksPerSequence (Failure _) = -1
 
 -- | A helper constant that defines the CPS for a combinational circuit 
@@ -295,7 +304,7 @@ combinationalCPS = 1
 
 -- | Computes the throughput for one port of an op
 portThroughput :: Op -> PortType -> PortThroughput
-portThroughput op (T_Port _ seqLen tType _) =
+portThroughput op (T_Port _ seqLen tType _ _) =
   PortThroughput tType (seqLen % cps op)
 
 -- | Computes the throughput for all of an op's input ports

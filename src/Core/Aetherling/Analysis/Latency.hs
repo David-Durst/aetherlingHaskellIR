@@ -87,6 +87,7 @@ initialLatency (ComposeSeq ops) = bool combinationalInitialLatency sequentialIni
   where 
     combinationalInitialLatency = 1
     sequentialInitialLatency = foldl (+) 0 $ map initialLatency $ filter (not . isComb) ops
+initialLatency (ReadyValid op) = initialLatency op
 initialLatency (Failure _) = 0
 
 -- | Helper variable that defines how many clocks it takes for a register to
@@ -157,7 +158,6 @@ maxCombPath compSeq@(ComposeSeq ops) = max maxSingleOpPath maxMultiOpPath
     -- maxSingleOpPath gets the maximum internal combinational path of all elements
     maxSingleOpPath = maximum $ map maxCombPath ops
     maxMultiOpPath = maximum $ map getCombPathLength $ getMultiOpCombGroupings ops
-
 maxCombPath (Failure _) = 0
 
 -- THESE ARE THE HELPER FUNCTIONS FOR COMPOSESEQ'S maxCombPath

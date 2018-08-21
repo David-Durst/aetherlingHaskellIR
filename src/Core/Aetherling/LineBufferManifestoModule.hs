@@ -3,16 +3,16 @@
 -- incorporated into the main line buffer, but for now this line
 -- buffer's quite experimental so here it is.
 module Aetherling.LineBufferManifestoModule
-  -- (
---   ManifestoData(ManifestoData),
---   manifestoCheckAssumptions,
---   manifestoInPorts,
---   manifestoOutPorts,
---   manifestoCPS,
---   manifestoInitialLatency,
---   manifestoSimulate,
---   manifestoPreprocess
--- )
+  (
+  ManifestoData(ManifestoData),
+  manifestoCheckAssumptions,
+  manifestoInPorts,
+  manifestoOutPorts,
+  manifestoCPS,
+  manifestoInitialLatency,
+  manifestoSimulate,
+  manifestoPreprocess
+)
 where
 import Aetherling.Operations.Types
 import Data.Array
@@ -109,7 +109,7 @@ manifestoInPorts lb =
     if imgY `mod` yPerClk /= 0 || imgX `mod` xPerClk /= 0 then
       error "px/clk width/height must divide image width/height."
     else
-      [T_Port "I" seqLen arrayToken 1]
+      [T_Port "I" seqLen arrayToken 1 False]
 
 manifestoOutPorts :: ManifestoData -> [PortType]
 manifestoOutPorts lb =
@@ -134,7 +134,7 @@ manifestoOutPorts lb =
     else if xPerClk `mod` strideArea /= 0 && strideArea `mod` xPerClk /= 0 then
       error "Window throughput must be integer (or reciprocal of integer)."
     else
-      [T_Port "O" seqLen arrayToken 1]
+      [T_Port "O" seqLen arrayToken 1 False]
 
 manifestoCPS :: ManifestoData -> Int
 manifestoCPS lb =
@@ -203,7 +203,7 @@ manifestoSimulate lb [inStr] =
     (windowY, windowX) = lbWindow lb
     (strideY, strideX) = lbStride lb
     (imgY, imgX) = lbImage lb
-    
+
     -- We'll simulate it just by filling up an entire array with pixels
     -- from the input, then carve up the array into outputs.
     -- Remember that everything's y, x so it's lexicographical order!
