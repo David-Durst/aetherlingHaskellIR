@@ -47,10 +47,10 @@ appsMakeConvolution kernelRows shift (iY, iX) =
     -- Elementwise multiply the windows with the kernel, flatten the
     -- products, add them all, and divide by the divisor.
     (windows |&| kernel)
-    |>>=| Mul array2D
+    |>>=| mulI array2D
     |>>=| ArrayReshape [array2D] [T_Array kernelSize T_Int]
-    |>>=| ReduceOp kernelSize kernelSize (Add T_Int)
-    |>>=| Ashr shift T_Int
+    |>>=| ReduceOp kernelSize kernelSize Add
+    |>>=| Ashr shift
 
 -- Gaussian Blur pipeline (7 x 7 stencil for given (height, width)
 -- image size. Outputs 6 rows of garbage, then height-6 rows of valid

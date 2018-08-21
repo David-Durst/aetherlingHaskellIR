@@ -1,7 +1,9 @@
 module Aetherling.Simulator.Combinational (
     simhlCombinational,
-    simhlBinaryOp,
-    simhlUnaryOp,
+    simhlBinaryIntOp,
+    simhlBinaryBitOp,
+    simhlUnaryIntOp,
+    simhlUnaryBitOp,
     simhlIntCmpOp,
     simhlPreCombinational
 ) where
@@ -35,29 +37,37 @@ simhlCombinational impl inStrs =
     [outputNow:outputLater
     |(outputNow, outputLater) <- zip outputsNow outputsLater]
 
--- | Given implementations for Ints and Bools, create a [ValueType] ->
--- [ValueType] function suitable for simhlCombinational.
-simhlBinaryOp :: (Int -> Int -> Int) -> (Bool -> Bool -> Bool)
-                  -> [ValueType] -> [ValueType]
-simhlBinaryOp intImpl bitImpl [V_Unit, _] = [V_Unit]
-simhlBinaryOp intImpl bitImpl [_, V_Unit] = [V_Unit]
-simhlBinaryOp intImpl bitImpl [V_Int x, V_Int y] = [V_Int $ intImpl x y]
-simhlBinaryOp intImpl bitImpl [V_Bit x, V_Bit y] = [V_Bit $ bitImpl x y]
-simhlBinaryOp intImpl bitImpl [V_Array xs, V_Array ys] =
-    [V_Array $ concat [simhlBinaryOp intImpl bitImpl [x, y]
-    | (x, y) <- zip xs ys]]
-simhlBinaryOp _ _ _ = error "Aetherling internal error: binary op no match"
+-- | Given an Int -> Int -> Int implementation function, create a
+-- [ValueType] -> [ValueType] function suitable for
+-- simhlCombinational.
+simhlBinaryIntOp :: (Int -> Int -> Int) -> [ValueType] -> [ValueType]
+simhlBinaryIntOp intImpl [V_Unit, _] = [V_Unit]
+simhlBinaryIntOp intImpl [_, V_Unit] = [V_Unit]
+simhlBinaryIntOp intImpl [V_Int x, V_Int y] = [V_Int $ intImpl x y]
+simhlBinaryIntOp _ _ = error "Aetherling internal error: binary op no match"
 
--- | Given implementations for Ints and Bools, create a [ValueType] ->
--- [ValueType] function suitable for simhlCombinational.
-simhlUnaryOp :: (Int -> Int) -> (Bool -> Bool)
-                -> [ValueType] -> [ValueType]
-simhlUnaryOp intImpl bitImpl [V_Unit] = [V_Unit]
-simhlUnaryOp intImpl bitImpl [V_Int x] = [V_Int $ intImpl x]
-simhlUnaryOp intImpl bitImpl [V_Bit x] = [V_Bit $ bitImpl x]
-simhlUnaryOp intImpl bitImpl [V_Array xs] =
-    [V_Array $ concat [simhlUnaryOp intImpl bitImpl [x] | x <- xs]]
-simhlUnaryOp _ _ _ = error "Aetherling internal error: unary op no match"
+-- | Given a Bool -> Bool -> Bool implementation function, create a
+-- [ValueType] -> [ValueType] function suitable for
+-- simhlCombinational.
+simhlBinaryBitOp :: (Bool -> Bool -> Bool) -> [ValueType] -> [ValueType]
+simhlBinaryBitOp bitImpl [V_Unit, _] = [V_Unit]
+simhlBinaryBitOp bitImpl [_, V_Unit] = [V_Unit]
+simhlBinaryBitOp bitImpl [V_Bit x, V_Bit y] = [V_Bit $ bitImpl x y]
+simhlBinaryBitOp _ _ = error "Aetherling internal error: binary op no match"
+
+-- | Given an Int -> Int implementation function, create a
+--[ValueType] -> [ValueType] function suitable for simhlCombinational.
+simhlUnaryIntOp :: (Int -> Int) -> [ValueType] -> [ValueType]
+simhlUnaryIntOp intImpl [V_Unit] = [V_Unit]
+simhlUnaryIntOp intImpl [V_Int x] = [V_Int $ intImpl x]
+simhlUnaryIntOp _ _ = error "Aetherling internal error: unary op no match"
+
+-- | Given a Bool -> Bool implementation function, create a
+--[ValueType] -> [ValueType] function suitable for simhlCombinational.
+simhlUnaryBitOp :: (Bool -> Bool) -> [ValueType] -> [ValueType]
+simhlUnaryBitOp bitImpl [V_Unit] = [V_Unit]
+simhlUnaryBitOp bitImpl [V_Bit x] = [V_Bit $ bitImpl x]
+simhlUnaryBitOp _ _ = error "Aetherling internal error: unary op no match"
 
 -- | Given an (Int -> Int -> Bool) implementation function,
 -- create a [ValueType] -> [ValueType] function suitable for simhlCombinational.

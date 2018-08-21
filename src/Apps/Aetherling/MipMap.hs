@@ -37,7 +37,7 @@ mipMapBoxed t dimLog2 speedLog2
     Underutil (2^(-speedLog2)) $
       ArrayReshape [T_Array 1 (T_Array 1 t)] [T_Array 1 t]
       |>>=| MemWrite (T_Array 1 t)
-  | dimLog2 >= 1 = mipMapLevel t dimLog2 speedLog2
+  | otherwise = mipMapLevel t dimLog2 speedLog2
           |>>=| mipMapBoxed t (dimLog2-1) (speedLog2-2)
 
 -- Generate one level of the MipMap pyramid. Writes results to both
@@ -62,8 +62,8 @@ mipMapLevel t dimLog2 speedLog2 =
 
     -- Module that averages 2x2 pixels to 1 int.
     average2x2 = ArrayReshape [T_Array 2 (T_Array 2 t)] [T_Array 4 t]
-           |>>=| ReduceOp 4 4 (Add t)
-           |>>=| Ashr 2 t -- Better rounding would be nice.
+           |>>=| ReduceOp 4 4 (addI t)
+           |>>=| ashr 2 t -- Better rounding would be nice.
 
     -- Downstream of the line buffer, we're slowed by 4x due to the
     -- strides.  We have to map/underutil the 4x4 averager and the

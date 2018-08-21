@@ -136,20 +136,24 @@ simulateHighLevel' op portInputs memoryInputs =
 -- Output is a tuple of [[ValueType]] and SimhlState, which is how the memory
 -- state changes explained above are carried on through the recursion.
 simhl :: Op -> [[ValueType]] -> SimhlState -> ([[ValueType]], SimhlState)
-simhl (Add t) inStrs state = (simhlCombinational simhlAdd inStrs, state)
-simhl (Sub t) inStrs state = (simhlCombinational simhlSub inStrs, state)
-simhl (Mul t) inStrs state = (simhlCombinational simhlMul inStrs, state)
-simhl (Div t) inStrs state = (simhlCombinational simhlDiv inStrs, state)
-simhl (Max t) inStrs state = (simhlCombinational simhlMax inStrs, state)
-simhl (Min t) inStrs state = (simhlCombinational simhlMin inStrs, state)
-simhl (Ashr c t) inStrs state = (simhlCombinational (simhlAshr c) inStrs, state)
-simhl (Shl c t) inStrs state = (simhlCombinational (simhlShl c) inStrs, state)
-simhl (Abs t) inStrs state = (simhlCombinational simhlAbs inStrs, state)
+simhl Add inStrs state = (simhlCombinational simhlAdd inStrs, state)
+simhl Sub inStrs state = (simhlCombinational simhlSub inStrs, state)
+simhl Mul inStrs state = (simhlCombinational simhlMul inStrs, state)
+simhl Div inStrs state = (simhlCombinational simhlDiv inStrs, state)
+simhl Max inStrs state = (simhlCombinational simhlMax inStrs, state)
+simhl Min inStrs state = (simhlCombinational simhlMin inStrs, state)
+simhl (Ashr c) inStrs state = (simhlCombinational (simhlAshr c) inStrs, state)
+simhl (Shl c) inStrs state = (simhlCombinational (simhlShl c) inStrs, state)
+simhl Abs inStrs state = (simhlCombinational simhlAbs inStrs, state)
 
-simhl (Not t) inStrs state = (simhlCombinational simhlNot inStrs, state)
-simhl (And t) inStrs state = (simhlCombinational simhlAnd inStrs, state)
-simhl (Or t) inStrs state = (simhlCombinational simhlOr inStrs, state)
-simhl (XOr t) inStrs state = (simhlCombinational simhlXOr inStrs, state)
+simhl Not inStrs state = (simhlCombinational simhlNot inStrs, state)
+simhl NotInt inStrs state = (simhlCombinational simhlNotInt inStrs, state)
+simhl Or inStrs state = (simhlCombinational simhlOr inStrs, state)
+simhl OrInt inStrs state = (simhlCombinational simhlOrInt inStrs, state)
+simhl And inStrs state = (simhlCombinational simhlAnd inStrs, state)
+simhl AndInt inStrs state = (simhlCombinational simhlAndInt inStrs, state)
+simhl XOr inStrs state = (simhlCombinational simhlXOr inStrs, state)
+simhl XOrInt inStrs state = (simhlCombinational simhlXOrInt inStrs, state)
 
 simhl Eq inStrs state = (simhlCombinational simhlEq inStrs, state)
 simhl Neq inStrs state = (simhlCombinational simhlNeq inStrs, state)
@@ -225,31 +229,39 @@ simhl (Failure _) _ _ =
 simhlPre :: [Op] -> [Maybe Int] -> SimhlPreState
          -> ([Maybe Int], SimhlPreState)
 simhlPre [] _ _ = error "Aetherling internal error: simhlPre empty opStack."
-simhlPre opStack@(Add t:_) inStrLens inState =
+simhlPre opStack@(Add:_) inStrLens inState =
     simhlPreCombinational opStack inStrLens inState
-simhlPre opStack@(Sub t:_) inStrLens inState =
+simhlPre opStack@(Sub:_) inStrLens inState =
     simhlPreCombinational opStack inStrLens inState
-simhlPre opStack@(Mul t:_) inStrLens inState =
+simhlPre opStack@(Mul:_) inStrLens inState =
     simhlPreCombinational opStack inStrLens inState
-simhlPre opStack@(Div t:_) inStrLens inState =
+simhlPre opStack@(Div:_) inStrLens inState =
     simhlPreCombinational opStack inStrLens inState
-simhlPre opStack@(Max t:_) inStrLens inState =
+simhlPre opStack@(Max:_) inStrLens inState =
     simhlPreCombinational opStack inStrLens inState
-simhlPre opStack@(Min t:_) inStrLens inState =
+simhlPre opStack@(Min:_) inStrLens inState =
     simhlPreCombinational opStack inStrLens inState
-simhlPre opStack@(Ashr c t:_) inStrLens inState =
+simhlPre opStack@(Ashr c:_) inStrLens inState =
     simhlPreCombinational opStack inStrLens inState
-simhlPre opStack@(Shl c t:_) inStrLens inState =
+simhlPre opStack@(Shl c:_) inStrLens inState =
     simhlPreCombinational opStack inStrLens inState
-simhlPre opStack@(Abs t:_) inStrLens inState =
+simhlPre opStack@(Abs:_) inStrLens inState =
     simhlPreCombinational opStack inStrLens inState
-simhlPre opStack@(Not t:_) inStrLens inState =
+simhlPre opStack@(Not:_) inStrLens inState =
     simhlPreCombinational opStack inStrLens inState
-simhlPre opStack@(And t:_) inStrLens inState =
+simhlPre opStack@(NotInt:_) inStrLens inState =
     simhlPreCombinational opStack inStrLens inState
-simhlPre opStack@(Or t:_) inStrLens inState =
+simhlPre opStack@(And:_) inStrLens inState =
     simhlPreCombinational opStack inStrLens inState
-simhlPre opStack@(XOr t:_) inStrLens inState =
+simhlPre opStack@(AndInt:_) inStrLens inState =
+    simhlPreCombinational opStack inStrLens inState
+simhlPre opStack@(Or:_) inStrLens inState =
+    simhlPreCombinational opStack inStrLens inState
+simhlPre opStack@(OrInt:_) inStrLens inState =
+    simhlPreCombinational opStack inStrLens inState
+simhlPre opStack@(XOr:_) inStrLens inState =
+    simhlPreCombinational opStack inStrLens inState
+simhlPre opStack@(XOrInt:_) inStrLens inState =
     simhlPreCombinational opStack inStrLens inState
 simhlPre opStack@(Eq:_) inStrLens inState =
     simhlPreCombinational opStack inStrLens inState

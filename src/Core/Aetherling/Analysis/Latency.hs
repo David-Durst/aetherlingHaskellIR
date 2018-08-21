@@ -23,19 +23,23 @@ import Aetherling.LineBufferManifestoModule
 -- Due to this issue, can't add initial latencies to get the latency of a
 -- pipeline. See maxCombPath for how to determine latency
 initialLatency :: Op -> Int
-initialLatency (Add t) = 1
-initialLatency (Sub t) = 1
-initialLatency (Mul t) = 1
-initialLatency (Div t) = 1
-initialLatency (Max t) = 1
-initialLatency (Min t) = 1
-initialLatency (Ashr _ t) = 1
-initialLatency (Shl _ t) = 1
-initialLatency (Abs t) = 1
-initialLatency (Not t) = 1
-initialLatency (And t) = 1
-initialLatency (Or t) = 1
-initialLatency (XOr t) = 1
+initialLatency Add = 1
+initialLatency Sub = 1
+initialLatency Mul = 1
+initialLatency Div = 1
+initialLatency Max = 1
+initialLatency Min = 1
+initialLatency (Ashr _) = 1
+initialLatency (Shl _) = 1
+initialLatency Abs = 1
+initialLatency Not = 1
+initialLatency NotInt = 1
+initialLatency And = 1
+initialLatency AndInt = 1
+initialLatency Or = 1
+initialLatency OrInt = 1
+initialLatency XOr = 1
+initialLatency XOrInt = 1
 initialLatency Eq = 1
 initialLatency Neq = 1
 initialLatency Lt = 1
@@ -97,19 +101,23 @@ registerInitialLatency = 1
 -- The approximation determines when composing modules if the longest path
 -- is inside a module or is a connection between multiple modules.
 maxCombPath :: Op -> Int
-maxCombPath (Add t) = 1
-maxCombPath (Sub t) = 1
-maxCombPath (Mul t) = 1
-maxCombPath (Div t) = 1
-maxCombPath (Max t) = 1
-maxCombPath (Min t) = 1
-maxCombPath (Ashr _ t) = 1
-maxCombPath (Shl _ t) = 1
-maxCombPath (Abs t) = 1
-maxCombPath (Not t) = 1
-maxCombPath (And t) = 1
-maxCombPath (Or t) = 1
-maxCombPath (XOr t) = 1
+maxCombPath Add = 1
+maxCombPath Sub = 1
+maxCombPath Mul = 1
+maxCombPath Div = 1
+maxCombPath Max = 1
+maxCombPath Min= 1
+maxCombPath (Ashr _) = 1
+maxCombPath (Shl _) = 1
+maxCombPath Abs = 1
+maxCombPath Not = 1
+maxCombPath NotInt = 1
+maxCombPath And = 1
+maxCombPath AndInt = 1
+maxCombPath Or = 1
+maxCombPath OrInt = 1
+maxCombPath XOr = 1
+maxCombPath XOrInt = 1
 maxCombPath Eq = 1
 maxCombPath Neq = 1
 maxCombPath Lt = 1

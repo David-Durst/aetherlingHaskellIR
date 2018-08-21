@@ -12,19 +12,23 @@ import Aetherling.LineBufferManifestoModule
 -- | The operations that can be used to create dataflow DAGs in Aetherling
 data Op =
   -- LEAF OPS
-  Add TokenType
-  | Sub TokenType
-  | Mul TokenType
-  | Div TokenType
-  | Max TokenType
-  | Min TokenType
-  | Ashr Int TokenType
-  | Shl Int TokenType
-  | Abs TokenType
-  | Not TokenType
-  | And TokenType
-  | Or TokenType
-  | XOr TokenType
+  Add
+  | Sub
+  | Mul
+  | Div
+  | Max
+  | Min
+  | Ashr Int
+  | Shl Int
+  | Abs
+  | Not
+  | NotInt
+  | And
+  | AndInt
+  | Or
+  | OrInt
+  | XOr
+  | XOrInt
   | Eq
   | Neq
   | Lt
@@ -119,19 +123,23 @@ data ComposeResult =
 -- get the ops contained inside other ops, for going down ComposeFailure trees
 getChildOp n op = getChildOps op !! n
 getChildOps :: Op -> [Op]
-getChildOps (Add _) = []
-getChildOps (Sub _) = []
-getChildOps (Mul _) = []
-getChildOps (Div _) = []
-getChildOps (Max _) = []
-getChildOps (Min _) = []
-getChildOps (Ashr _ _) = []
-getChildOps (Shl  _ _) = []
-getChildOps (Abs _) = []
-getChildOps (Not _) = []
-getChildOps (And _) = []
-getChildOps (Or _) = []
-getChildOps (XOr _) = []
+getChildOps (Add) = []
+getChildOps (Sub) = []
+getChildOps (Mul) = []
+getChildOps (Div) = []
+getChildOps (Max) = []
+getChildOps (Min) = []
+getChildOps (Ashr _) = []
+getChildOps (Shl _) = []
+getChildOps (Abs) = []
+getChildOps (Not) = []
+getChildOps (NotInt) = []
+getChildOps (And) = []
+getChildOps (AndInt) = []
+getChildOps (Or) = []
+getChildOps (OrInt) = []
+getChildOps (XOr) = []
+getChildOps (XOrInt) = []
 getChildOps (Eq) = []
 getChildOps (Neq) = []
 getChildOps (Lt) = []
@@ -168,6 +176,111 @@ hasChildWithError op = (<) 0 $ length $
 getFirstError op | hasChildWithError op = head $ map getFirstError $ getChildOps op
 getFirstError op | isFailure op = op
 getFirstError op = op
+
+-- Convenience functions for creating Ops or simple patterns of Ops.
+-- Later, split up into seperate files.
+
+-- SIMD arithmetic operators, pass an array type to automatically map the
+-- operator to operate on specified array.
+addInts :: TokenType -> Op
+addInts = mapIntAdapter Add
+addI = addInts
+
+subInts :: TokenType -> Op
+subInts = mapIntAdapter Sub
+subI = subInts
+
+mulInts :: TokenType -> Op
+mulInts = mapIntAdapter Mul
+mulI = mulInts
+
+divInts :: TokenType -> Op
+divInts = mapIntAdapter Div
+divI = divInts
+
+maxInts :: TokenType -> Op
+maxInts = mapIntAdapter Max
+maxI = maxInts
+
+minInts :: TokenType -> Op
+minInts = mapIntAdapter Min
+minI = minInts
+
+ashr :: Int -> TokenType -> Op
+ashr shift = mapIntAdapter (Ashr shift)
+
+shl :: Int -> TokenType -> Op
+shl shift = mapIntAdapter (Shl shift)
+
+absInts :: TokenType -> Op
+absInts = mapIntAdapter Abs
+absI = absInts
+
+notBits :: TokenType -> Op
+notBits = mapBitAdapter Not
+notB = notBits
+
+notInts :: TokenType -> Op
+notInts = mapIntAdapter NotInt
+notI = notInts
+
+andBits :: TokenType -> Op
+andBits = mapBitAdapter And
+andB = andBits
+
+andInts :: TokenType -> Op
+andInts = mapIntAdapter AndInt
+andI = andInts
+
+orBits :: TokenType -> Op
+orBits = mapBitAdapter Or
+orB = orBits
+
+orInts :: TokenType -> Op
+orInts = mapIntAdapter OrInt
+orI = orInts
+
+xorBits :: TokenType -> Op
+xorBits = mapBitAdapter XOr
+xorB = xorBits
+
+xorInts :: TokenType -> Op
+xorInts = mapIntAdapter XOrInt
+xorI = xorInts
+
+eq :: TokenType -> Op
+eq = mapIntAdapter Eq
+
+neq :: TokenType -> Op
+neq = mapIntAdapter Neq
+
+lt :: TokenType -> Op
+lt = mapIntAdapter Lt
+
+gt :: TokenType -> Op
+gt = mapIntAdapter Gt
+
+leq :: TokenType -> Op
+leq = mapIntAdapter Leq
+
+geq :: TokenType -> Op
+geq = mapIntAdapter Geq
+
+-- LUT creation function. Pass in the (0-indexed) lookup table.
+lut :: [Int] -> Op
+lut table = LUT table
+
+mapIntAdapter :: Op -> TokenType -> Op
+mapIntAdapter rawOp T_Int = rawOp
+mapIntAdapter rawOp (T_Array n t) = MapOp n (mapIntAdapter rawOp t)
+mapIntAdapter rawOp t =
+  error (show rawOp ++ " does not accept " ++ show t ++ " input.")
+
+mapBitAdapter :: Op -> TokenType -> Op
+mapBitAdapter rawOp T_Bit = rawOp
+mapBitAdapter rawOp (T_Array n t) = MapOp n (mapIntAdapter rawOp t)
+mapBitAdapter rawOp t =
+  error (show rawOp ++ " does not accept " ++ show t ++ " input.")
 
 -- Function for making a line buffer (based on The Line Buffer Manifesto).
 manifestoLineBuffer :: (Int, Int) -> (Int, Int) -> (Int, Int)

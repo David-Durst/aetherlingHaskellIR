@@ -7,15 +7,15 @@ import Aetherling.Analysis.PortsAndThroughput
 import Aetherling.Analysis.Space
 import Text.Pretty.Simple (pPrint)
 
-combinationalAdd = Add T_Int
+combinationalAdd = Add
 
-reduce44 = ReduceOp 4 4 (Add T_Int)
+reduce44 = ReduceOp 4 4 Add
 
-reduce44Retimed = Delay 2 $ ReduceOp 4 4 (Add T_Int)
+reduce44Retimed = Delay 2 $ ReduceOp 4 4 Add
 
-reduce41 = ReduceOp 4 1 (Add T_Int)
+reduce41 = ReduceOp 4 1 Add
 
-map4 = MapOp 4 (Add T_Int)
+map4 = MapOp 4 Add
 
 lb13 = LineBuffer [1] [3] [300] T_Int Crop
 
@@ -42,7 +42,7 @@ constantSpaceTimeReshape =
   SequenceArrayRepack (1, 3) (3, 1) T_Int |>>=|
   ArrayReshape [T_Array 1 T_Int] [T_Int]
 
-duplicateAdd = DuplicateOutputs 3 (Add T_Int)
+duplicateAdd = DuplicateOutputs 3 Add
 
 conv1PxPerClock = 
   (
@@ -54,8 +54,8 @@ conv1PxPerClock =
     ) |&|
     Constant_Int [1, 1, 1]
   ) |>>=|
-  MapOp 3 (Add T_Int) |>>=|
-  ReduceOp 3 3 (Add T_Int) |>>=|
+  addInts (T_Array 3 T_Int) |>>=|
+  ReduceOp 3 3 Add |>>=|
   MemWrite T_Int
 
 describeMethod name op = do

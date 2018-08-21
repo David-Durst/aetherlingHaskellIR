@@ -9,9 +9,13 @@ module Aetherling.Simulator.Arithmetic (
     simhlShl,
     simhlAbs,
     simhlNot,
+    simhlNotInt,
     simhlAnd,
+    simhlAndInt,
     simhlOr,
+    simhlOrInt,
     simhlXOr,
+    simhlXOrInt,
     simhlEq,
     simhlNeq,
     simhlLt,
@@ -30,43 +34,55 @@ import Aetherling.Simulator.Combinational
 -- list of one clock cycle's inputs (N in ports = N-list input) and
 -- produce a list of one clock cycle's outputs.
 simhlAdd :: [ValueType] -> [ValueType]
-simhlAdd = simhlBinaryOp (\x y -> x+y) xor
+simhlAdd = simhlBinaryIntOp (+)
 
 simhlSub :: [ValueType] -> [ValueType]
-simhlSub = simhlBinaryOp (\x y -> x-y) xor
+simhlSub = simhlBinaryIntOp (-)
 
 simhlMul :: [ValueType] -> [ValueType]
-simhlMul = simhlBinaryOp (\x y -> x*y) (\x y -> x && y)
+simhlMul = simhlBinaryIntOp (*)
 
 simhlDiv :: [ValueType] -> [ValueType]
-simhlDiv = simhlBinaryOp div (\x y -> x && y) -- XXX bit division???
+simhlDiv = simhlBinaryIntOp div
 
 simhlMax :: [ValueType] -> [ValueType]
-simhlMax = simhlBinaryOp max max
+simhlMax = simhlBinaryIntOp max
 
 simhlMin :: [ValueType] -> [ValueType]
-simhlMin = simhlBinaryOp min min
+simhlMin = simhlBinaryIntOp min
 
 simhlAshr :: Int -> [ValueType] -> [ValueType]
-simhlAshr c = simhlUnaryOp (\x -> div x (2^c)) (\x -> x) -- XXX bit shift???
+simhlAshr c = simhlUnaryIntOp (\x -> div x (2^c))
 
 simhlShl :: Int -> [ValueType] -> [ValueType]
-simhlShl c = simhlUnaryOp (\x -> x * (2^c)) (\x -> x && (c /= 0))
+simhlShl c = simhlUnaryIntOp (* (2^c))
 
 simhlAbs :: [ValueType] -> [ValueType]
-simhlAbs = simhlUnaryOp abs (\x -> x)
+simhlAbs = simhlUnaryIntOp abs
 
 simhlNot :: [ValueType] -> [ValueType]
-simhlNot = simhlUnaryOp complement not
+simhlNot = simhlUnaryBitOp not
+
+simhlNotInt :: [ValueType] -> [ValueType]
+simhlNotInt = simhlUnaryIntOp complement
 
 simhlAnd :: [ValueType] -> [ValueType]
-simhlAnd = simhlBinaryOp (.&.) (&&)
+simhlAnd = simhlBinaryBitOp (&&)
+
+simhlAndInt :: [ValueType] -> [ValueType]
+simhlAndInt = simhlBinaryIntOp (.&.)
 
 simhlOr :: [ValueType] -> [ValueType]
-simhlOr = simhlBinaryOp (.|.) (||)
+simhlOr = simhlBinaryBitOp (||)
+
+simhlOrInt :: [ValueType] -> [ValueType]
+simhlOrInt = simhlBinaryIntOp (.|.)
 
 simhlXOr :: [ValueType] -> [ValueType]
-simhlXOr = simhlBinaryOp xor xor
+simhlXOr = simhlBinaryBitOp xor
+
+simhlXOrInt :: [ValueType] -> [ValueType]
+simhlXOrInt = simhlBinaryIntOp xor
 
 simhlEq :: [ValueType] -> [ValueType]
 simhlEq = simhlIntCmpOp (==)
