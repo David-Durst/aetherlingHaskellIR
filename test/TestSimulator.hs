@@ -21,13 +21,6 @@ import Test.Tasty.HUnit
 -- operator. I'm a little confused about what it's really supposed to
 -- do, since ints were all unsigned last I heard.
 
-
--- HACK We don't have a "no-op" operator yet, but we do have array
--- reshape so we can simulate no-op with an array reshape that doesn't
--- actually reshape anything.
-simhlNoOp :: [TokenType] -> Op
-simhlNoOp tokens = ArrayReshape tokens tokens
-
 -- Also some shorthand to create an op that boxes to/unboxes from 1-arrays.
 simhlBox :: TokenType -> Op
 simhlBox t = ArrayReshape [t] [T_Array 1 t]
@@ -144,7 +137,7 @@ simhlMakeTestCases inRand (thisCase:cases) =
 -- comprehesions for dealing with the full sequence of input values.
 -- Later, I'll re-use simhlCombinational to automatically deal with it.
 -- If this test case passes, then simhlCombinational is trustworthy.
-vec4SubTimes8Op = MapOp 4 ((Sub T_Int) |>>=| (Shl 3 T_Int))
+vec4SubTimes8Op = MapOp 4 (Sub |>>=| (Shl 3))
 vec4SubTimes8Impl :: [[ValueType]] -> [[ValueType]]
                   -> ( [[ValueType]], [[ValueType]] )
 vec4SubTimes8Impl inSeqs _ =
@@ -195,12 +188,13 @@ simhlCombinational2 impl inStrs =
     |(outputNow, outputLater) <- zip outputsNow outputsLater]
 
 
--- ((a xor b) / (c|100)) >> 5
+-- (a xor b) / (c|100)
+or100 = (NoOp [T_Int] |&|
+         (Constant_Int [100] |>>=| ArrayReshape [T_Array 1 T_Int] [T_Int])
+        )
+        |>>=| OrInt
 simhlCase1Op =
-  (XOr T_Int |&| simhlNoOp [T_Int] |&| Constant_Int [100]) |>>=|
-  (ArrayReshape [T_Int, T_Int, T_Array 1 T_Int] [T_Int, T_Int, T_Int]) |>>=|
-  (simhlNoOp [T_Int] |&| Or T_Int) |>>=|
-  (Div T_Int)
+  (XOrInt |&| or100) |>>=| Div
 simhlCase1Combinational :: [ValueType] -> [ValueType]
 simhlCase1Combinational [V_Int a, V_Int b, V_Int c] =
   [V_Int ((a `xor` b) `div` (c .|. 100))]
@@ -214,9 +208,9 @@ simhlCase1 = SimhlTestCase
 
 -- Check if both entries of input array have the same parity
 simhlParityMatchOp =
-  (simhlNoOp [T_Int] |&| Constant_Int [1, 1] |&| simhlNoOp [T_Int]) |>>=|
+  (NoOp [T_Int] |&| Constant_Int [1, 1] |&| NoOp [T_Int]) |>>=|
   (ArrayReshape [T_Int, T_Array 2 T_Int, T_Int] [T_Int, T_Int, T_Int, T_Int]) |>>=|
-  (And T_Int |&| And T_Int) |>>=|
+  (AndInt |&| AndInt) |>>=|
   Eq
 simhlParityMatchCombinational :: [ValueType] -> [ValueType]
 simhlParityMatchCombinational [V_Int a, V_Int b] =
@@ -232,9 +226,9 @@ simhlCase2 = SimhlTestCase
 -- Check that every entry of a 5-array is even.
 -- This tests the combinational case of ReduceOp (par = numTokens).
 simhlAllEvenOp =
-  (simhlNoOp [T_Array 5 T_Int] |&| Constant_Int [1,1,1,1,1]) |>>=|
-  (And (T_Array 5 T_Int)   |&| Constant_Int [1]) |>>=|
-  (ReduceOp 5 5 (Or T_Int) |&| simhlUnbox T_Int) |>>=|
+  (NoOp [T_Array 5 T_Int] |&| Constant_Int [1,1,1,1,1]) |>>=|
+  (andInts (T_Array 5 T_Int) |&| Constant_Int [1]) |>>=|
+  (ReduceOp 5 5 OrInt |&| simhlUnbox T_Int) |>>=|
   (Neq)
   
 simhlAllEvenCombinational :: [ValueType] -> [ValueType]
@@ -273,9 +267,9 @@ simhlMul7Max15SpaceOp =
   (Underutil 5 (ArrayReshape (replicate 15 T_Int) [T_Array 15 T_Int])) |>>=|
   (SequenceArrayRepack (1, 15) (5, 3) T_Int |&| Underutil 5 (Constant_Int [7]))
   |>>=|
-  (ReduceOp 15 3 (Max T_Int) |&| Underutil 5 (simhlUnbox T_Int))
+  (ReduceOp 15 3 Max |&| Underutil 5 (simhlUnbox T_Int))
   |>>=|
-  Underutil 5 (Mul T_Int)
+  Underutil 5 Mul
 simhlMul7Max15Combinational :: [ValueType] -> [ValueType]
 simhlMul7Max15Combinational inputs = [V_Int $ maximum [7*n | V_Int n <- inputs]]
 simhlCase5 = SimhlTestCase
@@ -290,8 +284,8 @@ simhlCase5 = SimhlTestCase
 -- Same thing, but take 15 inputs sequentially.
 simhlMul7Max15TimeOp =
   (simhlBox T_Int |&| Underutil 15 (Constant_Int [7])) |>>=|
-  (ReduceOp 15 1 (Max T_Int) |&| Underutil 15 (simhlUnbox T_Int)) |>>=|
-  Underutil 15 (Mul T_Int)
+  (ReduceOp 15 1 Max |&| Underutil 15 (simhlUnbox T_Int)) |>>=|
+  Underutil 15 Mul
 simhlMul7Max15TimeImpl :: [[ValueType]] -> [[ValueType]]
                        -> ( [[ValueType]], [[ValueType]] )
 simhlMul7Max15TimeImpl portInputs _ =
@@ -312,7 +306,7 @@ simhlCase6 = SimhlTestCase
 
 -- A is at least 4 times B.
 simhlAtLeast4TimesOp =
-  (Ashr 2 T_Int |&| simhlNoOp [T_Int]) |>>=| Geq
+  (Ashr 2 |&| NoOp [T_Int]) |>>=| Geq
 simhlAtLeast4TimesCombinational :: [ValueType] -> [ValueType]
 simhlAtLeast4TimesCombinational [V_Int a, V_Int b] = [V_Bit (a >= 4*b)]
 simhlAtLeast4TimesCombinational _ = error "Aetherling test internal error: case 7"
@@ -327,24 +321,24 @@ simhlCase7 = SimhlTestCase
 -- Use de-morgan's law to turn this into a test for or, not.
 -- Also add a register just for fun.
 simhlVec7LessThanOp =
-  MapOp 7 Gt |>>=| ReduceOp 7 7 (Or T_Bit) |>>=| Delay 1 (Not T_Bit)
+  geq (T_Array 7 T_Int) |>>=| ReduceOp 7 7 Or |>>=| Delay 1 Not
 simhlVec7LessThanCombinational :: [ValueType] -> [ValueType]
 simhlVec7LessThanCombinational [V_Array xs, V_Array ys] =
-  [V_Bit $ all (\(x,y) -> x < y) $ zip [x | V_Int x <- xs] [y | V_Int y <- ys]]
+  [V_Bit $ all (uncurry (<)) $ zip [x | V_Int x <- xs] [y | V_Int y <- ys]]
 simhlVec7LessThanCombinational _ = error "Aetherling test internal error: case 8"
 simhlCase8 = SimhlTestCase
-  "7-vector 'less than' function. (Tests MapOp, Gt, ReduceOp, Or, Not)"
+  "7-vector 'less than' function. (Tests MapOp, Geq, ReduceOp, Or, Not)"
   simhlVec7LessThanOp
   (simhlCombinationalIgnoreMem simhlVec7LessThanCombinational)
-  125
+  405
   []
 
 -- Read two tapes of input, and output their sums and differences to
 -- memory, and their mins to an output port.
 simhlMemSumDiffMinOp =
   (Delay 1 (DuplicateOutputs 3 (MemRead T_Int |&| MemRead T_Int))) |>>=|
-  (Delay 2 (Add T_Int |&| Sub T_Int |&| Min T_Int)) |>>=|
-  (MemWrite T_Int |&| MemWrite T_Int |&| simhlNoOp [T_Int])
+  (Delay 2 (Add |&| Sub |&| Min)) |>>=|
+  (MemWrite T_Int |&| MemWrite T_Int |&| NoOp [T_Int])
 simhlMemSumDiffMinImpl :: [[ValueType]] -> [[ValueType]]
                        -> ( [[ValueType]], [[ValueType]] )
 simhlMemSumDiffMinImpl _ inTapes | any null inTapes = ([[]], [[],[]])
@@ -373,11 +367,11 @@ simhlStrictlyIncreasingOp =
   SequenceArrayRepack (2,2) (1,4) T_Int |>>=|
   Underutil 2 (
     ArrayReshape [T_Array 4 T_Int] [T_Int, T_Int, T_Int, T_Int] |>>=|
-    (simhlNoOp [T_Int] |&| DuplicateOutputs 2 (simhlNoOp [T_Int])
-    |&| DuplicateOutputs 2 (simhlNoOp [T_Int]) |&| simhlNoOp [T_Int]) |>>=|
+    (NoOp [T_Int] |&| DuplicateOutputs 2 (NoOp [T_Int])
+    |&| DuplicateOutputs 2 (NoOp [T_Int]) |&| NoOp [T_Int]) |>>=|
     (Lt |&| Lt |&| Lt) |>>=|
     ArrayReshape [T_Bit, T_Bit, T_Bit] [T_Array 3 T_Bit] |>>=|
-    ReduceOp 3 3 (And T_Bit)
+    ReduceOp 3 3 And
   )
 simhlStrictlyIncreasingImpl :: [[ValueType]] -> [[ValueType]]
                             -> ( [[ValueType]], [[ValueType]] )
@@ -406,7 +400,7 @@ simhl4LaneCmpOp =
   (ArrayReshape [T_Int, T_Int, T_Int, T_Int] [T_Array 4 T_Int]
   |&| MapOp 4 (MemRead T_Int)) |>>=|
   (MapOp 4 (Leq) |&| Constant_Bit [False, True, False, True]) |>>=|
-  (MapOp 4 (XOr T_Bit |>>=| MemWrite T_Bit))
+  (MapOp 4 (XOr |>>=| MemWrite T_Bit))
 simhl4LaneCmpImpl :: [[ValueType]] -> [[ValueType]]
                   -> ( [[ValueType]], [[ValueType]] )
 simhl4LaneCmpImpl [in0, in1, in2, in3] [mem0, mem1, mem2, mem3] =
@@ -443,7 +437,7 @@ simhlMaxAdjacentOp =
   ArrayReshape [T_Int] [T_Array 1 T_Int] |>>=|
   LineBuffer [1] [2] [100] T_Int Crop |>>=|
   ArrayReshape [T_Array 1 (T_Array 2 T_Int)] [T_Int, T_Int] |>>=|
-  Max T_Int
+  Max
 simhlMaxAdjacentImpl :: [[ValueType]] -> [[ValueType]]
                      -> ( [[ValueType]], [[ValueType]] )
 simhlMaxAdjacentImpl [inStr] _ =
@@ -467,7 +461,8 @@ simhlXOr10Op =
   SequenceArrayRepack (3, 1) (1, 3) T_Bit |>>=|
   Underutil 3 (
       LineBuffer [3] [10] [300] T_Bit Crop |>>=|
-      MapOp 3 (ReduceOp 10 10 (XOr T_Bit))) |>>=|
+      MapOp 3 (ReduceOp 10 10 XOr)
+  ) |>>=|
   SequenceArrayRepack (1, 3) (3, 1) T_Bit |>>=|
   ArrayReshape [T_Array 1 T_Bit] [T_Bit]
 simhlXOr10Impl :: [[ValueType]] -> [[ValueType]]
