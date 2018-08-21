@@ -250,8 +250,7 @@ manifestoSimulate lb [inStr] =
         thisOut:laterOut
   in
     [pack windows]
-
-mainfestoSimulate _ _ = error "Aetherling internal error: expected 1 \
+manifestoSimulate _ _ = error "Aetherling internal error: expected 1 \
   \input stream for line buffer."
 
 
