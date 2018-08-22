@@ -28,6 +28,13 @@ lbChain =
   LineBuffer [1] [3] [300] T_Int Crop |>>=|
   LineBuffer [1] [3] [298] (T_Array 3 T_Int) Crop
 
+lbChainReadyValid =
+  readyValid (
+    Constant_Int [1] |>>=|
+    LineBuffer [1] [3] [300] T_Int Crop
+  ) |>>=|
+  readyValid (LineBuffer [1] [3] [298] (T_Array 3 T_Int) Crop)
+
 -- no support for 2D linebuffers yet
 
 memReadInt = MemRead T_Int

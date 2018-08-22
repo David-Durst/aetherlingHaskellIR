@@ -275,17 +275,17 @@ simhlMul7Max15Combinational inputs = [V_Int $ maximum [7*n | V_Int n <- inputs]]
 simhlCase5 = SimhlTestCase
   "Maximum of 15 integers, multiplied by 7, using a reduce that takes only \
         \3 inputs at a time. \
-        \(Tests ReduceOp, Max, SequenceArrayRepack, Underutil)."
+        \(Tests ReduceOp, Max, SequenceArrayRepack, Underutil)"
   simhlMul7Max15SpaceOp
   (simhlCombinationalIgnoreMem simhlMul7Max15Combinational)
   199
   []
 
--- Same thing, but take 15 inputs sequentially.
+-- Same thing, but take 15 inputs sequentially, and test readyValid here.
 simhlMul7Max15TimeOp =
-  (simhlBox T_Int |&| Underutil 15 (Constant_Int [7])) |>>=|
-  (ReduceOp 15 1 Max |&| Underutil 15 (simhlUnbox T_Int)) |>>=|
-  Underutil 15 Mul
+  readyValid (simhlBox T_Int |&| Underutil 15 (Constant_Int [7])) |>>=|
+  readyValid (ReduceOp 15 1 Max |&| Underutil 15 (simhlUnbox T_Int)) |>>=|
+  readyValid (Underutil 15 Mul)
 simhlMul7Max15TimeImpl :: [[ValueType]] -> [[ValueType]]
                        -> ( [[ValueType]], [[ValueType]] )
 simhlMul7Max15TimeImpl portInputs _ =
@@ -297,8 +297,8 @@ simhlMul7Max15TimeImpl portInputs _ =
   in
     ([doMax $ head portInputs], [])
 simhlCase6 = SimhlTestCase
-  "Similar to the other maximum times 7, but input is sequential. \
-        \(Tests ReduceOp, Max)"
+  "Similar to the other maximum times 7, but input is sequential and using \
+        \ready-valid timing. (Tests ReduceOp, Max, ReadyValid)"
   simhlMul7Max15TimeOp
   simhlMul7Max15TimeImpl
   150
@@ -387,7 +387,7 @@ simhlStrictlyIncreasingImpl _ _ = error "Aetherling test internal error: case 10
 simhlCase10 = SimhlTestCase
   "Read in 4-sequences of ints (2 at a time) and output true for every \
   \sequence that is strictly increasing, false otherwise. (Tests Lt, \
-  \SequenceArrayReshape)."
+  \SequenceArrayReshape)"
   simhlStrictlyIncreasingOp
   simhlStrictlyIncreasingImpl
   403 -- Not divisible by 2 on purpose -- should truncate extra input.
@@ -401,6 +401,7 @@ simhl4LaneCmpOp =
   |&| MapOp 4 (MemRead T_Int)) |>>=|
   (MapOp 4 (Leq) |&| Constant_Bit [False, True, False, True]) |>>=|
   (MapOp 4 (XOr |>>=| MemWrite T_Bit))
+
 simhl4LaneCmpImpl :: [[ValueType]] -> [[ValueType]]
                   -> ( [[ValueType]], [[ValueType]] )
 simhl4LaneCmpImpl [in0, in1, in2, in3] [mem0, mem1, mem2, mem3] =
@@ -426,7 +427,7 @@ simhl4LaneCmpImpl _ _ = error "Aetherling test internal error: case 11"
 simhlCase11 = SimhlTestCase
   "Read from 4 ports and 4 memory tapes. Output 4 comparison results \
   \to 4 output memory tapes (lanes 0 & 2: <=, 1 & 3, >). \
-  \(Tests MemRead, MemWrite, Constant_Bit, Leq)."
+  \(Tests MemRead, MemWrite, Constant_Bit, Leq)"
   simhl4LaneCmpOp
   simhl4LaneCmpImpl
   280
@@ -448,7 +449,7 @@ simhlMaxAdjacentImpl [inStr] _ =
 simhlMaxAdjacentImpl _ _ = error "Aetherling test internal error: case 12"
 simhlCase12 = SimhlTestCase
   "Use a 1D line buffer to output the maximum of adjacent inputs (adjacent \
-  \in time). (Tests LineBuffer, ArrayReshape, Max)."
+  \in time). (Tests LineBuffer, ArrayReshape, Max)"
   simhlMaxAdjacentOp
   simhlMaxAdjacentImpl
   100
