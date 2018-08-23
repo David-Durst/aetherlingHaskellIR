@@ -1,5 +1,6 @@
 module TestSimulator where
 import Aetherling.Operations.AST
+import Aetherling.Operations.Ops
 import Aetherling.Operations.Compose
 import Aetherling.Operations.Types
 import Aetherling.Analysis.Metrics

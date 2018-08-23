@@ -87,10 +87,10 @@ data Op =
   -- outputs on A out of B cycles. A/B must be in (0,1], and A/B *
   -- clocks-per-sequence of utilOp must still be an integer.  I
   -- recommend against constructing this op manually; use the helper
-  -- functions. "Logical" is meant to emphasize our viewpoint that
+  -- functions. "Logical" is meant to emphasize my viewpoint that
   -- this changes our interpretation of an op's outputs, and
   -- LogicalUtil may not have any physical effect on the actual
-  -- hardware.
+  -- hardware (space function does not reflect this view).
   | LogicalUtil {utilRatio :: Ratio Int, utilOp :: Op}
   | Delay {delayClocks :: Int, delayedOp :: Op}
 
@@ -122,6 +122,9 @@ data BoundaryConditions =
 data FailureType =
   ComposeFailure ComposeResult (Op, Op)
   | InvalidThroughputModification {attemptedMult :: Int, actualMult :: Int}
+  -- | UtilFailure indicates that the util ratio wasn't appropriate for
+  -- the op being underutilized.
+  | UtilFailure String
   deriving (Eq, Show)
 
 data ComposeResult = 
@@ -200,136 +203,3 @@ getFirstError op | hasChildWithError op = head $ map getFirstError $ getChildOps
 getFirstError op | isFailure op = op
 getFirstError op = op
 
--- Convenience functions for creating Ops or simple patterns of Ops.
--- Later, split up into seperate files.
-
--- SIMD arithmetic operators, pass an array type to automatically map the
--- operator to operate on specified array.
-addInts :: TokenType -> Op
-addInts = mapIntAdapter Add
-addI = addInts
-
-subInts :: TokenType -> Op
-subInts = mapIntAdapter Sub
-subI = subInts
-
-mulInts :: TokenType -> Op
-mulInts = mapIntAdapter Mul
-mulI = mulInts
-
-divInts :: TokenType -> Op
-divInts = mapIntAdapter Div
-divI = divInts
-
-maxInts :: TokenType -> Op
-maxInts = mapIntAdapter Max
-maxI = maxInts
-
-minInts :: TokenType -> Op
-minInts = mapIntAdapter Min
-minI = minInts
-
-ashr :: Int -> TokenType -> Op
-ashr shift = mapIntAdapter (Ashr shift)
-
-shl :: Int -> TokenType -> Op
-shl shift = mapIntAdapter (Shl shift)
-
-absInts :: TokenType -> Op
-absInts = mapIntAdapter Abs
-absI = absInts
-
-notBits :: TokenType -> Op
-notBits = mapBitAdapter Not
-notB = notBits
-
-notInts :: TokenType -> Op
-notInts = mapIntAdapter NotInt
-notI = notInts
-
-andBits :: TokenType -> Op
-andBits = mapBitAdapter And
-andB = andBits
-
-andInts :: TokenType -> Op
-andInts = mapIntAdapter AndInt
-andI = andInts
-
-orBits :: TokenType -> Op
-orBits = mapBitAdapter Or
-orB = orBits
-
-orInts :: TokenType -> Op
-orInts = mapIntAdapter OrInt
-orI = orInts
-
-xorBits :: TokenType -> Op
-xorBits = mapBitAdapter XOr
-xorB = xorBits
-
-xorInts :: TokenType -> Op
-xorInts = mapIntAdapter XOrInt
-xorI = xorInts
-
-eq :: TokenType -> Op
-eq = mapIntAdapter Eq
-
-neq :: TokenType -> Op
-neq = mapIntAdapter Neq
-
-lt :: TokenType -> Op
-lt = mapIntAdapter Lt
-
-gt :: TokenType -> Op
-gt = mapIntAdapter Gt
-
-leq :: TokenType -> Op
-leq = mapIntAdapter Leq
-
-geq :: TokenType -> Op
-geq = mapIntAdapter Geq
-
--- LUT creation function. Pass in the (0-indexed) lookup table.
-lut :: [Int] -> Op
-lut table = LUT table
-
-mapIntAdapter :: Op -> TokenType -> Op
-mapIntAdapter rawOp T_Int = rawOp
-mapIntAdapter rawOp (T_Array n t) = MapOp n (mapIntAdapter rawOp t)
-mapIntAdapter rawOp t =
-  error (show rawOp ++ " does not accept " ++ show t ++ " input.")
-
-mapBitAdapter :: Op -> TokenType -> Op
-mapBitAdapter rawOp T_Bit = rawOp
-mapBitAdapter rawOp (T_Array n t) = MapOp n (mapIntAdapter rawOp t)
-mapBitAdapter rawOp t =
-  error (show rawOp ++ " does not accept " ++ show t ++ " input.")
-
--- Function for making a line buffer (based on The Line Buffer Manifesto).
-manifestoLineBuffer :: (Int, Int) -> (Int, Int) -> (Int, Int)
-                    -> (Int, Int) -> (Int, Int) -> TokenType
-                     -> Op
-manifestoLineBuffer pxPerClk window image stride origin token =
-  case manifestoCheckAssumptions
-       (ManifestoData pxPerClk window image stride origin token) of
-    Left message -> error message
-    Right lb -> LineBufferManifesto lb
-
--- Function for applying LogicalUtil to an op.
--- | Slow down an op by an integer factor.
-underutil :: Int -> Op -> Op
-underutil denom
-  | denom > 0 = LogicalUtil (1%denom)
-  | otherwise = error "Cannot underutil by non-positive denominator."
-
--- | Scale the op's logical speed by the given fraction in (0, 1].
-scaleUtil :: Ratio Int -> Op -> Op
-scaleUtil amount
-  | amount <= 0 || amount > 1 =
-    error "Can only scale utilization by amount in (0, 1]."
-  | otherwise =
-    LogicalUtil amount
-
--- Function for wrapping an op in a ready-valid interface.
-readyValid :: Op -> Op
-readyValid op = ReadyValid op

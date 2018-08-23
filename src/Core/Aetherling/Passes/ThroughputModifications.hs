@@ -48,6 +48,7 @@ try to adjust the throughputs of their child ops.
 module Aetherling.Passes.ThroughputModifications (speedUp, slowDown) where
 import Aetherling.Operations.Types
 import Aetherling.Operations.AST
+import Aetherling.Operations.Ops
 import Aetherling.Operations.Compose
 import Aetherling.Operations.Properties
 import Aetherling.Analysis.Metrics

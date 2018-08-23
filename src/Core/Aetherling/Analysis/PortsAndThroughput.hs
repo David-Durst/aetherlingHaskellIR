@@ -284,7 +284,9 @@ clocksPerSequence (ReduceOp numTokens par op) = cps op * (numTokens `ceilDiv` pa
 clocksPerSequence (NoOp _) = combinationalCPS
 clocksPerSequence (LogicalUtil fraction op)
   | denominator ratioResult /= 1 =
-      error("Needed clocks-per-second times utilRatio to be an integer in " ++ opStr)
+      error("Needed clocks-per-second divided by \
+            \utilRatio to be an integer in \
+            \" ++ opStr)
   | result < cps op =
       error "Needed utilRatio to be in (0, 1]."
   | otherwise = result

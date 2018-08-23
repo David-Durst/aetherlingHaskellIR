@@ -1,6 +1,7 @@
 module Aetherling.SimpleExamples where
 import Aetherling.Operations.Types
 import Aetherling.Operations.AST
+import Aetherling.Operations.Ops
 import Aetherling.Operations.Compose
 import Aetherling.Analysis.Latency
 import Aetherling.Analysis.PortsAndThroughput
