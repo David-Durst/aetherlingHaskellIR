@@ -136,14 +136,15 @@ underutil denom
 scaleUtil :: Ratio Int -> Op -> Op
 scaleUtil ratio _
   | ratio <= 0 || ratio > 1 =
-    error "Can only scale utilization by amount in (0, 1]."
+    Failure $ UtilFailure
+      "Can only scale utilization by amount in (0, 1]."
 scaleUtil ratio (LogicalUtil originalRatio op) =
   scaleUtil (ratio * originalRatio) op
 scaleUtil ratio op =
   if denominator (((cps op)%1) / ratio) /= 1 then
     Failure $ UtilFailure
       ("Needed cps of `" ++ show op ++ "`\
-       \ divided by utilRatio to be an integer.")
+       \ divided by utilRatio " ++ show ratio ++ " to be an integer.")
   else
     LogicalUtil ratio op 
 
