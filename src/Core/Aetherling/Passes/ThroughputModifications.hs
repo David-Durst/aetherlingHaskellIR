@@ -51,6 +51,7 @@ import Aetherling.Operations.AST
 import Aetherling.Operations.Compose
 import Aetherling.Operations.Properties
 import Aetherling.Analysis.Metrics
+import Data.Ratio
 
 -- | Increase the throughput of an Aetherling DAG by increasing area and
 -- utilization. speedUp attempts to increase throughput by increasing
@@ -223,6 +224,8 @@ attemptSpeedUp requestedMult (ReduceOp numTokens par innerOp) =
   let (spedUpInnerOp, actualMult) = attemptSpeedUp requestedMult innerOp
   in (ReduceOp numTokens par spedUpInnerOp, actualMult)
 
+-- Akeley: Sorry, I broke it while adding support for fractional underutil.
+-- For now I just error out if I see fractional underutil.
 -- cases:
 -- 1. if requestedMult less than or equal to than denom and requestedMult
 -- divides cleanly into denom, just decrease the underutil denom
@@ -230,18 +233,23 @@ attemptSpeedUp requestedMult (ReduceOp numTokens par innerOp) =
 -- requestedMult, remove the underutil and speed up the innerOp using the
 -- remaining part of requestedMult
 -- 3. fall back, just speed up the inner op
-attemptSpeedUp requestedMult (Underutil denom op) |
-  (denom `mod` requestedMult) == 0 =
-  (Underutil (denom `ceilDiv` requestedMult) op, requestedMult)
-attemptSpeedUp requestedMult (Underutil denom op) |
-  (requestedMult `mod` denom) == 0 =
-  (spedUpOp, denom*innerMult)
+-- Akeley: Presumably, 3 should change now that we support fractional underutil.
+attemptSpeedUp requestedMult (LogicalUtil ratio op)
+  | numerator ratio /= 1 =
+      error "Not yet supported: speed up fractional underutil."
+  | (denom `mod` requestedMult) == 0 =
+      (underutil (denom `ceilDiv` requestedMult) op, requestedMult)
+  | (requestedMult `mod` denom) == 0 =
+      let
+        remainingMult = requestedMult `ceilDiv` denom
+        (spedUpOp, innerMult) = attemptSpeedUp remainingMult op
+      in
+        (spedUpOp, denom*innerMult)
+  | otherwise =
+      let (innerSpedUpOp, innerMult) = attemptSpeedUp requestedMult op
+      in (underutil denom innerSpedUpOp, innerMult)
   where
-    remainingMult = requestedMult `ceilDiv` denom
-    (spedUpOp, innerMult) = attemptSpeedUp remainingMult op 
-attemptSpeedUp requestedMult op@(Underutil denom innerOp) =
-  (Underutil denom innerSpedUpOp, innerMult)
-  where (innerSpedUpOp, innerMult) = attemptSpeedUp requestedMult innerOp
+    denom = denominator ratio
 
 attemptSpeedUp _ op@(Failure _) = (op, 1)
 
@@ -323,45 +331,45 @@ slowDown requestedDiv op = Failure $ InvalidThroughputModification requestedDiv 
 -- slow down. This is the same approach as speed up, but with underutil instead
 -- of map.
 attemptSlowDown :: Int -> Op -> (Op, Int)
-attemptSlowDown requestedDiv op@Add = (Underutil requestedDiv op, requestedDiv)
-attemptSlowDown requestedDiv op@Sub = (Underutil requestedDiv op, requestedDiv)
-attemptSlowDown requestedDiv op@Mul = (Underutil requestedDiv op, requestedDiv)
-attemptSlowDown requestedDiv op@Div = (Underutil requestedDiv op, requestedDiv)
-attemptSlowDown requestedDiv op@Max = (Underutil requestedDiv op, requestedDiv)
-attemptSlowDown requestedDiv op@Min = (Underutil requestedDiv op, requestedDiv)
-attemptSlowDown requestedDiv op@(Ashr _) = (Underutil requestedDiv op, requestedDiv)
-attemptSlowDown requestedDiv op@(Shl _) = (Underutil requestedDiv op, requestedDiv)
-attemptSlowDown requestedDiv op@Abs = (Underutil requestedDiv op, requestedDiv)
-attemptSlowDown requestedDiv op@Not = (Underutil requestedDiv op, requestedDiv)
-attemptSlowDown requestedDiv op@NotInt = (Underutil requestedDiv op, requestedDiv)
-attemptSlowDown requestedDiv op@And = (Underutil requestedDiv op, requestedDiv)
-attemptSlowDown requestedDiv op@AndInt = (Underutil requestedDiv op, requestedDiv)
-attemptSlowDown requestedDiv op@Or = (Underutil requestedDiv op, requestedDiv)
-attemptSlowDown requestedDiv op@OrInt = (Underutil requestedDiv op, requestedDiv)
-attemptSlowDown requestedDiv op@XOr = (Underutil requestedDiv op, requestedDiv)
-attemptSlowDown requestedDiv op@XOrInt = (Underutil requestedDiv op, requestedDiv)
-attemptSlowDown requestedDiv op@Eq = (Underutil requestedDiv op, requestedDiv)
-attemptSlowDown requestedDiv op@Neq = (Underutil requestedDiv op, requestedDiv)
-attemptSlowDown requestedDiv op@Lt = (Underutil requestedDiv op, requestedDiv)
-attemptSlowDown requestedDiv op@Leq = (Underutil requestedDiv op, requestedDiv)
-attemptSlowDown requestedDiv op@Gt = (Underutil requestedDiv op, requestedDiv)
-attemptSlowDown requestedDiv op@Geq = (Underutil requestedDiv op, requestedDiv)
+attemptSlowDown requestedDiv op@Add = (underutil requestedDiv op, requestedDiv)
+attemptSlowDown requestedDiv op@Sub = (underutil requestedDiv op, requestedDiv)
+attemptSlowDown requestedDiv op@Mul = (underutil requestedDiv op, requestedDiv)
+attemptSlowDown requestedDiv op@Div = (underutil requestedDiv op, requestedDiv)
+attemptSlowDown requestedDiv op@Max = (underutil requestedDiv op, requestedDiv)
+attemptSlowDown requestedDiv op@Min = (underutil requestedDiv op, requestedDiv)
+attemptSlowDown requestedDiv op@(Ashr _) = (underutil requestedDiv op, requestedDiv)
+attemptSlowDown requestedDiv op@(Shl _) = (underutil requestedDiv op, requestedDiv)
+attemptSlowDown requestedDiv op@Abs = (underutil requestedDiv op, requestedDiv)
+attemptSlowDown requestedDiv op@Not = (underutil requestedDiv op, requestedDiv)
+attemptSlowDown requestedDiv op@NotInt = (underutil requestedDiv op, requestedDiv)
+attemptSlowDown requestedDiv op@And = (underutil requestedDiv op, requestedDiv)
+attemptSlowDown requestedDiv op@AndInt = (underutil requestedDiv op, requestedDiv)
+attemptSlowDown requestedDiv op@Or = (underutil requestedDiv op, requestedDiv)
+attemptSlowDown requestedDiv op@OrInt = (underutil requestedDiv op, requestedDiv)
+attemptSlowDown requestedDiv op@XOr = (underutil requestedDiv op, requestedDiv)
+attemptSlowDown requestedDiv op@XOrInt = (underutil requestedDiv op, requestedDiv)
+attemptSlowDown requestedDiv op@Eq = (underutil requestedDiv op, requestedDiv)
+attemptSlowDown requestedDiv op@Neq = (underutil requestedDiv op, requestedDiv)
+attemptSlowDown requestedDiv op@Lt = (underutil requestedDiv op, requestedDiv)
+attemptSlowDown requestedDiv op@Leq = (underutil requestedDiv op, requestedDiv)
+attemptSlowDown requestedDiv op@Gt = (underutil requestedDiv op, requestedDiv)
+attemptSlowDown requestedDiv op@Geq = (underutil requestedDiv op, requestedDiv)
 attemptSlowDown requestedDiv op@(LUT _) = (MapOp requestedDiv op, requestedDiv)
 
 -- underutil instead of changing type for same reason as speedUp using map,
 -- want to do banking instead of making wider memories
-attemptSlowDown requestedDiv op@(MemRead _) = (Underutil requestedDiv op, requestedDiv)
-attemptSlowDown requestedDiv op@(MemWrite _) = (Underutil requestedDiv op, requestedDiv)
+attemptSlowDown requestedDiv op@(MemRead _) = (underutil requestedDiv op, requestedDiv)
+attemptSlowDown requestedDiv op@(MemWrite _) = (underutil requestedDiv op, requestedDiv)
 
 attemptSlowDown requestedDiv op@(ArrayReshape _ _) =
-  (Underutil requestedDiv op, requestedDiv)
+  (underutil requestedDiv op, requestedDiv)
 attemptSlowDown requestedDiv op@(DuplicateOutputs _ _) =
-  (Underutil requestedDiv op, requestedDiv)
+  (underutil requestedDiv op, requestedDiv)
 
 attemptSlowDown requestedDiv op@(Constant_Int _) =
-  (Underutil requestedDiv op, requestedDiv)
+  (underutil requestedDiv op, requestedDiv)
 attemptSlowDown requestedDiv op@(Constant_Bit _) =
-  (Underutil requestedDiv op, requestedDiv)
+  (underutil requestedDiv op, requestedDiv)
 
 -- LEAF, MODIFIABLE RATE
 -- If possible, slow down by changing the rate. Otherwise, just try to return
@@ -451,8 +459,8 @@ attemptSlowDown requestedDiv (ReduceOp numTokens par innerOp) =
   let (slowedInnerOp, actualDiv) = attemptSlowDown requestedDiv innerOp
   in (ReduceOp numTokens par slowedInnerOp, actualDiv)
 
-attemptSlowDown requestedDiv (Underutil denom op) =
-  (Underutil (denom * requestedDiv) op, requestedDiv)
+attemptSlowDown requestedDiv (LogicalUtil ratio op) =
+  (LogicalUtil (ratio * (1%requestedDiv)) op, requestedDiv)
 
 attemptSlowDown _ op@(Failure _) = (op, 1)
 

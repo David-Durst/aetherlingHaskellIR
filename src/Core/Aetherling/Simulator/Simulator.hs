@@ -197,10 +197,10 @@ simhl (ReduceOp numTokens par op) inStrs state =
 simhl (NoOp types) inStrs state = (inStrs, state)
 
 -- We only care about meaningful inputs and outputs.  Therefore,
--- underutil and register delays should be no-ops in this high level
+-- LogicalUtil and register delays should be no-ops in this high level
 -- simulator -- dealing with the details of clock scheduling and clock
 -- enable is something that we worry about elsewhere.
-simhl (Underutil n op) inStrs state = simhl op inStrs state
+simhl (LogicalUtil n op) inStrs state = simhl op inStrs state
 simhl (Delay delay op) inStrs state = simhl op inStrs state
 simhl op@(ComposeSeq _) inStrs state =
     simhlSeq simhl op inStrs state
@@ -302,7 +302,7 @@ simhlPre opStack@(ArrayReshape inTypes outTypes:_) inStrLens inState =
     simhlPreReshape opStack inStrLens inState
 simhlPre opStack@(DuplicateOutputs _ _:_) inStrLens inState =
     simhlPreDuplicateOutputs simhlPre opStack inStrLens inState
-simhlPre opStack@(Underutil _ op:_) inStrLens inState =
+simhlPre opStack@(LogicalUtil _ op:_) inStrLens inState =
     simhlPre (op:opStack) inStrLens inState
 simhlPre opStack@(Delay _ op:_) inStrLens inState =
     simhlPre (op:opStack) inStrLens inState

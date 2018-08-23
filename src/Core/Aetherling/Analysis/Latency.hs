@@ -75,7 +75,7 @@ initialLatency (ReduceOp numTokens par op) =
 
 
 initialLatency (NoOp _) = 0
-initialLatency (Underutil denom op) = initialLatency op
+initialLatency (LogicalUtil _ op) = initialLatency op
 -- since pipelined, this doesn't affect clocks per stream
 initialLatency (Delay dc op) = initialLatency op + dc
 
@@ -148,7 +148,7 @@ maxCombPath (ReduceOp numTokens par op) = max (maxCombPath op) maxCombPathFromOu
     -- assuming two inputs and one output to op
     maxCombPathFromOutputToInput = maximum (map pCTime $ inPorts op) + (pCTime $ head $ outPorts op)
 
-maxCombPath (Underutil denom op) = maxCombPath op
+maxCombPath (LogicalUtil _ op) = maxCombPath op
 -- since pipelined, this doesn't affect clocks per stream
 maxCombPath (Delay _ op) = maxCombPath op
 

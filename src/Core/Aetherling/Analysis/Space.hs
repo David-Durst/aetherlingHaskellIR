@@ -87,7 +87,12 @@ space rOp@(ReduceOp numTokens par op) =
     (PortThroughput _ opThroughput) = portThroughput op $ head $ inPorts op
 
 space (NoOp _) = addId
-space (Underutil denom op) = space op |+| counterSpace (denom * cps op)
+-- Note from Akeley: This doesn't seem like a reasonable approximation.
+-- For many underutil'd ops, we don't need to do anything at all.
+-- Furthermore ops with fractional underutil probably need more complicated
+-- counters and stuff than integer underutil ops.
+space thisOp@(LogicalUtil ratio childOp) =
+  space childOp |+| counterSpace (cps thisOp)
 space (Delay dc op) = space op |+|
   ((registerSpace $ map pTType $ outPorts op) |* dc)
 
@@ -135,7 +140,7 @@ util (MapOp _ op) = util op
 util (ReduceOp _ _ op) = util op
 
 util (NoOp _) = 1
-util (Underutil denom op) = util op / fromIntegral denom
+util (LogicalUtil ratio op) = util op * realToFrac ratio
 -- since pipelined, this doesn't affect clocks per stream
 util (Delay _ op) = util op
 

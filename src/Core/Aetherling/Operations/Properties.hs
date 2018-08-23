@@ -52,7 +52,7 @@ isComb (ReduceOp numTokens par op) | par == numTokens = isComb op
 isComb (ReduceOp _ _ op) = False
 
 isComb (NoOp tTypes) = True 
-isComb (Underutil denom op) = isComb op
+isComb (LogicalUtil _ op) = isComb op
 -- since pipelined, this doesn't affect clocks per stream
 isComb (Delay _ op) = False
 
@@ -104,7 +104,7 @@ hasInternalState (ReduceOp numTokens par op) | par == numTokens = hasInternalSta
 hasInternalState (ReduceOp _ _ op) = True
 
 hasInternalState (NoOp tTypes) = False
-hasInternalState (Underutil denom op) = hasInternalState op
+hasInternalState (LogicalUtil _ op) = hasInternalState op
 -- since pipelined, this doesn't affect clocks per stream
 hasInternalState (Delay _ op) = hasInternalState op
 

@@ -34,7 +34,7 @@ mipMapBoxed t dimLog2 speedLog2
   | speedLog2 > dimLog2 = error "speedLog2 cannot exceed dimLog2"
   | dimLog2 < 0 = error "dimLog2 must be non-negative"
   | dimLog2 == 0 =
-    Underutil (2^(-speedLog2)) $
+    underutil (2^(-speedLog2)) $
       ArrayReshape [T_Array 1 (T_Array 1 t)] [T_Array 1 t]
       |>>=| MemWrite (T_Array 1 t)
   | otherwise = mipMapLevel t dimLog2 speedLog2
@@ -94,4 +94,4 @@ getPxPerClkUnderutil dimLog2 speedLog2 =
   else if speedLog2 >= 0 then
     ((1, 2^speedLog2), id)
   else
-    ((1, 1), Underutil (2^(-speedLog2)))
+    ((1, 1), underutil (2^(-speedLog2)))

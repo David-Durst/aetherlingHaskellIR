@@ -8,6 +8,7 @@ for identifying errors in that tree.
 module Aetherling.Operations.AST where
 import Aetherling.Operations.Types
 import Aetherling.LineBufferManifestoModule
+import Data.Ratio
 
 -- | The operations that can be used to create dataflow DAGs in Aetherling
 data Op =
@@ -81,8 +82,16 @@ data Op =
 
   -- TIMING HELPERS
   | NoOp [TokenType]
-  -- | run underOp at CPS = utilDenominator * old CPS
-  | Underutil {utilDenominator :: Int, underutilizedOp :: Op}
+  -- | Logically change the (time) utilization of the utilOp.  If
+  -- utilRatio is A/B, then utilOp only has "meaningful" inputs and
+  -- outputs on A out of B cycles. A/B must be in (0,1], and A/B *
+  -- clocks-per-sequence of utilOp must still be an integer.  I
+  -- recommend against constructing this op manually; use the helper
+  -- functions. "Logical" is meant to emphasize our viewpoint that
+  -- this changes our interpretation of an op's outputs, and
+  -- LogicalUtil may not have any physical effect on the actual
+  -- hardware.
+  | LogicalUtil {utilRatio :: Ratio Int, utilOp :: Op}
   | Delay {delayClocks :: Int, delayedOp :: Op}
 
   -- COMPOSE OPS
@@ -172,7 +181,7 @@ getChildOps (DuplicateOutputs _ op) = [op]
 getChildOps (MapOp _ op) = [op]
 getChildOps (ReduceOp _ _ op) = [op]
 getChildOps (NoOp _) = []
-getChildOps (Underutil _ op) = [op]
+getChildOps (LogicalUtil _ op) = [op]
 getChildOps (Delay _ op) = [op]
 getChildOps (ComposePar ops) = ops
 getChildOps (ComposeSeq ops) = ops
@@ -305,6 +314,21 @@ manifestoLineBuffer pxPerClk window image stride origin token =
        (ManifestoData pxPerClk window image stride origin token) of
     Left message -> error message
     Right lb -> LineBufferManifesto lb
+
+-- Function for applying LogicalUtil to an op.
+-- | Slow down an op by an integer factor.
+underutil :: Int -> Op -> Op
+underutil denom
+  | denom > 0 = LogicalUtil (1%denom)
+  | otherwise = error "Cannot underutil by non-positive denominator."
+
+-- | Scale the op's logical speed by the given fraction in (0, 1].
+scaleUtil :: Ratio Int -> Op -> Op
+scaleUtil amount
+  | amount <= 0 || amount > 1 =
+    error "Can only scale utilization by amount in (0, 1]."
+  | otherwise =
+    LogicalUtil amount
 
 -- Function for wrapping an op in a ready-valid interface.
 readyValid :: Op -> Op

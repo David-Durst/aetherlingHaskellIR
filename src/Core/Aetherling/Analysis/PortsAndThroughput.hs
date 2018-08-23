@@ -79,7 +79,7 @@ inPorts (ReduceOp numTokens par op) = renamePorts "I" $ map scaleSeqLen $
     portToDuplicate [] = []
 
 inPorts (NoOp tTypes) = renamePorts "I" $ map (head . oneInSimplePort) tTypes
-inPorts (Underutil _ op) = inPorts op
+inPorts (LogicalUtil _ op) = inPorts op
 inPorts (Delay _ op) = inPorts op
 
 inPorts cPar@(ComposePar ops) = renamePorts "I" $ scalePortsSeqLens
@@ -152,7 +152,7 @@ outPorts (ReduceOp _ _ op) = renamePorts "O" $ outPorts op
 
 outPorts (NoOp tTypes) = renamePorts "O" $ map (head . oneOutSimplePort) tTypes
 -- verifying assertions stated in STAST.hs
-outPorts (Underutil _ op) = outPorts op
+outPorts (LogicalUtil _ op) = outPorts op
 outPorts (Delay _ op) = outPorts op
 
 -- output from composePar only on clocks when all ops in it are emitting.
@@ -282,7 +282,17 @@ clocksPerSequence (ReduceOp numTokens par op) |
 clocksPerSequence (ReduceOp numTokens par op) = cps op * (numTokens `ceilDiv` par)
 
 clocksPerSequence (NoOp _) = combinationalCPS
-clocksPerSequence (Underutil denom op) = denom * cps op
+clocksPerSequence (LogicalUtil fraction op)
+  | denominator ratioResult /= 1 =
+      error("Needed clocks-per-second times utilRatio to be an integer in " ++ opStr)
+  | result < cps op =
+      error "Needed utilRatio to be in (0, 1]."
+  | otherwise = result
+  where
+    ratioResult = ((cps op)%1) / fraction
+    result = numerator ratioResult
+    opStr = show (LogicalUtil fraction op)
+
 -- since pipelined, this doesn't affect clocks per stream
 clocksPerSequence (Delay _ op) = cps op
 

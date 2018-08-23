@@ -21,7 +21,7 @@ lb13 = LineBuffer [1] [3] [300] T_Int Crop
 
 lb23 = LineBuffer [2] [3] [300] T_Int Crop
 
-lb13Underutil = Underutil 2 $ LineBuffer [2] [3] [300] T_Int Crop
+lb13Underutil = underutil 2 $ LineBuffer [2] [3] [300] T_Int Crop
 
 lbChain = 
   Constant_Int [1] |>>=|
@@ -45,7 +45,7 @@ spaceAndTimeReshape = SequenceArrayRepack (1, 2) (2, 1) T_Int |>>=|
   ArrayReshape [T_Array 1 T_Int] [T_Int]
 
 constantSpaceTimeReshape = 
-  Underutil 3 (Constant_Int [1, 1, 1]) |>>=| 
+  underutil 3 (Constant_Int [1, 1, 1]) |>>=| 
   SequenceArrayRepack (1, 3) (3, 1) T_Int |>>=|
   ArrayReshape [T_Array 1 T_Int] [T_Int]
 

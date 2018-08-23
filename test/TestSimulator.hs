@@ -264,18 +264,18 @@ simhlCase4 = SimhlTestCase
 -- NOTE: Since max is commutative/associative, we're not really testing
 -- SequenceArrayRepack here.
 simhlMul7Max15SpaceOp =
-  (Underutil 5 (ArrayReshape (replicate 15 T_Int) [T_Array 15 T_Int])) |>>=|
-  (SequenceArrayRepack (1, 15) (5, 3) T_Int |&| Underutil 5 (Constant_Int [7]))
+  (underutil 5 (ArrayReshape (replicate 15 T_Int) [T_Array 15 T_Int])) |>>=|
+  (SequenceArrayRepack (1, 15) (5, 3) T_Int |&| underutil 5 (Constant_Int [7]))
   |>>=|
-  (ReduceOp 15 3 Max |&| Underutil 5 (simhlUnbox T_Int))
+  (ReduceOp 15 3 Max |&| underutil 5 (simhlUnbox T_Int))
   |>>=|
-  Underutil 5 Mul
+  underutil 5 Mul
 simhlMul7Max15Combinational :: [ValueType] -> [ValueType]
 simhlMul7Max15Combinational inputs = [V_Int $ maximum [7*n | V_Int n <- inputs]]
 simhlCase5 = SimhlTestCase
   "Maximum of 15 integers, multiplied by 7, using a reduce that takes only \
         \3 inputs at a time. \
-        \(Tests ReduceOp, Max, SequenceArrayRepack, Underutil)"
+        \(Tests ReduceOp, Max, SequenceArrayRepack, LogicalUtil)"
   simhlMul7Max15SpaceOp
   (simhlCombinationalIgnoreMem simhlMul7Max15Combinational)
   199
@@ -283,9 +283,9 @@ simhlCase5 = SimhlTestCase
 
 -- Same thing, but take 15 inputs sequentially, and test readyValid here.
 simhlMul7Max15TimeOp =
-  readyValid (simhlBox T_Int |&| Underutil 15 (Constant_Int [7])) |>>=|
-  readyValid (ReduceOp 15 1 Max |&| Underutil 15 (simhlUnbox T_Int)) |>>=|
-  readyValid (Underutil 15 Mul)
+  readyValid (simhlBox T_Int |&| underutil 15 (Constant_Int [7])) |>>=|
+  readyValid (ReduceOp 15 1 Max |&| underutil 15 (simhlUnbox T_Int)) |>>=|
+  readyValid (underutil 15 Mul)
 simhlMul7Max15TimeImpl :: [[ValueType]] -> [[ValueType]]
                        -> ( [[ValueType]], [[ValueType]] )
 simhlMul7Max15TimeImpl portInputs _ =
@@ -365,7 +365,7 @@ simhlCase9 = SimhlTestCase
 -- is strictly increasing. Better test for SequenceArrayReshape and Lt.
 simhlStrictlyIncreasingOp =
   SequenceArrayRepack (2,2) (1,4) T_Int |>>=|
-  Underutil 2 (
+  underutil 2 (
     ArrayReshape [T_Array 4 T_Int] [T_Int, T_Int, T_Int, T_Int] |>>=|
     (NoOp [T_Int] |&| DuplicateOutputs 2 (NoOp [T_Int])
     |&| DuplicateOutputs 2 (NoOp [T_Int]) |&| NoOp [T_Int]) |>>=|
@@ -460,7 +460,7 @@ simhlCase12 = SimhlTestCase
 simhlXOr10Op =
   ArrayReshape [T_Bit] [T_Array 1 T_Bit] |>>=|
   SequenceArrayRepack (3, 1) (1, 3) T_Bit |>>=|
-  Underutil 3 (
+  underutil 3 (
       LineBuffer [3] [10] [300] T_Bit Crop |>>=|
       MapOp 3 (ReduceOp 10 10 XOr)
   ) |>>=|
