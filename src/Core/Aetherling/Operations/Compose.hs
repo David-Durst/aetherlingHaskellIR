@@ -136,12 +136,18 @@ composeSeqTokenTypeFailure op0 op1 =
 -- mismatch found.
 composeParFailure :: Op -> Op -> Maybe Op
 composeParFailure op0 op1 =
-  case (outPortsReadyValid op0, inPortsReadyValid op1) of
+  case (inPortsReadyValid op0, inPortsReadyValid op1) of
     (Just True, Just False) ->
       Just $ Failure $ ComposeFailure ReadyValidMismatch (op1, op0)
     (Just False, Just True) ->
       Just $ Failure $ ComposeFailure ReadyValidMismatch (op1, op0)
-    (_, _) -> Nothing
+    (_, _) ->
+      case (outPortsReadyValid op0, outPortsReadyValid op1) of
+        (Just True, Just False) ->
+          Just $ Failure $ ComposeFailure ReadyValidMismatch (op1, op0)
+        (Just False, Just True) ->
+          Just $ Failure $ ComposeFailure ReadyValidMismatch (op1, op0)
+        (_, _) -> Nothing
 
 -- Inspect ports to determine if the op is ready valid.  Due to the
 -- restriction against using ComposePar on a mix of ready-valid and
