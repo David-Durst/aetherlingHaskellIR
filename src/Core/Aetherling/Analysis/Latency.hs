@@ -73,20 +73,25 @@ initialLatency (ReduceOp numTokens par op) =
     -- op adds nothing if its combinational, its CPS else
     opCPS = bool 0 (initialLatency op) (isComb op)
 
-
-initialLatency (NoOp _) = 0
+-- Akeley: I think NoOp has initialLatency = 1 to match the other
+-- combinational guys.
+initialLatency (NoOp _) = 1
 initialLatency (LogicalUtil _ op) = initialLatency op
 -- since pipelined, this doesn't affect clocks per stream
 initialLatency (Delay dc op) = initialLatency op + dc
 
 initialLatency (ComposePar ops) = maximum $ map initialLatency ops
--- initialLatency is 1 if all elemetns are combintional, sum of latencies of sequential
--- elements otherwise
-initialLatency (ComposeSeq ops) = bool combinationalInitialLatency sequentialInitialLatency
-  (sequentialInitialLatency > 0)
-  where 
-    combinationalInitialLatency = 1
-    sequentialInitialLatency = foldl (+) 0 $ map initialLatency $ filter (not . isComb) ops
+-- initialLatency is 1 if all elemetns are combintional, sum of
+-- latencies of sequential elements otherwise (Akeley: But because of
+-- the strange 0 reg delay = 1 latency policy, it seems that you need
+-- to sum up one minus the latencies -- I've done this change).
+-- initialLatency (ComposeSeq ops) = bool combinationalInitialLatency sequentialInitialLatency
+--   (sequentialInitialLatency > 0)
+--   where 
+--     combinationalInitialLatency = 1
+--     sequentialInitialLatency = foldl (+) 0 $ map (initialLatency $ filter (not . isComb) ops
+initialLatency (ComposeSeq ops) =
+  1 + sum (map (subtract 1 . initialLatency) ops)
 initialLatency (ReadyValid op) = initialLatency op
 initialLatency (Failure _) = 0
 

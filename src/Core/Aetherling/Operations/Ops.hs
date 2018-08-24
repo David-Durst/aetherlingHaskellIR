@@ -129,11 +129,12 @@ manifestoLineBuffer pxPerClk window image stride origin token =
 -- | Slow down an op by an integer factor.
 underutil :: Int -> Op -> Op
 underutil denom
-  | denom > 0 = LogicalUtil (1%denom)
+  | denom > 0 = scaleUtil (1%denom)
   | otherwise = error "Cannot underutil by non-positive denominator."
 
 -- | Scale the op's logical speed by the given fraction in (0, 1].
 scaleUtil :: Ratio Int -> Op -> Op
+scaleUtil 1 op = op
 scaleUtil ratio _
   | ratio <= 0 || ratio > 1 =
     Failure $ UtilFailure
