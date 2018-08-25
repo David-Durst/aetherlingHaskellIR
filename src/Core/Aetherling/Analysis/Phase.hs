@@ -1,0 +1,83 @@
+module Aetherling.Analysis.Phase where
+import Data.Ratio
+
+-- Module describing my (Akeley's) proposed solution to phase
+-- (repeating pattern of real and garbage outputs) with fractional
+-- underutil.
+--
+-- So at the moment there's 4 sources of underutilization.
+-- 1. ReduceOp (par < numTokens)
+-- 2. line buffers (stride /= (1, 1))
+-- 3. LogicalUtil
+-- 4. SequenceArrayRepack
+--
+-- Let's think about the performance considerations raised by each.
+--
+-- ReduceOp and line buffer only cause integer underutil, which
+-- naturally creates a pattern of 1 real output followed by N-1
+-- garbage cycles (1/N utilization).
+--
+-- LogicalUtil (underutilization op) is pure waste, so it doesn't
+-- really matter what pattern we adopt for it.
+--
+-- This leaves SequenceArrayRepack as the only meaningful source of
+-- fractional underutilization; LogicalUtil can just adopt whatever
+-- pattern SequenceArrayRepack uses.
+--
+-- I adopt the convention that the phase pattern for an x%y [y>x]
+-- utilization ratio stream should always be the input pattern
+-- expected by a SequenceArrayRepack that converts an x-sequence of
+-- y-arrays to a y-sequence of x-arrays ("narrowing" repack) over y
+-- clock cycles. This pattern is itself defined with the rule "every
+-- input array should come as soon as it is needed, but no sooner".
+--
+-- Example: 3%5 pattern
+-- We construct a (3, 5) (5, 3) SequenceArrayRepack and
+-- match up input to outputs.
+--
+-- | clk 0 | clk 1 | clk 2 | clk 3 | clk 4 |
+-- | ___   | _     |       | __    |       |
+-- | 01234 | 56789 | xxxxx | ABCDE | xxxxx |
+-- | .×.×. | ×.×.××××××××× | .×.×. |       |
+-- | .×.×. | ×.×........ × | .×.×.......   |
+-- | .×.×. | ×.××××|   . × | .×.×××××××.   |
+-- | .×.×. | ×....×|   . × | .×.......×.   |
+-- | .×.×. | ××× .×|   . × | .××   | .×.   |
+-- | .×.×......× .×××××. × | ..×   | .×.   |
+-- | .×.××××××.× .....×. ×××××.×   | .×.   |
+-- | .×.   | ×.×   | .×.   | ×.×   | .×.   |
+-- | 012   | 345   | 678   | 9AB   | CDE   |
+-- | 000   | 110   | 111   | 200   | 111   | <- Token latency
+--
+-- Notice how none of the outputs (numbered 0-E) had to go backwards
+-- in time (so each input 5-array came as soon as it was needed) but
+-- each of the 3 input 5-arrays had at least one element emitted on
+-- the same clk cycle (but no sooner) – these elements have an
+-- overbar over them. Since the 3 arrays came in at cycles 0, 1, and
+-- 3, the phase pattern is 0, 1, 3.
+--
+-- Note that for 1%N ratios (integer underutil), this rule creates
+-- the same 1 token / N-1 garbage pattern as earlier.
+--
+-- Since SequenceArrayRepack is the only relevant op for determining
+-- phase patterns, it makes sense to adopt a standardized phase
+-- pattern for fractional ratios. This contains the complexity of
+-- phase matching to SequenceArrayRepack itself annd allows the rest
+-- of the system to just reason with fractional throughputs.
+--
+-- This phase pattern may appear to be biased against the opposite
+-- SequenceArrayRepack ("widening" repack, e.g. (5, 3) -> (3, 5)).
+-- I'm convinced that forcing widening repacks to base its output
+-- phase pattern on what's most convenient for a narrowing repack will
+-- cause the average latency of each token to go up by no more than 1,
+-- and the worst case latency not to increase at all.  (Compared to
+-- the "natural" phase pattern "emit an output array as soon as you
+-- are able to"). I don't have a proof yet though.
+--
+-- In any event, forcing this consistent pattern prevents us from
+-- having to place complex buffers elsewhere in the circuit
+-- to match up different phase patterns. This should save us both
+-- design time and chip area.
+--
+-- Todo: Talk about interaction between underutil and
+-- SequenceArrayRepack, justification for cps field.

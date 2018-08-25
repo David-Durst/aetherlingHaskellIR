@@ -43,7 +43,7 @@ isComb (LineBufferManifesto _) = False -- Why is LineBuffer True???
 isComb (Constant_Int _) = True
 isComb (Constant_Bit _) = True
 
-isComb (SequenceArrayRepack _ _ _) = False
+isComb (SequenceArrayRepack _ _ _ _) = False
 isComb (ArrayReshape _ _) = True
 isComb (DuplicateOutputs _ _) = True
 
@@ -95,7 +95,7 @@ hasInternalState (LineBufferManifesto _) = True
 hasInternalState (Constant_Int _) = False
 hasInternalState (Constant_Bit _) = False
 
-hasInternalState (SequenceArrayRepack _ _ _) = True
+hasInternalState (SequenceArrayRepack _ _ _ _) = True
 hasInternalState (ArrayReshape _ _) = False
 hasInternalState (DuplicateOutputs _ _) = False
 

@@ -177,7 +177,7 @@ simhl (Constant_Int a) inStrs state =
     ([replicate (simhlConstSeqLen state) (vIntArray a)], state)
 simhl (Constant_Bit a) inStrs state =
     ([replicate (simhlConstSeqLen state) (vBitArray a)], state)
-simhl (SequenceArrayRepack (a,b) (c,d) t) inStrs state =
+simhl (SequenceArrayRepack (a,b) (c,d) _ t) inStrs state =
     (simhlRepack (a,b) (c,d) t inStrs, state)
 simhl reshape@(ArrayReshape inTypes outTypes) inStrs state =
     (simhlCombinational (simhlReshape reshape) inStrs, state)
@@ -296,7 +296,7 @@ simhlPre opStack@(LineBufferManifesto lb:_) inStrLens inState =
   in simhlPreResult opStack outStrLens warning inState
 simhlPre (Constant_Int _:_) _ state = ([Nothing], state)
 simhlPre (Constant_Bit _:_) _ state = ([Nothing], state)
-simhlPre opStack@(SequenceArrayRepack _ _ _:_) inStrLens inState =
+simhlPre opStack@(SequenceArrayRepack _ _ _ _:_) inStrLens inState =
     simhlPreRepack opStack inStrLens inState
 simhlPre opStack@(ArrayReshape inTypes outTypes:_) inStrLens inState =
     simhlPreReshape opStack inStrLens inState

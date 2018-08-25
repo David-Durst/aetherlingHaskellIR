@@ -148,11 +148,15 @@ attemptSpeedUp requestedMult (LineBuffer p w img t bc) =
 
 -- could decrease sLenIn and sLenOut as increase throughput, but not going
 -- to do that as don't want to deal with fractional sequence lengths,
--- which could happen if dividing sLenIn or sLenOut 
+-- which could happen if dividing sLenIn or sLenOut
+--
+-- Akeley: I just passed cps parameter through. It may be possible to
+-- just reduce the cps if this SequenceArrayRepack were previously
+-- underutil'd.
 attemptSpeedUp requestedMult (SequenceArrayRepack (sLenIn, oldArrLenIn)
-                              (sLenOut, oldArrLenOut) t) =
+                              (sLenOut, oldArrLenOut) cps_ t) =
   (SequenceArrayRepack (sLenIn, oldArrLenIn * requestedMult)
-    (sLenOut, oldArrLenOut * requestedMult) t, requestedMult)
+    (sLenOut, oldArrLenOut * requestedMult) cps_ t, requestedMult)
 
 
 -- PARENT, NON-MODIFIABLE RATE
@@ -394,11 +398,11 @@ attemptSlowDown requestedDiv (LineBuffer p w img t bc) =
 -- not going to change SLen in consistency with speed up
 -- can only slow down if both array lengths are divisible by requestedDiv
 attemptSlowDown requestedDiv (SequenceArrayRepack (sLenIn, oldArrLenIn)
-                              (sLenOut, oldArrLenOut) t) |
+                              (sLenOut, oldArrLenOut) cps_ t) |
   (oldArrLenIn `mod` requestedDiv == 0) && (oldArrLenOut `mod` requestedDiv == 0) =
   (SequenceArrayRepack (sLenIn, oldArrLenIn `ceilDiv` requestedDiv)
-    (sLenOut, oldArrLenOut `ceilDiv` requestedDiv) t, requestedDiv)
-attemptSlowDown requestedDiv op@(SequenceArrayRepack _ _ _) = (op, 1)
+    (sLenOut, oldArrLenOut `ceilDiv` requestedDiv) cps_ t, requestedDiv)
+attemptSlowDown requestedDiv op@(SequenceArrayRepack _ _ _ _) = (op, 1)
 
 -- PARENT, NON-MODIFIABLE RATE
 -- Slow their child ops, no rate to modify on these, and no

@@ -22,9 +22,7 @@ simhlRepack :: (Int,Int) -> (Int,Int) -> TokenType -> [[ValueType]]
             -> [[ValueType]]
 simhlRepack (inSeqLen, inWidth) (outSeqLen, outWidth) t [inStr] =
     if inSeqLen * inWidth /= outSeqLen * outWidth || inSeqLen * inWidth == 0
-    then error("Need product of sequence length and array width to be nonzero "
-           ++  "and equal in input and output. Simulating "
-           ++ show (SequenceArrayRepack (inSeqLen, inWidth) (outSeqLen, outWidth) t))
+    then error("Aetherling internal error: repack I/O throughput mismatch.")
     else
       let allInputs = simhlRepackUnpack inWidth inStr
       in [simhlRepackRepack outWidth allInputs]
@@ -221,7 +219,7 @@ simhlLineBuffer _ _ _ _ _ _ =
 simhlPreRepack :: [Op] -> [Maybe Int] -> SimhlPreState
                -> ([Maybe Int], SimhlPreState)
 simhlPreRepack
-      opStack@(SequenceArrayRepack (inSeqLen, inWidth) (outSeqLen, outWidth) t:_)
+      opStack@(SequenceArrayRepack (inSeqLen, inWidth) (outSeqLen, outWidth) _ t:_)
       inStrLens
       inState =
     if inSeqLen*inWidth /= outSeqLen*outWidth || inSeqLen*inWidth == 0 then

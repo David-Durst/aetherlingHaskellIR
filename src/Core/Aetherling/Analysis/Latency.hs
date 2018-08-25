@@ -6,14 +6,16 @@ Determines the initial latency for how long it takes for a
 pipelined module to receive input, and the max combinational path
 for the highest latency, single cycle part of the circuit.
 -}
-module Aetherling.Analysis.Latency (initialLatency, maxCombPath) where
+module Aetherling.Analysis.Latency (initialLatency, regLatency, maxCombPath) where
 import Aetherling.Operations.AST
 import Aetherling.Operations.Types
 import Aetherling.Operations.Properties
 import Aetherling.Analysis.Metrics
 import Aetherling.Analysis.PortsAndThroughput
-import Data.Bool
 import Aetherling.LineBufferManifestoModule
+import Data.Bool
+import Data.Ratio
+import Debug.Trace -- Temporary for regLatency ReduceOp warning.
 
 -- | Compute the number of clocks from when the first input token is supplied to
 -- a module's input port until the first token is emitted from one of its output
@@ -57,8 +59,9 @@ initialLatency (LineBufferManifesto lb) = manifestoInitialLatency lb
 initialLatency (Constant_Int _) = 1
 initialLatency (Constant_Bit _) = 1
 
-initialLatency (SequenceArrayRepack (inSeq, _) (outSeq, _) _) =
-  outSeq `ceilDiv` inSeq
+initialLatency (SequenceArrayRepack (inSeq, _) (outSeq, _) _ _) =
+  trace "initialLatency SequenceArrayRepack does not match current ideas."
+  (outSeq `ceilDiv` inSeq)
 initialLatency (ArrayReshape _ _) = 1
 initialLatency (DuplicateOutputs _ _) = 1
 
@@ -73,31 +76,118 @@ initialLatency (ReduceOp numTokens par op) =
     -- op adds nothing if its combinational, its CPS else
     opCPS = bool 0 (initialLatency op) (isComb op)
 
--- Akeley: I think NoOp has initialLatency = 1 to match the other
--- combinational guys.
-initialLatency (NoOp _) = 1
-initialLatency (LogicalUtil _ op) = initialLatency op
+
+initialLatency (NoOp _) = 0
+initialLatency (LogicalUtil ratio op) = initialLatency op -- This can't be right.
 -- since pipelined, this doesn't affect clocks per stream
 initialLatency (Delay dc op) = initialLatency op + dc
 
 initialLatency (ComposePar ops) = maximum $ map initialLatency ops
--- initialLatency is 1 if all elemetns are combintional, sum of
--- latencies of sequential elements otherwise (Akeley: But because of
--- the strange 0 reg delay = 1 latency policy, it seems that you need
--- to sum up one minus the latencies -- I've done this change).
--- initialLatency (ComposeSeq ops) = bool combinationalInitialLatency sequentialInitialLatency
---   (sequentialInitialLatency > 0)
---   where 
---     combinationalInitialLatency = 1
---     sequentialInitialLatency = foldl (+) 0 $ map (initialLatency $ filter (not . isComb) ops
-initialLatency (ComposeSeq ops) =
-  1 + sum (map (subtract 1 . initialLatency) ops)
+-- initialLatency is 1 if all elemetns are combintional, sum of latencies of sequential
+-- elements otherwise
+initialLatency (ComposeSeq ops) = bool combinationalInitialLatency sequentialInitialLatency
+  (sequentialInitialLatency > 0)
+  where 
+    combinationalInitialLatency = 1
+    sequentialInitialLatency = foldl (+) 0 $ map initialLatency $ filter (not . isComb) ops
 initialLatency (ReadyValid op) = initialLatency op
 initialLatency (Failure _) = 0
 
 -- | Helper variable that defines how many clocks it takes for a register to
 -- propagate a value.
 registerInitialLatency = 1
+
+-- Count of the number of registers on the path of the Op.
+-- For ComposePar, choose the path with the longest delay, since when the
+-- circuit is realized in hardware we'll have to pump up the delays on
+-- the other paths to match.
+--
+-- Not sure how initialLatency (above) is useful.
+regLatency :: Op -> Int
+regLatency Add = 0
+regLatency Sub = 0
+regLatency Mul = 0
+regLatency Div = 0
+regLatency Max = 0
+regLatency Min = 0
+regLatency (Ashr _) = 0
+regLatency (Shl _) = 0
+regLatency Abs = 0
+regLatency Not = 0
+regLatency NotInt = 0
+regLatency And = 0
+regLatency AndInt = 0
+regLatency Or = 0
+regLatency OrInt = 0
+regLatency XOr = 0
+regLatency XOrInt = 0
+regLatency Eq = 0
+regLatency Neq = 0
+regLatency Lt = 0
+regLatency Leq = 0
+regLatency Gt = 0
+regLatency Geq = 0
+regLatency (LUT _) = 0
+regLatency (MemRead _) = 0
+regLatency (MemWrite _) = 0
+regLatency (LineBuffer _ _ _ _ _) = 0
+regLatency op@(LineBufferManifesto _) = initialLatency op - 1
+regLatency (Constant_Int _) = 0
+regLatency (Constant_Bit _) = 0
+regLatency (SequenceArrayRepack _ _ _ _) = 0 -- Fix
+regLatency (ArrayReshape _ _) = 0
+regLatency (DuplicateOutputs _ op) = regLatency op
+regLatency (MapOp _ op) = regLatency op
+
+-- Note: Actual latency of ReduceOp should be manually specified in my
+-- opinion. Even if the reduced op is combinational (which is almost
+-- always), we may want to (or may not want to) put regs between the
+-- tree levels to break up long combinational paths.
+--
+-- I have reason to suspect that something's not right about the
+-- ReduceOp over non-combinational case where par /= numTokens.
+-- The issue is that in this case there's an extra register/op
+-- loop at the end that reads from itself each cycle in theory,
+-- accumulating the reduce tree's results from each cycle.
+-- But if the op is not combinational, how could it read from
+-- itself each cycle safely?
+--
+-- For now I just add a few extra cycles at the end even though this
+-- won't be the real latency for non-combinational ops (well strictly
+-- speaking, ops with more than 1 reg delay). I need a placeholder for
+-- now, fix it later.
+regLatency (ReduceOp numTokens par op) =
+  let
+    traceMessage =
+      if numTokens /= par && regLatency op > 1 then
+        Just("regLatency for ReduceOp with par/=numTokens \
+             \and non-combinational op is not yet correct.")
+      else
+        Nothing
+    treeDepth = ceilLog par
+    seqLen =
+      if numerator (par % numTokens) == 1 then
+        denominator (par % numTokens)
+      else
+        error "ReduceOp needs par to divide numTokens."
+    latency = (seqLen-1) + (regLatency op * treeDepth)
+  in
+    case traceMessage of
+      Nothing -> latency
+      (Just msg) -> trace msg latency
+
+regLatency (NoOp _) = 0
+-- For fractional util, there may be no single regLatency value for
+-- each token.  e.g. consider tokens a, b, c passed on cycles 0, 1, 2
+-- for an op f with latency 1. f(a), f(b), f(c) come out on cycles 1,
+-- 2, 3 then. Suppose we reduce utilization to 2/3. Then a, b, c come
+-- in on cycles 0, 1, 3 (skipping 2, 5, 8...) and come out on
+-- cycles 1, 3, 4. a got delayed by 1 but b by 2.
+--
+-- In this case then we define the regLatency as the latency experienced
+-- by the earliest token in a sequence.
+
+  
 
 -- | Approximates the longest combinational path in the circuit. This
 -- approximation tracks two things:
@@ -137,7 +227,7 @@ maxCombPath (MemWrite _) = 1
 maxCombPath (LineBuffer _ _ _ _ _) = 1
 maxCombPath (Constant_Int _) = 1
 maxCombPath (Constant_Bit _) = 1
-maxCombPath (SequenceArrayRepack _ _ _) = 1
+maxCombPath (SequenceArrayRepack _ _ _ _) = 1
 maxCombPath (ArrayReshape _ _) = 1
 maxCombPath (DuplicateOutputs _ _) = 1
 

@@ -59,7 +59,7 @@ space (Constant_Bit consts) = OWA (len (T_Array (length consts) T_Bit)) 0
 
 -- may need a more accurate approximate, but most conservative is storing
 -- entire input.
-space (SequenceArrayRepack (inSeq, inWidth) (outSeq, outWidth) inType) =
+space (SequenceArrayRepack (inSeq, inWidth) (outSeq, outWidth) cps_ inType) =
   registerSpace [T_Array inWidth inType] |* inSeq
 
 -- just a pass through, so will get removed by CoreIR
@@ -132,7 +132,8 @@ util (MemWrite _) = 1
 util (LineBuffer _ _ _ _ _) = 1
 util (Constant_Int _) = 1
 util (Constant_Bit _) = 1
-util (SequenceArrayRepack _ _ _) = 1
+util (SequenceArrayRepack (iSeqLen, _) (oSeqLen, _) cps_ _) =
+  (realToFrac (max oSeqLen iSeqLen)) / realToFrac cps_
 util (ArrayReshape _ _) = 1
 util (DuplicateOutputs _ _) = 1
 

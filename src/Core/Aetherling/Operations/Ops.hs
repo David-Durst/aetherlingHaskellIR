@@ -125,6 +125,37 @@ manifestoLineBuffer pxPerClk window image stride origin token =
     Left message -> error message
     Right lb -> LineBufferManifesto lb
 
+-- | Reshapes an input array sequence through space and time. Buffers
+-- inputs (left-to-right) and emits output only when sufficient
+-- outputs are ready (but sometimes a bit later than that).
+--
+-- Args:
+--
+-- (Int, Int) -> input sequence length and array width
+-- (Int, Int) -> output sequence length and array width
+-- TokenType  -> Type of array entries
+--
+-- In words: SequenceArrayRepack (iSeq, iWidth) (oSeq, oWidth) cps t
+-- takes in a sequence of iSeq iWidth-arrays of t and emits a
+-- sequence of oSeq oWidth-arrays of t.
+--
+-- The array entries (t) are treated as an atomic type. If t is itself
+-- an array type, its elements will never be broken up and emitted
+-- on different clock cycles or in separate arrays.
+--
+-- The cps of this op is the max of iSeq and oSeq. Use scaleUtil to
+-- change this.
+sequenceArrayRepack :: (Int, Int) -> (Int, Int) -> TokenType -> Op
+sequenceArrayRepack (iSeq, iWidth) (oSeq, oWidth) t =
+  if iSeq <= 0 || iWidth <= 0 || oSeq <= 0 || oWidth <= 0 then
+    error "Need positive parameters for SequenceArrayRepack."
+  else if iSeq*iWidth /= oSeq*oWidth then
+    error("SequenceArrayRepack input and output token count don't match.\n" ++
+         "Gets " ++ (show (iSeq*iWidth)) ++ " tokens per sequence in.\n" ++
+         "Gets " ++ (show (oSeq*oWidth)) ++ " tokens per sequence out.\n")
+  else
+    SequenceArrayRepack (iSeq, iWidth) (oSeq, oWidth) (max iSeq oSeq) t
+
 -- Function for applying LogicalUtil to an op.
 -- | Slow down an op by an integer factor.
 underutil :: Int -> Op -> Op
@@ -141,6 +172,16 @@ scaleUtil ratio _
       "Can only scale utilization by amount in (0, 1]."
 scaleUtil ratio (LogicalUtil originalRatio op) =
   scaleUtil (ratio * originalRatio) op
+scaleUtil ratio op@(SequenceArrayRepack iTuple oTuple oldCPS t) =
+  let
+    newCPS = (oldCPS * denominator ratio) % (numerator ratio)
+  in
+    if denominator newCPS /= 1 then
+      Failure $ UtilFailure
+      ("Needed cps of `" ++ show op ++ "`\
+      \ divided by utilRatio " ++ show ratio ++ " to be an integer.")
+    else
+      SequenceArrayRepack iTuple oTuple (numerator newCPS) t
 scaleUtil ratio op =
   if denominator (((cps op)%1) / ratio) /= 1 then
     Failure $ UtilFailure

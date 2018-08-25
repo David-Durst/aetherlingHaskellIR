@@ -8,7 +8,8 @@ sequence used to process the inputs on those ports, and the resulting throughput
 module Aetherling.Analysis.PortsAndThroughput (
   clocksPerSequence, cps,
   inPorts, outPorts,
-  inThroughput, outThroughput, portThroughput
+  inThroughput, outThroughput, portThroughput,
+  inPortsLen, outPortsLen
   )
 where
 import Aetherling.Operations.Types
@@ -59,7 +60,7 @@ inPorts (LineBufferManifesto lb) = manifestoInPorts lb
 inPorts (Constant_Int _) = []
 inPorts (Constant_Bit _) = []
 
-inPorts (SequenceArrayRepack (inSeq, inWidth) _ inType) =
+inPorts (SequenceArrayRepack (inSeq, inWidth) _ _ inType) =
   [T_Port "I" inSeq (T_Array inWidth inType) 1 False]
 inPorts (ArrayReshape inTypes _) = renamePorts "I" $ map makePort inTypes
   where makePort t = head $ oneInSimplePort t
@@ -139,7 +140,7 @@ outPorts (LineBufferManifesto lb) = manifestoOutPorts lb
 outPorts (Constant_Int ints) = [T_Port "O" 1 (T_Array (length ints) T_Int) 1 False]
 outPorts (Constant_Bit bits) = [T_Port "O" 1 (T_Array (length bits) T_Bit) 1 False]
 
-outPorts (SequenceArrayRepack _ (outSeq, outWidth) outType) =
+outPorts (SequenceArrayRepack _ (outSeq, outWidth) _ outType) =
   [T_Port "O" outSeq (T_Array outWidth outType) 1 False]
 outPorts (ArrayReshape _ outTypes) = renamePorts "O" $ map makePort outTypes
   where makePort t = head $ oneOutSimplePort t
@@ -258,10 +259,8 @@ clocksPerSequence (LineBufferManifesto lb) = manifestoCPS lb
 clocksPerSequence (Constant_Int _) = combinationalCPS
 clocksPerSequence (Constant_Bit _) = combinationalCPS
 
--- Assuming either the input or output is fully utilized (dense), the
--- clocks taken per sequence is just the longer sequence of the two.
-clocksPerSequence (SequenceArrayRepack (inSeq, _) (outSeq, _) _) =
-  max inSeq outSeq
+-- Now SequenceArrayRepack has its cps explicitly specified so just extract it.
+clocksPerSequence (SequenceArrayRepack (inSeq, _) (outSeq, _) cps_ _) = cps_
 clocksPerSequence (ArrayReshape _ _) = combinationalCPS
 clocksPerSequence (DuplicateOutputs _ _) = combinationalCPS
 
@@ -326,3 +325,11 @@ inThroughput op = map (portThroughput op) $ inPorts op
 -- | Computes the throughput for all of an op's output ports
 outThroughput :: Op -> [PortThroughput]
 outThroughput op = map (portThroughput op) $ outPorts op
+
+-- | Total len of in ports types.
+inPortsLen :: Op -> Int
+inPortsLen op = sum $ map (len . pTType) (inPorts op)
+
+-- | Total len of out ports types.
+outPortsLen :: Op -> Int
+outPortsLen op = sum $ map (len .pTType) (outPorts op)

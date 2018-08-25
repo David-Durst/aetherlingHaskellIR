@@ -62,14 +62,26 @@ data Op =
 
   -- TYPE MANIPULATORS
   --
-  -- | Reshapes an input array sequence through space and time.  Buffers
+  -- | Reshapes an input array sequence through space and time. Buffers
   -- inputs (left-to-right) and emits output only when sufficient
-  -- outputs are ready.  Args: input tuple, output tuple, array entry
-  -- type. Tuple consists of (sequence length, array length) for the
-  -- one input or one output port. Array type may be another array; if
-  -- so, it's treated as atomic and not split between two output
-  -- cycles.
-  | SequenceArrayRepack (Int, Int) (Int, Int) TokenType
+  -- outputs are ready (but sometimes a bit later than that).
+  --
+  -- Args:
+  --
+  -- (Int, Int) -> input sequence length and array width
+  -- (Int, Int) -> output sequence length and array width
+  -- Int        -> clocks per sequence
+  -- TokenType  -> Type of array entries
+  --
+  -- In words: SequenceArrayRepack (iSeq, iWidth) (oSeq, oWidth) cps t
+  -- takes in a sequence of iSeq iWidth-arrays of t and emits a
+  -- sequence of oSeq oWidth-arrays of t, over cps clock cycles.
+  --
+  -- The array entries (t) are treated as an atomic type. If t is itself
+  -- an array type, its elements will never be broken up and emitted
+  -- on different clock cycles or in separate arrays.
+  | SequenceArrayRepack (Int, Int) (Int, Int) Int TokenType
+
   -- | First is list of input port types, second is output.
   -- Pure combinational device: decomposes the input and output arrays to
   -- a sequence of wires, and wires up inputs to outputs in order.
@@ -178,7 +190,7 @@ getChildOps (LineBuffer _ _ _ _ _) = []
 getChildOps (LineBufferManifesto _) = []
 getChildOps (Constant_Int _) = []
 getChildOps (Constant_Bit _) = []
-getChildOps (SequenceArrayRepack _ _ _) = []
+getChildOps (SequenceArrayRepack _ _ _ _) = []
 getChildOps (ArrayReshape _ _) = []
 getChildOps (DuplicateOutputs _ op) = [op]
 getChildOps (MapOp _ op) = [op]

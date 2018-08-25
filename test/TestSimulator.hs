@@ -266,7 +266,7 @@ simhlCase4 = SimhlTestCase
 -- SequenceArrayRepack here.
 simhlMul7Max15SpaceOp =
   (underutil 5 (ArrayReshape (replicate 15 T_Int) [T_Array 15 T_Int])) |>>=|
-  (SequenceArrayRepack (1, 15) (5, 3) T_Int |&| underutil 5 (Constant_Int [7]))
+  (sequenceArrayRepack (1, 15) (5, 3) T_Int |&| underutil 5 (Constant_Int [7]))
   |>>=|
   (ReduceOp 15 3 Max |&| underutil 5 (simhlUnbox T_Int))
   |>>=|
@@ -365,7 +365,7 @@ simhlCase9 = SimhlTestCase
 -- Outputs true iff each 4-sequence input (entered as 2 inputs over 2 cycles)
 -- is strictly increasing. Better test for SequenceArrayReshape and Lt.
 simhlStrictlyIncreasingOp =
-  SequenceArrayRepack (2,2) (1,4) T_Int |>>=|
+  sequenceArrayRepack (2,2) (1,4) T_Int |>>=|
   underutil 2 (
     ArrayReshape [T_Array 4 T_Int] [T_Int, T_Int, T_Int, T_Int] |>>=|
     (NoOp [T_Int] |&| DuplicateOutputs 2 (NoOp [T_Int])
@@ -460,12 +460,12 @@ simhlCase12 = SimhlTestCase
 -- passed 3 at a time.
 simhlXOr10Op =
   ArrayReshape [T_Bit] [T_Array 1 T_Bit] |>>=|
-  SequenceArrayRepack (3, 1) (1, 3) T_Bit |>>=|
+  sequenceArrayRepack (3, 1) (1, 3) T_Bit |>>=|
   underutil 3 (
       LineBuffer [3] [10] [300] T_Bit Crop |>>=|
       MapOp 3 (ReduceOp 10 10 XOr)
   ) |>>=|
-  SequenceArrayRepack (1, 3) (3, 1) T_Bit |>>=|
+  sequenceArrayRepack (1, 3) (3, 1) T_Bit |>>=|
   ArrayReshape [T_Array 1 T_Bit] [T_Bit]
 simhlXOr10Impl :: [[ValueType]] -> [[ValueType]]
                -> ( [[ValueType]], [[ValueType]] )
