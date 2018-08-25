@@ -1,6 +1,3 @@
-module Aetherling.Analysis.Phase where
-import Data.Ratio
-
 -- Module describing my (Akeley's) proposed solution to phase
 -- (repeating pattern of real and garbage outputs) with fractional
 -- underutil.
@@ -47,7 +44,7 @@ import Data.Ratio
 -- | .×.××××××.× .....×. ×××××.×   | .×.   |
 -- | .×.   | ×.×   | .×.   | ×.×   | .×.   |
 -- | 012   | 345   | 678   | 9AB   | CDE   |
--- | 000   | 110   | 111   | 200   | 111   | <- Token latency
+-- | 000   | 110   | 111   | 200   | 111   | Token latency
 --
 -- Notice how none of the outputs (numbered 0-E) had to go backwards
 -- in time (so each input 5-array came as soon as it was needed) but
@@ -63,7 +60,8 @@ import Data.Ratio
 -- phase patterns, it makes sense to adopt a standardized phase
 -- pattern for fractional ratios. This contains the complexity of
 -- phase matching to SequenceArrayRepack itself annd allows the rest
--- of the system to just reason with fractional throughputs.
+-- of the system to just reason with fractional throughputs without
+-- worrying about phase.
 --
 -- This phase pattern may appear to be biased against the opposite
 -- SequenceArrayRepack ("widening" repack, e.g. (5, 3) -> (3, 5)).
@@ -79,5 +77,144 @@ import Data.Ratio
 -- to match up different phase patterns. This should save us both
 -- design time and chip area.
 --
--- Todo: Talk about interaction between underutil and
--- SequenceArrayRepack, justification for cps field.
+-- An unfortunate fact is that SequenceArrayRepack needs to have a
+-- tight relationship with underutilization. This is why I've decided
+-- to include a cps field within the SequenceArrayRepack op itself.
+-- The reason for this is that underutilizing a SequenceArrayRepack
+-- by "skipping" unused clock cycles does not produce the behavior
+-- required by the phase patterns specified above.
+--
+-- (Complicated example incoming).
+--
+-- Example: Suppose we convert 4-sequence of 3-arrays to 3 4-arrays.
+--
+-- | clk 0'| clk 1'| clk 2'| clk 3'|
+-- |       |       |       |       |
+-- | 012   | 345   | 678   | 9AB   |
+-- | .×.   | ×.××××| .×.   | ×.×   |
+-- | .×.   | ×....×| .×... | ×.××  |
+-- | .×.   | ××××.×| .×××. | ×..×  |
+-- | .×.........×.×| ...×. | ××.×  |
+-- | .×××××××××.×.×××××.×. |  ×.×  |
+-- | .........×.×.....×.×.....×.×  |
+-- |       | .×.×  | .×.×  | .×.×  |
+-- | xxxx  | 0123  | 4567  | 89AB  |
+-- |       | 1110  | 1100  | 1000  | Token Latency
+--
+-- Now do the same thing, but spread out over 6 clocks. The input is
+-- 4-sequence over 6 clocks. By the rules above they should come in on
+-- cycles 0, 1, 3, and 4. The 3-sequence output should come cycles 1,
+-- 3, and 5. (Phase is 0, 2, 4; +1 latency).
+--
+-- | clk 0 | clk 1 | clk 2 | clk 3 | clk 4 | clk 5 |
+-- |       |       |       |       |       |       |
+-- | 012   | 345   | xxx   | 678   | 9AB   | xxx   | Input
+-- |       |       |       |       |       |       |
+-- | xxxx  | 0123  | xxxx  | 4567  | xxxx  | 89AB  | Output
+-- |       | 1110  |       | 2200  |       | 2111  | Token Latency (real)
+-- |       |       |       |       |       |       |
+-- | clk 0'| clk 1'|       | clk 2'|    clk 3'?    |
+--
+-- There's actually no way to match up the 4-clocks-per-sequence
+-- example with the 6-cps example by idling for 2 cycles, as underutil
+-- conceptually does. Notice how input 9AB and output 89AB are on the
+-- same cycle (3') in the original but on different cycles (4, 5) in
+-- the underutilized version, and latency can not be reduced any
+-- further to fix this.
+--
+-- So, SequenceArrayRepack has to have knowledge of its actual speed
+-- in a circuit. Once again I think this complexity is worth it to
+-- contain the far greater complexity of phase matching to the
+-- SequenceArrayRepack operator.
+
+module Aetherling.Analysis.Phase (
+  boolPhase,
+  fillPhase,
+  phaseWhichCycle
+) where
+import Data.List
+import Data.Ratio
+
+-- All of these functions are incredibly inefficient. It would be nice
+-- to try caching or a closed-form solution, but for now it is what it is.
+
+-- | Given a utilization ratio, determine the phase pattern as a list of
+-- bools (length = denominator). True indicates a valid input/output is
+-- expected on that cycle, False for garbage.
+boolPhase :: Ratio Int -> [Bool]
+boolPhase ratio
+  | ratio > 1 || ratio <= 0 = error "Util ratio needs to be in (0, 1]."
+  | otherwise = boolPhaseImpl ratio 0 0
+
+boolPhaseImpl :: Ratio Int -> Int -> Int -> [Bool]
+boolPhaseImpl ratio inCount outCount
+  -- We define the phase pattern as the input pattern expected by a
+  -- (num, denom) to (denom, num) SequenceArrayRepack (cps = denom).
+  -- inCount is the number of input arrays so far.
+  -- outCount is the number of output arrays emitted so far.
+  -- (both not counting this cycle).
+  | outCount > denominator ratio =
+    error "Aetherling internal error: phase overflowed."
+  | outCount == denominator ratio = [] -- cps is denominator.
+  | otherwise =
+    let
+      inWidth = denominator ratio
+      outWidth = numerator ratio
+      tokensAhead = inCount*inWidth - outCount*outWidth
+    in
+      if tokensAhead < outWidth then
+        -- Would run out if we emitted an outWidth-array this cycle
+        -- without reading a new one in.
+        True:boolPhaseImpl ratio (inCount+1) (outCount+1)
+      else
+        -- We always emit an output each cycle. seqLen = cps.
+        False:boolPhaseImpl ratio inCount (outCount+1)
+
+-- | Given a utilization ratio, determine the cumulative number of
+-- inputs seen on each clock cycle. Return as Int list mapping clk
+-- cycle number to input count.
+--
+-- Example: fillPhase (2%3) is [1, 2, 2], because on cycle 0, 1 real
+-- input has been seen so far, and on cycles 1 and 2, 2 inputs will
+-- have been seen (since the last cycle's input is garbage).
+fillPhase :: Ratio Int -> [Int]
+fillPhase ratio
+  | ratio > 1 || ratio <= 0 = error "Util ratio needs to be in (0, 1]."
+  | otherwise = fillPhaseImpl ratio 0 0
+
+fillPhaseImpl :: Ratio Int -> Int -> Int -> [Int]
+fillPhaseImpl ratio inCount outCount
+  | outCount > denominator ratio =
+    error "Aetherling internal error: phase overflowed."
+  | outCount == denominator ratio = [] -- cps is denominator.
+  | otherwise =
+    let
+      inWidth = denominator ratio
+      outWidth = numerator ratio
+      tokensAhead = inCount*inWidth - outCount*outWidth
+    in
+      if tokensAhead < outWidth then
+        -- Would run out if we emitted an outWidth-array this cycle
+        -- without reading a new one in.
+        inCount + 1:fillPhaseImpl ratio (inCount+1) (outCount+1)
+      else
+        -- We always emit an output each cycle. seqLen = cps.
+        inCount:fillPhaseImpl ratio inCount (outCount+1)
+
+-- | Given a utilization ratio and the index of an output, find out on
+-- which cycle the output will actually arrive (assuming 0 latency).
+-- e.g. for 2%3 utilization, outputs 0, 1, 2, 3, 4 will come on cycles
+-- 0, 1, 3, 4, 6.
+phaseWhichCycle :: Ratio Int -> Int -> Int
+phaseWhichCycle ratio n =
+  let
+    cps = denominator ratio
+    seqLen = numerator ratio
+    seqCount = n `div` seqLen
+    seqIndex = n `mod` seqLen
+  in
+    case elemIndex (1+seqIndex) (fillPhase ratio) of
+      Nothing ->
+        error "Aetherling internal error: Phase pattern lookup failure."
+      Just phaseIndex ->
+        phaseIndex + cps*seqCount
