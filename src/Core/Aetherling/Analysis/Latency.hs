@@ -12,6 +12,7 @@ import Aetherling.Operations.Types
 import Aetherling.Operations.Properties
 import Aetherling.Analysis.Metrics
 import Aetherling.Analysis.PortsAndThroughput
+import Aetherling.Analysis.Phase
 import Aetherling.LineBufferManifestoModule
 import Data.Bool
 import Data.Ratio
@@ -60,7 +61,7 @@ initialLatency (Constant_Int _) = 1
 initialLatency (Constant_Bit _) = 1
 
 initialLatency (SequenceArrayRepack (inSeq, _) (outSeq, _) _ _) =
-  trace "initialLatency SequenceArrayRepack does not match current ideas."
+  trace "Warning: initialLatency SequenceArrayRepack does not match current ideas."
   (outSeq `ceilDiv` inSeq)
 initialLatency (ArrayReshape _ _) = 1
 initialLatency (DuplicateOutputs _ _) = 1
@@ -96,6 +97,8 @@ initialLatency (Failure _) = 0
 -- | Helper variable that defines how many clocks it takes for a register to
 -- propagate a value.
 registerInitialLatency = 1
+
+
 
 -- Count of the number of registers on the path of the Op.
 -- For ComposePar, choose the path with the longest delay, since when the
@@ -134,7 +137,8 @@ regLatency (LineBuffer _ _ _ _ _) = 0
 regLatency op@(LineBufferManifesto _) = initialLatency op - 1
 regLatency (Constant_Int _) = 0
 regLatency (Constant_Bit _) = 0
-regLatency (SequenceArrayRepack _ _ _ _) = 0 -- Fix
+regLatency (SequenceArrayRepack (inSeqLen, _) (outSeqLen, _) cps_ _) =
+  repackLatency inSeqLen outSeqLen cps_
 regLatency (ArrayReshape _ _) = 0
 regLatency (DuplicateOutputs _ op) = regLatency op
 regLatency (MapOp _ op) = regLatency op
@@ -185,9 +189,21 @@ regLatency (NoOp _) = 0
 -- cycles 1, 3, 4. a got delayed by 1 but b by 2.
 --
 -- In this case then we define the regLatency as the latency experienced
--- by the earliest token in a sequence.
+-- by the earliest token in a sequence. Latency tells us how many inputs (n)
+-- have to arrive until this first output goes out. So, use phaseWhichCycle
+-- to look up how long it actually takes for n inputs to come in.
+--
+-- Note: This may not be correct if the op itself contains a
+-- FractionalUtil or a SequenceArrayRepack.
+regLatency (LogicalUtil ratio op) = phaseWhichCycle ratio (regLatency op)
+regLatency (Delay clks op) = clks + regLatency op
+regLatency (ComposePar ops) = maximum (map regLatency ops)
+regLatency (ComposeSeq ops) = sum (map regLatency ops)
+regLatency (ReadyValid op) = regLatency op -- Still useful for performance evaluation.
+regLatency failure@(Failure _) =
+  error("Failure type has no latency " ++ show failure)
 
-  
+
 
 -- | Approximates the longest combinational path in the circuit. This
 -- approximation tracks two things:
@@ -254,6 +270,8 @@ maxCombPath compSeq@(ComposeSeq ops) = max maxSingleOpPath maxMultiOpPath
     maxSingleOpPath = maximum $ map maxCombPath ops
     maxMultiOpPath = maximum $ map getCombPathLength $ getMultiOpCombGroupings ops
 maxCombPath (Failure _) = 0
+
+
 
 -- THESE ARE THE HELPER FUNCTIONS FOR COMPOSESEQ'S maxCombPath
 -- | In order to get maxCombPath for composeSeq, need to get all combinational 

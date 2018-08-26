@@ -130,10 +130,13 @@
 module Aetherling.Analysis.Phase (
   boolPhase,
   fillPhase,
-  phaseWhichCycle
+  phaseWhichCycle,
+  repackLatency
 ) where
 import Data.List
 import Data.Ratio
+import Aetherling.Analysis.Metrics
+
 
 -- All of these functions are incredibly inefficient. It would be nice
 -- to try caching or a closed-form solution, but for now it is what it is.
@@ -170,6 +173,7 @@ boolPhaseImpl ratio inCount outCount
         -- We always emit an output each cycle. seqLen = cps.
         False:boolPhaseImpl ratio inCount (outCount+1)
 
+
 -- | Given a utilization ratio, determine the cumulative number of
 -- inputs seen on each clock cycle. Return as Int list mapping clk
 -- cycle number to input count.
@@ -201,6 +205,7 @@ fillPhaseImpl ratio inCount outCount
         -- We always emit an output each cycle. seqLen = cps.
         inCount:fillPhaseImpl ratio inCount (outCount+1)
 
+
 -- | Given a utilization ratio and the index of an output, find out on
 -- which cycle the output will actually arrive (assuming 0 latency).
 -- e.g. for 2%3 utilization, outputs 0, 1, 2, 3, 4 will come on cycles
@@ -213,8 +218,47 @@ phaseWhichCycle ratio n =
     seqCount = n `div` seqLen
     seqIndex = n `mod` seqLen
   in
+    -- Wow this must be slow.
     case elemIndex (1+seqIndex) (fillPhase ratio) of
       Nothing ->
         error "Aetherling internal error: Phase pattern lookup failure."
       Just phaseIndex ->
         phaseIndex + cps*seqCount
+
+
+-- | Determine the latency of a SequenceArrayRepack with given parameters.
+-- We define latency as the difference in clock cycles between when the
+-- first input comes in and the first output goes out.
+--
+-- Parameters: input sequence length, output sequence length, clocks per sequence.
+--
+-- Again this is an absurdly inefficient function, suitable for a
+-- prototype only.
+repackLatency :: Int -> Int -> Int -> Int
+repackLatency iSeqLen oSeqLen cps =
+  -- Compare i and o phases. Figure out how many tokens "behind" we
+  -- are in the worst case. Then ceiling-divide that amount by the
+  -- width of the input array to figure out how many cycles of extra
+  -- input (latency) needed to avoid violating causality.
+  let
+    iPhase = boolPhase (iSeqLen%cps)
+    oPhase = boolPhase (oSeqLen%cps)
+
+    -- Can just assume these complimentary array widths.
+    iWidth = oSeqLen
+    oWidth = iSeqLen
+
+    -- Fold lambda. Cycle through iPhase and oPhase, recording in the tuple:
+    -- (input token count, output token count, max behind).
+    -- Here, 1 token is 1 array entry.
+    f (iPriorTokens, oPriorTokens, priorBehind) (iValid, oValid) =
+      let
+        iTokens = if iValid then iPriorTokens+iWidth else iPriorTokens
+        oTokens = if oValid then oPriorTokens+oWidth else oPriorTokens
+      in
+        (iTokens, oTokens, max priorBehind (oTokens-iTokens))
+
+    validPairs = take cps $ zip (cycle iPhase) (cycle oPhase)
+    (_,_,behind) = foldl f (0, 0, 0) validPairs
+  in
+    behind `ceilDiv` iWidth
