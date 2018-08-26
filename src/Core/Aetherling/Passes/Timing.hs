@@ -12,6 +12,7 @@ import Aetherling.Operations.Compose
 import Aetherling.Analysis.Latency
 import Aetherling.Passes.MapOps
 import Data.Ratio
+import Data.List
 
 -- | Given an AST, distribute all LogicalUtil ops to leaf ops, so that
 -- each leaf op in the output AST is wrapped (if needed) with a
@@ -61,14 +62,15 @@ rcpDefault = RetimeComposeParPolicy False
 rcpRetimeReadyValid :: Bool -> RetimeComposeParPolicy -> RetimeComposeParPolicy
 rcpRetimeReadyValid b policy = RetimeComposeParPolicy b
 
-{-
+
+
 -- | For every ComposePar in the AST, add register delays to child ops of
 -- ComposePar to make their latencies match, unless dictated otherwise
 -- by the retime ComposePar policy. This will also run distributeUtil
 -- on the AST.
 retimeComposePar :: RetimeComposeParPolicy -> Op -> Op
 retimeComposePar policy op =
-  retimeComposeParImpl policy (distributeUtil op)
+  rcpLowDelay $ retimeComposeParImpl policy 0 0 (distributeUtil op)
 
 -- Recursive implementation function for ComposePar retiming. Assumes
 -- that the AST has been processed by distributeUtil
@@ -77,7 +79,7 @@ retimeComposePar policy op =
 -- paths (child ops) have the same latency.
 --
 -- Step 2 is to increase the latency of the entire AST passed by
--- both lowLatencyDelta and highLatencyDelta (non-negative ints).
+-- lowLatencyDelta or highLatencyDelta (non-negative ints).
 --
 -- Results returned in RetimeComposeParResult record.
 --
@@ -86,35 +88,83 @@ retimeComposePar policy op =
 -- rcpCost: Cost difference between the two ASTs, in bits of registers used.
 retimeComposeParImpl :: RetimeComposeParPolicy -> Int -> Int -> Op
                      -> RetimeComposeParResult
-retimeComposeParImpl policy targetLatency (ComposePar originalOps) =
+retimeComposeParImpl _ lowLatencyDelta highLatencyDelta _
+  | lowLatencyDelta < 0 || highLatencyDelta < 0 =
+    error "Aetherling internal error: negative latency delta."
+  | lowLatencyDelta > highLatencyDelta =
+    error "Aetherling internal error: latency deltas not in order."
+
+-- Pump up the latencies on each path of the ComposeSeq
+retimeComposeParImpl policy lowLatencyDelta highLatencyDelta (ComposePar ops) =
   let
-    latency = initialLatency -- initialLatency may be FUBAR; swap later if needed.
-    retime = retimeComposeParImpl policy
+    matchedLatency = regLatency (ComposePar ops)
 
-    -- Step 1: Make ops' latencies match.
-    -- We expect that the slowest op will not have its latency increased,
-    -- so use the slowest child op's latency as target latency for child ops.
-    maximumLatency = maximum (map latency originalOps)
-    retimedOps = [op | (_, op, _) <- map (retime maximumLatency) originalOps]
-
-    noDelay = foldl1 (|&|) retimedOps
-
-    -- Step 2: Add delays to the front or back of each op to match
-    -- targetLatency.
-    addDelay count op =
-      if count < 0 then
-        error "Aetherling internal error: needed negative reg count."
-      else if count == 0 then
-        op
-      else if (inPortsLen op) < (outPortsLen op) then
-        -- Cheaper to delay the inputs of op.
-        
+    rcpResults =
+      [
+        let
+          opLatencyDelta = matchedLatency - regLatency op
+        in
+          retimeComposeParImpl
+            policy
+            (opLatencyDelta+lowLatencyDelta)
+            (opLatencyDelta+highLatencyDelta)
+            op
+        | op <- ops
+      ]
   in
-    if isFailure noDelay then
-      error("Aetherling internal error: retimedOps compose failure " ++ show noDelay)
-    else if isFailure withDelay then
-      error("Aetherling internal error: withDelay compose failure " ++ show withDelay)
--}
+    RetimeComposeParResult
+      (foldl1 (|&|) (map rcpLowDelay rcpResults))
+      (foldl1 (|&|) (map rcpHighDelay rcpResults))
+      (sum (map rcpCost rcpResults))
+
+-- For a ComposeSeq, Request all child ops increase their latency by 0
+-- and highLatencyDelta. (0 case just fixes their ComposePar
+-- children). Pick the one that reports the lowest cost and modify its
+-- latency (both by low and high latency delta), and compose it with
+-- the other non-modified ops.
+retimeComposeParImpl policy lowLatencyDelta highLatencyDelta (ComposeSeq ops) =
+  let
+    rcpResults = map (retimeComposeParImpl policy 0 highLatencyDelta) ops
+    minCost = minimum (map rcpCost rcpResults)
+
+    -- Index of op to have its latency increased.
+    Just latencyIdx = findIndex (\r -> rcpCost r == minCost) rcpResults
+
+    highDelayOps =
+      [
+        if i == latencyIdx then rcpHighDelay rcp else rcpLowDelay rcp
+        | (i, rcp) <- zip [0,1..] rcpResults
+      ]
+
+    highCost = rcpCost (rcpResults !! latencyIdx)
+
+    (lowDelayOps, cost) =
+      if lowLatencyDelta /= 0 then
+        let
+          opToDelay = ops !! latencyIdx
+          rcp' = retimeComposeParImpl policy 0 lowLatencyDelta opToDelay
+          delayedOp = rcpHighDelay rcp'
+          lowCost = rcpCost rcp'
+
+          opList =
+            [
+              if i == latencyIdx then delayedOp else rcpLowDelay rcp
+              | (i, rcp) <- zip [0,1..] rcpResults
+            ]
+        in
+          (opList, highCost-lowCost)
+      else
+        -- If lowLatencyDelta is 0, just glue together the rcpLowDelay
+        -- results (recall low delay = 0).
+        (map rcpLowDelay rcpResults, highCost)
+  in
+    RetimeComposeParResult
+      (foldl1 (|>>=|) lowDelayOps)
+      (foldl1 (|>>=|) highDelayOps)
+      cost
+
+
+
 data RetimeComposeParResult = RetimeComposeParResult {
   rcpLowDelay :: Op,
   rcpHighDelay :: Op,
