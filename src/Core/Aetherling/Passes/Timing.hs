@@ -66,10 +66,12 @@ data RetimeComposeParResult = RetimeComposeParResult {
   rcpCost :: Int
 }
 
--- Apply the transformation to both Ops in a RetimeComposeParResult.
-rcpWrapOp :: (Op -> Op) -> RetimeComposeParResult -> RetimeComposeParResult
-rcpWrapOp f (RetimeComposeParResult lowOp highOp cost) =
-  RetimeComposeParResult (f lowOp) (f highOp) cost
+-- Apply the transformation to both Ops in a RetimeComposeParResult,
+-- and the other transformation to the cost.
+rcpWrapOp :: (Op -> Op) -> (Int -> Int) -> RetimeComposeParResult
+          -> RetimeComposeParResult
+rcpWrapOp f g (RetimeComposeParResult lowOp highOp cost) =
+  RetimeComposeParResult (f lowOp) (f highOp) (g cost)
 
 -- | Default policy for retimeComposePar.
 rcpDefault = RetimeComposeParPolicy False
@@ -207,7 +209,7 @@ retimeComposeParImpl policy lowLatencyDelta highLatencyDelta (MapOp n op) =
   let
     rcp = retimeComposeParImpl policy lowLatencyDelta highLatencyDelta op
   in
-    rcpWrapOp (MapOp n) rcp
+    rcpWrapOp (MapOp n) (*n) rcp
 
 -- Regardless of ready-valid retime policy, we have to retime the op
 -- wrapped by the ReadyValid because the wrapped op may have
@@ -224,7 +226,7 @@ retimeComposeParImpl policy lowLatencyDelta' highLatencyDelta' (ReadyValid op) =
 
     rcp = retimeComposeParImpl policy lowLatencyDelta highLatencyDelta op
   in
-    rcpWrapOp readyValid rcp
+    rcpWrapOp readyValid id rcp
 
 -- Default action:
 --
