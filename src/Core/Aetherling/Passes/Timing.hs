@@ -3,13 +3,15 @@ module Aetherling.Passes.Timing (
   RetimeComposeParPolicy,
   rcpDefault,
   rcpRetimeReadyValid,
---  makeRegisters
+  retimeComposePar,
+  retimeComposePar'
 ) where
 import Aetherling.Operations.AST
 import Aetherling.Operations.Types
 import Aetherling.Operations.Ops
 import Aetherling.Operations.Compose
 import Aetherling.Analysis.Latency
+import Aetherling.Analysis.PortsAndThroughput
 import Aetherling.Passes.MapOps
 import Data.Ratio
 import Data.List
@@ -28,6 +30,10 @@ import Data.List
 -- actual delay needed (which way to round for fractional ops?). I set
 -- it to 1 instead of leaving delay untouched to avoid a false sense
 -- of security.
+--
+-- Note: SequenceArrayRepack must know its real speed, so it's not
+-- wrapped in a LogicalUtil. scaleUtil knows how to modify
+-- SequenceArrayRepack's speed without using LogicalUtil.
 distributeUtil :: Op -> Op
 distributeUtil = distributeUtilImpl 1
 
@@ -47,10 +53,23 @@ distributeUtilImpl ratio op =
     (scaleUtil ratio)           -- Leaf op action
     op
 
--- | Settings for retimeComposePar. More may be added with time.
+-- Settings for retimeComposePar. More may be added with time.
 data RetimeComposeParPolicy = RetimeComposeParPolicy {
   rcpRetimeReadyValid_ :: Bool
 }
+
+-- Internal data type used in recursive implementation function
+-- for retimeComposePar. See function for field meanings.
+data RetimeComposeParResult = RetimeComposeParResult {
+  rcpLowDelay :: Op,
+  rcpHighDelay :: Op,
+  rcpCost :: Int
+}
+
+-- Apply the transformation to both Ops in a RetimeComposeParResult.
+rcpWrapOp :: (Op -> Op) -> RetimeComposeParResult -> RetimeComposeParResult
+rcpWrapOp f (RetimeComposeParResult lowOp highOp cost) =
+  RetimeComposeParResult (f lowOp) (f highOp) cost
 
 -- | Default policy for retimeComposePar.
 rcpDefault = RetimeComposeParPolicy False
@@ -68,9 +87,13 @@ rcpRetimeReadyValid b policy = RetimeComposeParPolicy b
 -- ComposePar to make their latencies match, unless dictated otherwise
 -- by the retime ComposePar policy. This will also run distributeUtil
 -- on the AST.
-retimeComposePar :: RetimeComposeParPolicy -> Op -> Op
-retimeComposePar policy op =
+retimeComposePar' :: RetimeComposeParPolicy -> Op -> Op
+retimeComposePar' policy op =
   rcpLowDelay $ retimeComposeParImpl policy 0 0 (distributeUtil op)
+
+-- | retimeComposePar' with the default policy.
+retimeComposePar :: Op -> Op
+retimeComposePar = retimeComposePar' rcpDefault
 
 -- Recursive implementation function for ComposePar retiming. Assumes
 -- that the AST has been processed by distributeUtil
@@ -93,6 +116,14 @@ retimeComposeParImpl _ lowLatencyDelta highLatencyDelta _
     error "Aetherling internal error: negative latency delta."
   | lowLatencyDelta > highLatencyDelta =
     error "Aetherling internal error: latency deltas not in order."
+
+-- Calling distributeUtil is a precondition of this function.  Check
+-- here that it was done: a LogicalUtil should not contain a non-leaf
+-- Op (or a SequenceArrayRepack).
+retimeComposeParImpl _ _ _ (LogicalUtil _ op) | getChildOps op /= [] =
+  error "Aetherling internal error: distributeUtil precondition failed."
+retimeComposeParImpl _ _ _ (LogicalUtil _ (SequenceArrayRepack _ _ _ _)) =
+  error "Aetherling internal error: distributeUtil precondition failed (repack)."
 
 -- Pump up the latencies on each path of the ComposeSeq
 retimeComposeParImpl policy lowLatencyDelta highLatencyDelta (ComposePar ops) =
@@ -163,29 +194,71 @@ retimeComposeParImpl policy lowLatencyDelta highLatencyDelta (ComposeSeq ops) =
       (foldl1 (|>>=|) highDelayOps)
       cost
 
-
-
-data RetimeComposeParResult = RetimeComposeParResult {
-  rcpLowDelay :: Op,
-  rcpHighDelay :: Op,
-  rcpCost :: Int
-}
-
-{-
--- I think that Delay should not be a meta-op (i.e. one that has a
--- child op). It really should just be a stand-alone op that takes
--- only one token type; it's much simpler to think of that way.
-
--- For now this function emulates that: It creates a bank of (count)
--- back-to-back registers, with utilization and type matching that
--- of the list of ports passed.
+-- For MapOp, we can pass on the responsibility for increasing latency
+-- to the child op. This could be more efficient than the default
+-- implementation below. Consider a MapOp 10 over an op that takes 4
+-- ints, converts to 1 int, then back to 4 ints. By looking inside the
+-- child op, we can get away with just 10*1 ints delayed instead of the
+-- 40 needed to delay the array input/output of the map.
 --
--- If I get my way in the future I can reimplement this function
--- easily.
-makeRegisters :: Int -> Ratio Int -> [PortType] -> Op
-makeRegisters count ratio t | count <  0 =
-  error "Aetherling internal error: negative reg count."
-makeRegisters 0 ratio t = scaleUtil ratio (NoOp [t])
-makeRegisters count ratio t =
-  Delay count (scaleUtil ratio (NoOp [t]))
--}
+-- We can do this for MapOp because we know the latency of the map is
+-- the same as the latency of the mapped op.
+retimeComposeParImpl policy lowLatencyDelta highLatencyDelta (MapOp n op) =
+  let
+    rcp = retimeComposeParImpl policy lowLatencyDelta highLatencyDelta op
+  in
+    rcpWrapOp (MapOp n) rcp
+
+-- Regardless of ready-valid retime policy, we have to retime the op
+-- wrapped by the ReadyValid because the wrapped op may have
+-- synchronous timing. The ready-valid flag just controls whether we
+-- try to pump up the latency of the whole ReadyValid op to match
+-- other ops *to the side* of this ReadyValid op.
+retimeComposeParImpl policy lowLatencyDelta' highLatencyDelta' (ReadyValid op) =
+  let
+    (lowLatencyDelta, highLatencyDelta) =
+      if rcpRetimeReadyValid_ policy then
+        (lowLatencyDelta', highLatencyDelta')
+      else
+        (0, 0)
+
+    rcp = retimeComposeParImpl policy lowLatencyDelta highLatencyDelta op
+  in
+    rcpWrapOp readyValid rcp
+
+-- Default action:
+--
+-- 1. Retime the child ops so any ComposePars within get fixed.
+-- 2. If needed to match the target latency delta, wrap
+--    the retimed op in a Delay.
+--
+-- In step 1 we specify latency delta = 0. This is because it's in
+-- general not safe to rely on increasing the child ops' latency to
+-- increase the parent op's latency predictably (e.g. consider
+-- ReduceOp).
+--
+-- Currently Delay does not specify whether the registers are on the
+-- outputs or the inputs. For now, calculate costs (in register bits)
+-- assuming we choose the side that has fewer bits.
+--
+-- This default case includes LogicalUtil, which should only wrap
+-- leaf ops (no ComposePars) by the distributeUtil precondition.
+-- Since the LogicalUtil will then be wrapped in a Delay, the
+-- condition is still met after this function does its work.
+retimeComposeParImpl policy lowLatencyDelta highLatencyDelta op' =
+  let
+    op = mapChildOps (rcpLowDelay . retimeComposeParImpl policy 0 0) op'
+
+    inBits = sum (map (len . pTType) (inPorts op))
+    outBits = sum (map (len . pTType) (outPorts op))
+
+    cost = (highLatencyDelta - lowLatencyDelta) * (min inBits outBits)
+
+    delay :: Int -> Op -> Op
+    delay 0 = id
+    delay n = Delay n
+  in
+    RetimeComposeParResult
+      (delay lowLatencyDelta op)
+      (delay highLatencyDelta op)
+      cost
