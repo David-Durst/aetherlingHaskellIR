@@ -75,7 +75,7 @@ describeMethod name op = do
   print $ "Throughput Out Ports: " ++ show (outThroughput op)
   print $ "Clocks Per Sequence: " ++ show (cps op)
   print $ "Space: " ++ show (space op)
-  print $ "Initial Latency: " ++ show (initialLatency op)
+  print $ "Register Latency: " ++ show (regLatency op)
   print $ "Maximum Combinational Path: " ++ show (maxCombPath op)
   print $ "Utilization: " ++ show (util op)
   putStr "\n"

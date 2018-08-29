@@ -2,11 +2,11 @@
 Module: Aetherling.Analysis.Latency 
 Description: Compute latency of Aetherling ops
 
-Determines the initial latency for how long it takes for a
-pipelined module to receive input, and the max combinational path
-for the highest latency, single cycle part of the circuit.
+Determines the number of register delays from input to output of a
+circuit, and the max combinational path for the highest latency,
+single cycle part of the circuit.
 -}
-module Aetherling.Analysis.Latency (initialLatency, regLatency, maxCombPath) where
+module Aetherling.Analysis.Latency (regLatency, maxCombPath) where
 import Aetherling.Operations.AST
 import Aetherling.Operations.Types
 import Aetherling.Operations.Properties
@@ -18,94 +18,10 @@ import Data.Bool
 import Data.Ratio
 import Debug.Trace -- Temporary for regLatency ReduceOp warning.
 
--- | Compute the number of clocks from when the first input token is supplied to
--- a module's input port until the first token is emitted from one of its output
--- ports.
--- Note: All combinational circuits also have 1. 0 wouldn't be correct, it takes
--- part of a clock for data to propagate through combinational circuits.
--- Due to this issue, can't add initial latencies to get the latency of a
--- pipeline. See maxCombPath for how to determine latency
-initialLatency :: Op -> Int
-initialLatency Add = 1
-initialLatency Sub = 1
-initialLatency Mul = 1
-initialLatency Div = 1
-initialLatency Max = 1
-initialLatency Min = 1
-initialLatency (Ashr _) = 1
-initialLatency (Shl _) = 1
-initialLatency Abs = 1
-initialLatency Not = 1
-initialLatency NotInt = 1
-initialLatency And = 1
-initialLatency AndInt = 1
-initialLatency Or = 1
-initialLatency OrInt = 1
-initialLatency XOr = 1
-initialLatency XOrInt = 1
-initialLatency Eq = 1
-initialLatency Neq = 1
-initialLatency Lt = 1
-initialLatency Leq = 1
-initialLatency Gt = 1
-initialLatency Geq = 1
-initialLatency (LUT _) = 1
-
-initialLatency (MemRead _) = 1
-initialLatency (MemWrite _) = 1
--- intiial latency is just number of warmup clocks
-initialLatency lb@(LineBuffer p w _ _ _) = 1
-initialLatency (LineBufferManifesto lb) = manifestoInitialLatency lb
-
-initialLatency (Constant_Int _) = 1
-initialLatency (Constant_Bit _) = 1
-
-initialLatency (SequenceArrayRepack (inSeq, _) (outSeq, _) _ _) =
-  trace "Warning: initialLatency SequenceArrayRepack does not match current ideas."
-  (outSeq `ceilDiv` inSeq)
-initialLatency (ArrayReshape _ _) = 1
-initialLatency (DuplicateOutputs _ _) = 1
-
-initialLatency (MapOp _ op) = initialLatency op
-initialLatency (ReduceOp numTokens par op) | par == numTokens && isComb op = 1
-initialLatency (ReduceOp numTokens par op) | par == numTokens = initialLatency op * (ceilLog par)
-initialLatency (ReduceOp numTokens par op) =
-  -- pipelinng means only need to wait on latency of tree first time
-  reduceTreeInitialLatency + (numTokens `ceilDiv` par) * (initialLatency op + registerInitialLatency)
-  where 
-    reduceTreeInitialLatency = initialLatency (ReduceOp par par op)
-    -- op adds nothing if its combinational, its CPS else
-    opCPS = bool 0 (initialLatency op) (isComb op)
-
-
-initialLatency (NoOp _) = 0
-initialLatency (LogicalUtil ratio op) = initialLatency op -- This can't be right.
--- since pipelined, this doesn't affect clocks per stream
-initialLatency (Delay dc op) = initialLatency op + dc
-
-initialLatency (ComposePar ops) = maximum $ map initialLatency ops
--- initialLatency is 1 if all elemetns are combintional, sum of latencies of sequential
--- elements otherwise
-initialLatency (ComposeSeq ops) = bool combinationalInitialLatency sequentialInitialLatency
-  (sequentialInitialLatency > 0)
-  where 
-    combinationalInitialLatency = 1
-    sequentialInitialLatency = foldl (+) 0 $ map initialLatency $ filter (not . isComb) ops
-initialLatency (ReadyValid op) = initialLatency op
-initialLatency (Failure _) = 0
-
--- | Helper variable that defines how many clocks it takes for a register to
--- propagate a value.
-registerInitialLatency = 1
-
-
-
 -- Count of the number of registers on the path of the Op.
 -- For ComposePar, choose the path with the longest delay, since when the
 -- circuit is realized in hardware we'll have to pump up the delays on
 -- the other paths to match.
---
--- Not sure how initialLatency (above) is useful.
 regLatency :: Op -> Int
 regLatency Add = 0
 regLatency Sub = 0
@@ -134,7 +50,7 @@ regLatency (LUT _) = 0
 regLatency (MemRead _) = 0
 regLatency (MemWrite _) = 0
 regLatency (LineBuffer _ _ _ _ _) = 0
-regLatency op@(LineBufferManifesto _) = initialLatency op - 1
+regLatency (LineBufferManifesto manifestoData) = manifestoRegLatency manifestoData
 regLatency (Constant_Int _) = 0
 regLatency (Constant_Bit _) = 0
 regLatency (SequenceArrayRepack (inSeqLen, _) (outSeqLen, _) cps_ _) =

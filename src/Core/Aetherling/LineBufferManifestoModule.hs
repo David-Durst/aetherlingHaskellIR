@@ -9,7 +9,7 @@ module Aetherling.LineBufferManifestoModule
   manifestoInPorts,
   manifestoOutPorts,
   manifestoCPS,
-  manifestoInitialLatency,
+  manifestoRegLatency,
   manifestoSimulate,
   manifestoPreprocess
 )
@@ -147,8 +147,8 @@ manifestoCPS lb =
     else
       (imgY * imgX) `div` (yPerClk * xPerClk)
 
-manifestoInitialLatency :: ManifestoData -> Int
-manifestoInitialLatency lb =
+manifestoRegLatency :: ManifestoData -> Int
+manifestoRegLatency lb =
   -- Look at the origin to figure out what is the first window that the
   -- user wants. Now figure out when the lower-right pixel of that
   -- window will come in, and, in theory, that's our initial latency.
@@ -181,7 +181,7 @@ manifestoInitialLatency lb =
     -- (left-to-right then top-to-bottom). Assume yPerClk = 1.
     pixelIndex = imgX * lower + right
 
-    latency = 1 + (pixelIndex `div` xPerClk)
+    latency = (pixelIndex `div` xPerClk)
   in
     if originX > 0 || originX <= -windowX then
       error "origin_x must be in (-window_x, 0]"
