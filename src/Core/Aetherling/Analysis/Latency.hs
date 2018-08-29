@@ -112,7 +112,7 @@ regLatency (NoOp _) = 0
 -- Note: This may not be correct if the op itself contains a
 -- FractionalUtil or a SequenceArrayRepack.
 regLatency (LogicalUtil ratio op) = phaseWhichCycle ratio (regLatency op)
-regLatency (Delay clks op) = clks + regLatency op
+regLatency (Register clks _ _) = clks
 regLatency (ComposePar ops) = maximum (map regLatency ops)
 regLatency (ComposeSeq ops) = sum (map regLatency ops)
 regLatency (ReadyValid op) = regLatency op -- Still useful for performance evaluation.
@@ -177,7 +177,7 @@ maxCombPath (ReduceOp numTokens par op) = max (maxCombPath op) maxCombPathFromOu
 
 maxCombPath (LogicalUtil _ op) = maxCombPath op
 -- since pipelined, this doesn't affect clocks per stream
-maxCombPath (Delay _ op) = maxCombPath op
+maxCombPath (Register _ _ _) = 1
 
 maxCombPath (ComposePar ops) = maximum $ map maxCombPath ops
 maxCombPath compSeq@(ComposeSeq ops) = max maxSingleOpPath maxMultiOpPath

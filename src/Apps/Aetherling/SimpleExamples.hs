@@ -12,7 +12,7 @@ combinationalAdd = Add
 
 reduce44 = ReduceOp 4 4 Add
 
-reduce44Retimed = Delay 2 $ ReduceOp 4 4 Add
+reduce44Retimed = regOutputs 2 $ ReduceOp 4 4 Add
 
 reduce41 = ReduceOp 4 1 Add
 

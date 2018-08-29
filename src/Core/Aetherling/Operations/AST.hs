@@ -104,7 +104,6 @@ data Op =
   -- LogicalUtil may not have any physical effect on the actual
   -- hardware (space function does not reflect this view).
   | LogicalUtil {utilRatio :: Ratio Int, utilOp :: Op}
-  | Delay {delayClocks :: Int, delayedOp :: Op}
 
   -- Represents back-to-back registers (regClocks of them) holding
   -- data of regToken type. The regUtil field is just there to
@@ -212,7 +211,7 @@ getChildOps (MapOp _ op) = [op]
 getChildOps (ReduceOp _ _ op) = [op]
 getChildOps (NoOp _) = []
 getChildOps (LogicalUtil _ op) = [op]
-getChildOps (Delay _ op) = [op]
+getChildOps (Register _ _ _) = []
 getChildOps (ComposePar ops) = ops
 getChildOps (ComposeSeq ops) = ops
 getChildOps (ReadyValid op) = [op]

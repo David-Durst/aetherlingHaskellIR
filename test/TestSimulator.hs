@@ -322,7 +322,7 @@ simhlCase7 = SimhlTestCase
 -- Use de-morgan's law to turn this into a test for or, not.
 -- Also add a register just for fun.
 simhlVec7LessThanOp =
-  geq (T_Array 7 T_Int) |>>=| ReduceOp 7 7 Or |>>=| Delay 1 Not
+  geq (T_Array 7 T_Int) |>>=| ReduceOp 7 7 Or |>>=| regOutputs 1 Not
 simhlVec7LessThanCombinational :: [ValueType] -> [ValueType]
 simhlVec7LessThanCombinational [V_Array xs, V_Array ys] =
   [V_Bit $ all (uncurry (<)) $ zip [x | V_Int x <- xs] [y | V_Int y <- ys]]
@@ -337,8 +337,8 @@ simhlCase8 = SimhlTestCase
 -- Read two tapes of input, and output their sums and differences to
 -- memory, and their mins to an output port.
 simhlMemSumDiffMinOp =
-  (Delay 1 (DuplicateOutputs 3 (MemRead T_Int |&| MemRead T_Int))) |>>=|
-  (Delay 2 (Add |&| Sub |&| Min)) |>>=|
+  (regInputs 1 (DuplicateOutputs 3 (MemRead T_Int |&| MemRead T_Int))) |>>=|
+  (regInputs 2 (Add |&| Sub |&| Min)) |>>=|
   (MemWrite T_Int |&| MemWrite T_Int |&| NoOp [T_Int])
 simhlMemSumDiffMinImpl :: [[ValueType]] -> [[ValueType]]
                        -> ( [[ValueType]], [[ValueType]] )
@@ -356,7 +356,7 @@ simhlMemSumDiffMinImpl _ _ = error "Aetherling test internal error: case 9"
 simhlCase9 = SimhlTestCase
   "Read numbers from two memory inputs, output sums and differences to \
   \memory, mins to an output port. (Tests RegRetime, \
-  \DuplicateOutputs, MemRead, MemWrite, Add, Sub, Min)"
+  \DuplicateOutputs, MemRead, MemWrite, Add, Sub, Min, Register)"
   simhlMemSumDiffMinOp
   simhlMemSumDiffMinImpl
   180

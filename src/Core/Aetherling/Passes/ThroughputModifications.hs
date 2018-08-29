@@ -164,9 +164,6 @@ attemptSpeedUp requestedMult (SequenceArrayRepack (sLenIn, oldArrLenIn)
 -- point in mapping over these as can just defer that to doing over children.
 
 attemptSpeedUp requestedMult op@(NoOp _) = (MapOp requestedMult op, requestedMult)
-attemptSpeedUp requestedMult (Delay d innerOp) =
-  (Delay d spedUpInnerOp, innerMult)
-  where (spedUpInnerOp, innerMult) = attemptSpeedUp requestedMult innerOp 
 
 attemptSpeedUp requestedMult (ComposePar ops) = 
   let
@@ -409,9 +406,6 @@ attemptSlowDown requestedDiv op@(SequenceArrayRepack _ _ _ _) = (op, 1)
 -- point in underutiling these as can just defer that to children.
 
 attemptSlowDown requestedDiv op@(NoOp _) = (MapOp requestedDiv op, requestedDiv)
-attemptSlowDown requestedDiv (Delay d innerOp) =
-  (Delay d slowedInnerOp, innerMult)
-  where (slowedInnerOp, innerMult) = attemptSlowDown requestedDiv innerOp 
 
 attemptSlowDown requestedDiv (ComposePar ops) = 
   let

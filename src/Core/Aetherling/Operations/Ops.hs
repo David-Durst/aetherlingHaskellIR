@@ -10,8 +10,10 @@ module Aetherling.Operations.Ops where
 import Aetherling.Operations.AST
 import Aetherling.Operations.Types
 import Aetherling.Operations.Compose
+import Aetherling.Operations.ReadyValid
 import Aetherling.LineBufferManifestoModule
 import Aetherling.Analysis.PortsAndThroughput
+import Aetherling.Analysis.Latency
 import Data.Ratio
 
 -- SIMD arithmetic operators, pass an array type to automatically map the
@@ -219,7 +221,7 @@ duplicateOutputs n op =
     DuplicateOutputs n op
 
 
--- | Lift a (t -> u) op to work on (array t -> array u).
+-- | Lift a (t.. -> u..) op to work on (array t.. -> array u..).
 mapOp :: Int -> Op -> Op
 mapOp n op =
   if n <= 0 then
@@ -286,8 +288,59 @@ scaleUtil ratio op@(SequenceArrayRepack iTuple oTuple oldCPS t) =
       \ divided by utilRatio " ++ show ratio ++ " to be an integer.")
     else
       SequenceArrayRepack iTuple oTuple (numerator newCPS) t
+-- For register underutil, just modify the util ratio field.
+-- In general we can't determine the correct number of delays
+-- afterwards, so set to 1 to avoid false sense of security.
+scaleUtil ratio op@(Register _ oldUtil t) =
+  Register 1 (ratio*oldUtil) t
 scaleUtil ratio op =
   LogicalUtil ratio op
+
+
+-- | Gate the inputs of an op with registers (n of them, back-to-back).
+regInputs :: Int -> Op -> Op
+regInputs n failure@(Failure _) = failure
+regInputs n op =
+  let
+    cps_ = cps op
+    registers = [Register n (pSeqLen port % cps_) (pTType port)
+                | port <- inPorts op]
+    result =
+      case inPortsReadyValid op of
+        Just True ->
+          readyValid (foldr1 (|&|) registers) |>>=| op
+        Just False ->
+          foldr1 (|&|) registers |>>=| op
+        Nothing ->  -- No inputs to delay.
+          op
+  in
+    case result of
+      fail@(Failure _) ->
+        error("Aetherling internal error: regInputs " ++ (show fail))
+      result' -> result'
+
+
+-- | Gate the outputs of an op with registers (n of them, back-to-back).
+regOutputs :: Int -> Op -> Op
+regOutputs n failure@(Failure _) = failure
+regOutputs n op =
+  let
+    cps_ = cps op
+    registers = [Register n (pSeqLen port % cps_) (pTType port)
+                | port <- outPorts op]
+    result =
+      case outPortsReadyValid op of
+        Just True ->
+          op |>>=| readyValid (foldr1 (|&|) registers)
+        Just False ->
+          op |>>=| foldr1 (|&|) registers
+        Nothing ->  -- No outputs to delay.
+          op
+  in
+    case result of
+      fail@(Failure _) ->
+        error("Aetherling internal error: regOutputs " ++ (show fail))
+      result' -> result'
 
 
 -- Function for wrapping an op in a ready-valid interface.

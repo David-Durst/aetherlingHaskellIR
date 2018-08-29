@@ -31,9 +31,9 @@ import Data.List
 -- it to 1 instead of leaving delay untouched to avoid a false sense
 -- of security.
 --
--- Note: SequenceArrayRepack must know its real speed, so it's not
--- wrapped in a LogicalUtil. scaleUtil knows how to modify
--- SequenceArrayRepack's speed without using LogicalUtil.
+-- Note: SequenceArrayRepack and Register must know their real speeds,
+-- so it's not wrapped in a LogicalUtil. scaleUtil knows how to modify
+-- their speeds properly.
 distributeUtil :: Op -> Op
 distributeUtil = distributeUtilImpl 1
 
@@ -43,8 +43,6 @@ distributeUtil = distributeUtilImpl 1
 distributeUtilImpl :: (Ratio Int) -> Op -> Op
 distributeUtilImpl ratio0 (LogicalUtil ratio1 op) =
   distributeUtilImpl (ratio0 * ratio1) op
-distributeUtilImpl ratio (Delay _ op) =
-  Delay 1 (distributeUtilImpl ratio op)
 distributeUtilImpl ratio (ReadyValid op) =
   ReadyValid (distributeUtilImpl 1 op)
 distributeUtilImpl ratio op =
@@ -231,22 +229,17 @@ retimeComposeParImpl policy lowLatencyDelta' highLatencyDelta' (ReadyValid op) =
 -- Default action:
 --
 -- 1. Retime the child ops so any ComposePars within get fixed.
--- 2. If needed to match the target latency delta, wrap
---    the retimed op in a Delay.
+-- 2. If needed to match the target latency delta, compose
+--    the retimed op with Registers.
 --
 -- In step 1 we specify latency delta = 0. This is because it's in
 -- general not safe to rely on increasing the child ops' latency to
 -- increase the parent op's latency predictably (e.g. consider
--- ReduceOp).
+-- ReduceOp). For ops where this can be done safely (MapOp),
+-- we specialize this function elsewhere.
 --
--- Currently Delay does not specify whether the registers are on the
--- outputs or the inputs. For now, calculate costs (in register bits)
--- assuming we choose the side that has fewer bits.
---
--- This default case includes LogicalUtil, which should only wrap
--- leaf ops (no ComposePars) by the distributeUtil precondition.
--- Since the LogicalUtil will then be wrapped in a Delay, the
--- condition is still met after this function does its work.
+-- We have a choice between delaying the inputs or outputs.
+-- Choose the side that has fewer bits.
 retimeComposeParImpl policy lowLatencyDelta highLatencyDelta op' =
   let
     op = mapChildOps (rcpLowDelay . retimeComposeParImpl policy 0 0) op'
@@ -256,9 +249,8 @@ retimeComposeParImpl policy lowLatencyDelta highLatencyDelta op' =
 
     cost = (highLatencyDelta - lowLatencyDelta) * (min inBits outBits)
 
-    delay :: Int -> Op -> Op
-    delay 0 = id
-    delay n = Delay n
+    delay =
+      if inBits < outBits then regInputs else regOutputs
   in
     RetimeComposeParResult
       (delay lowLatencyDelta op)

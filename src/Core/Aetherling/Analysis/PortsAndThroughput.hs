@@ -84,7 +84,9 @@ inPorts (ReduceOp numTokens par op) = renamePorts "I" $ map scaleSeqLen $
 inPorts (NoOp tTypes) = renamePorts "I" $ map (head . oneInSimplePort) tTypes
 inPorts (LogicalUtil ratio op) =
   scalePortsSeqLens1 (numerator ratio) (inPorts op)
-inPorts (Delay _ op) = inPorts op
+
+inPorts (Register _ utilRatio t) =
+  [T_Port "I" (numerator utilRatio) t 1 False]
 
 inPorts cPar@(ComposePar ops) = renamePorts "I" $ scalePortsSeqLens
   (getSeqLenScalingsForAllPorts cPar ops inPorts) (unionPorts inPorts ops)
@@ -167,7 +169,8 @@ outPorts (NoOp tTypes) = renamePorts "O" $ map (head . oneOutSimplePort) tTypes
 outPorts (LogicalUtil ratio op) =
   scalePortsSeqLens1 (numerator ratio) (outPorts op)
 
-outPorts (Delay _ op) = outPorts op
+outPorts (Register _ utilRatio t) =
+  [T_Port "O" (numerator utilRatio) t 1 False]
 
 -- output from composePar only on clocks when all ops in it are emitting.
 outPorts cPar@(ComposePar ops) = renamePorts "O" $ scalePortsSeqLens
@@ -312,8 +315,8 @@ clocksPerSequence (NoOp _) = combinationalCPS
 clocksPerSequence (LogicalUtil ratio op) =
   cps op * denominator ratio
 
--- since pipelined, this doesn't affect clocks per stream
-clocksPerSequence (Delay _ op) = cps op
+clocksPerSequence (Register _ utilRatio _) =
+  denominator utilRatio
 
 -- will handle fact of doing max warmup in port sequence lengths, not here.
 -- here we just make all the times match up, worry about what to do during

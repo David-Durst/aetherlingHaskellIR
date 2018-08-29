@@ -93,8 +93,8 @@ space (NoOp _) = addId
 -- counters and stuff than integer underutil ops.
 space thisOp@(LogicalUtil ratio childOp) =
   space childOp |+| counterSpace (cps thisOp)
-space (Delay dc op) = space op |+|
-  ((registerSpace $ map pTType $ outPorts op) |* dc)
+space (Register n _ t) =
+  registerSpace [t] |* n
 
 space (ComposePar ops) = foldl (|+|) addId $ map space ops
 space (ComposeSeq ops) = foldl (|+|) addId $ map space ops
@@ -143,7 +143,7 @@ util (ReduceOp _ _ op) = util op
 util (NoOp _) = 1
 util (LogicalUtil ratio op) = util op * realToFrac ratio
 -- since pipelined, this doesn't affect clocks per stream
-util (Delay _ op) = util op
+util (Register _ utilRatio _) = realToFrac utilRatio
 
 util (ComposePar ops) = utilWeightedByArea ops
 util (ComposeSeq ops) = utilWeightedByArea ops
