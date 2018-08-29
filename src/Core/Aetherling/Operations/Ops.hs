@@ -172,6 +172,11 @@ scaleUtil ratio _
       "Can only scale utilization by amount in (0, 1]."
 scaleUtil ratio (LogicalUtil originalRatio op) =
   scaleUtil (ratio * originalRatio) op
+-- XXX We check at the point that the user requests a scaleUtil that
+-- we aren't creating an impossible SequenceArrayRepack (non-integer
+-- cps). But what if the repack is buried in something else? Then
+-- the user will only get an error after distributeUtil is called
+-- implicitly which may be quite confusing.
 scaleUtil ratio op@(SequenceArrayRepack iTuple oTuple oldCPS t) =
   let
     newCPS = (oldCPS * denominator ratio) % (numerator ratio)
@@ -183,12 +188,7 @@ scaleUtil ratio op@(SequenceArrayRepack iTuple oTuple oldCPS t) =
     else
       SequenceArrayRepack iTuple oTuple (numerator newCPS) t
 scaleUtil ratio op =
-  if denominator (((cps op)%1) / ratio) /= 1 then
-    Failure $ UtilFailure
-      ("Needed cps of `" ++ show op ++ "`\
-       \ divided by utilRatio " ++ show ratio ++ " to be an integer.")
-  else
-    LogicalUtil ratio op 
+  LogicalUtil ratio op
 
 -- Function for wrapping an op in a ready-valid interface.
 readyValid :: Op -> Op

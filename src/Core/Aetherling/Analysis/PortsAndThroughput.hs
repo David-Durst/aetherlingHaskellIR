@@ -20,6 +20,7 @@ import Aetherling.Analysis.Metrics
 import Data.Bool
 import Data.Ratio
 import Aetherling.LineBufferManifestoModule
+import Debug.Trace
 
 -- | Compute the in ports of a module.
 inPorts :: Op -> [PortType]
@@ -81,7 +82,8 @@ inPorts (ReduceOp numTokens par op) = renamePorts "I" $ map scaleSeqLen $
     portToDuplicate [] = []
 
 inPorts (NoOp tTypes) = renamePorts "I" $ map (head . oneInSimplePort) tTypes
-inPorts (LogicalUtil _ op) = inPorts op
+inPorts (LogicalUtil ratio op) =
+  scalePortsSeqLens1 (numerator ratio) (inPorts op)
 inPorts (Delay _ op) = inPorts op
 
 inPorts cPar@(ComposePar ops) = renamePorts "I" $ scalePortsSeqLens
@@ -161,8 +163,10 @@ outPorts (MapOp par op) = renamePorts "O" $ liftPortsTypes par (outPorts op)
 outPorts (ReduceOp _ _ op) = renamePorts "O" $ outPorts op
 
 outPorts (NoOp tTypes) = renamePorts "O" $ map (head . oneOutSimplePort) tTypes
--- verifying assertions stated in STAST.hs
-outPorts (LogicalUtil _ op) = outPorts op
+
+outPorts (LogicalUtil ratio op) =
+  scalePortsSeqLens1 (numerator ratio) (outPorts op)
+
 outPorts (Delay _ op) = outPorts op
 
 -- output from composePar only on clocks when all ops in it are emitting.
@@ -222,8 +226,18 @@ getSeqLenScalingsForAllPorts containerOp ops portGetter = ssScalings
 scalePortsSeqLens :: [Int] -> [PortType] -> [PortType]
 scalePortsSeqLens sLenScalings ports = map updatePort $ zip ports sLenScalings
   where
-    updatePort (T_Port name origSLen tType pct readyValid, sLenScaling) = 
+    updatePort (T_Port name origSLen tType pct readyValid, sLenScaling) =
       T_Port name (origSLen * sLenScaling) tType pct readyValid
+
+-- | Scale the sequence lengths of a list of ports by a provided
+-- scaling. This is used when scaling ports to match how cps' are
+-- scaled.
+scalePortsSeqLens1 :: Int -> [PortType] -> [PortType]
+scalePortsSeqLens1 sLenScaling ports = map updatePort ports
+  where
+    updatePort (T_Port name origSLen tType pct readyValid) =
+      T_Port name (origSLen * sLenScaling) tType pct readyValid
+
 
 -- | This is shorthand for clocksPerSequence
 cps op = clocksPerSequence op
@@ -295,18 +309,8 @@ clocksPerSequence (ReduceOp numTokens par op) |
 clocksPerSequence (ReduceOp numTokens par op) = cps op * (numTokens `ceilDiv` par)
 
 clocksPerSequence (NoOp _) = combinationalCPS
-clocksPerSequence (LogicalUtil fraction op)
-  | denominator ratioResult /= 1 =
-      error("Needed clocks-per-second divided by \
-            \utilRatio to be an integer in \
-            \" ++ opStr)
-  | result < cps op =
-      error "Needed utilRatio to be in (0, 1]."
-  | otherwise = result
-  where
-    ratioResult = ((cps op)%1) / fraction
-    result = numerator ratioResult
-    opStr = show (LogicalUtil fraction op)
+clocksPerSequence (LogicalUtil ratio op) =
+  cps op * denominator ratio
 
 -- since pipelined, this doesn't affect clocks per stream
 clocksPerSequence (Delay _ op) = cps op
@@ -402,14 +406,14 @@ readyValidComposeSeqImpl ops =
     cps_in = numerator (cps_in' * (lcmDenom%1))                 :: Int
     cps_out = numerator (cps_out' * (lcmDenom%1))               :: Int
 
+    -- To make seq lens match, have to scale both by the lcm needed
+    -- to make cps_in/_out integers, and the lcm for the final cps.
     cpsValue = lcm cps_in cps_out
-    inSeqScale = cpsValue `div` cps_in
-    outSeqScale = cpsValue `div` cps_out
+    inSeqScale = cpsValue `div` cps_in * lcmDenom
+    outSeqScale = cpsValue `div` cps_out * lcmDenom
 
-    inPorts_ = [
-      T_Port n (s*inSeqScale) t c rv | T_Port n s t c rv <- inPorts (head ops)]
-    outPorts_ = [
-      T_Port n (s*outSeqScale) t c rv | T_Port n s t c rv <- outPorts lastOp]
+    inPorts_ = scalePortsSeqLens1 inSeqScale (inPorts (head ops))
+    outPorts_ = scalePortsSeqLens1 outSeqScale (outPorts lastOp)
   in
     ((inPorts_, outPorts_), cpsValue)
 
