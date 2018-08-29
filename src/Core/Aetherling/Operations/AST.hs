@@ -106,6 +106,15 @@ data Op =
   | LogicalUtil {utilRatio :: Ratio Int, utilOp :: Op}
   | Delay {delayClocks :: Int, delayedOp :: Op}
 
+  -- Represents back-to-back registers (regClocks of them) holding
+  -- data of regToken type. The regUtil field is just there to
+  -- satisfy type-checking (throughput matching). Like SequenceArrayRepack,
+  -- Register needs to know its true speed, otherwise the regClocks
+  -- meaning is ambiguous. (Round up or down?)
+  --
+  -- Use functions regInputs, regOutputs instead of using Register directly.
+  | Register {regClocks :: Int, regUtil :: Ratio Int, regToken :: TokenType}
+
   -- COMPOSE OPS
   | ComposePar [Op]
   | ComposeSeq [Op]
@@ -137,6 +146,12 @@ data FailureType =
   -- | UtilFailure indicates that the util ratio wasn't appropriate for
   -- the op being underutilized.
   | UtilFailure String
+  -- | ArrayReshapeTypeMismatch indicates that it's not possible to wire
+  -- up the inputs to the outputs correctly. The fields indicate the
+  -- "flattened" types of the input and output token list.
+  -- e.g. -- [tInts [3], T_Bit] becomes [T_Int, T_Int, T_Int, T_Bit]
+  | ArrayReshapeTypeMismatch
+      {flattenedInTokens :: [TokenType], flattenedOutTokens :: [TokenType]}
   deriving (Eq, Show)
 
 data ComposeResult = 

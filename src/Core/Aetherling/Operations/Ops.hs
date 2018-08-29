@@ -9,6 +9,7 @@ instantiating Op instances.
 module Aetherling.Operations.Ops where
 import Aetherling.Operations.AST
 import Aetherling.Operations.Types
+import Aetherling.Operations.Compose
 import Aetherling.LineBufferManifestoModule
 import Aetherling.Analysis.PortsAndThroughput
 import Data.Ratio
@@ -115,6 +116,7 @@ mapBitAdapter rawOp (T_Array n t) = MapOp n (mapIntAdapter rawOp t)
 mapBitAdapter rawOp t =
   error (show rawOp ++ " does not accept " ++ show t ++ " input.")
 
+
 -- Function for making a line buffer (based on The Line Buffer Manifesto).
 manifestoLineBuffer :: (Int, Int) -> (Int, Int) -> (Int, Int)
                     -> (Int, Int) -> (Int, Int) -> TokenType
@@ -124,6 +126,33 @@ manifestoLineBuffer pxPerClk window image stride origin token =
        (ManifestoData pxPerClk window image stride origin token) of
     Left message -> error message
     Right lb -> LineBufferManifesto lb
+
+
+-- | Create a constant generater producing the given token type and
+-- value. Values are passed as a 1D list (for bit values, 0 = False, 0
+-- /= True). They will be distributed to the actual array entries in
+-- lexicographical order.
+genConstant :: TokenType -> [Int] -> Op
+genConstant t ints =
+  let
+    extractLenType T_Int = (1, T_Int)
+    extractLenType T_Bit = (1, T_Bit)
+    extractLenType T_Unit = error "Can't generate T_Unit"
+    extractLenType (T_Array n t) =
+      let (n',t') = extractLenType t in (n*n', t')
+    (lenExpected, elemType) = extractLenType t
+  in
+    if length ints /= lenExpected then
+      error("Needed " ++ (show lenExpected) ++ " values for "
+           ++ (show t) ++ " constant.")
+    else if elemType == T_Int then
+      Constant_Int ints |>>=| ArrayReshape [T_Array lenExpected T_Int] [t]
+    else if elemType == T_Bit then
+      Constant_Bit (map (/=0) ints) |>>=|
+        ArrayReshape [T_Array lenExpected T_Bit] [t]
+    else
+      error("Aetherling internal error: unexpected elemType " ++ show elemType)
+
 
 -- | Reshapes an input array sequence through space and time. Buffers
 -- inputs (left-to-right) and emits output only when sufficient
@@ -156,12 +185,82 @@ sequenceArrayRepack (iSeq, iWidth) (oSeq, oWidth) t =
   else
     SequenceArrayRepack (iSeq, iWidth) (oSeq, oWidth) (max iSeq oSeq) t
 
+
+-- | Wire up the input wires with the output wires.  Match them by
+-- "flattening" the input and output array types and gluing the
+-- flattened types together left to right. Example that makes more sense:
+--
+-- tInts [2,2] -> T_Int, tInts [3] gets flattened to
+-- ([0][0], [0][1], [1][0], [1][1]) -> (i) ([0], [1], [2])
+--
+-- so [0][0] goes to output i, [0][1] to [0], [1][0] to [1], [1][1] to [2].
+arrayReshape :: [TokenType] -> [TokenType] -> Op
+arrayReshape inTokens outTokens =
+  if flattenTypes inTokens /= flattenTypes outTokens then
+    Failure $ ArrayReshapeTypeMismatch
+        (flattenTypes inTokens) (flattenTypes outTokens)
+  else
+    ArrayReshape inTokens outTokens
+  where
+    flattenTypes :: [TokenType] -> [TokenType]
+    flattenTypes (T_Array n t:ts) =
+      flattenTypes (replicate n t) ++ flattenTypes ts
+    flattenTypes (t:ts) = t:flattenTypes ts
+    flattenTypes [] = []
+
+
+-- | Duplicate the outputs of an op, n times. Set n = 0 to
+-- discard op outputs.
+duplicateOutputs :: Int -> Op -> Op
+duplicateOutputs n op =
+  if n < 0 then
+    error "Cannot have negative duplicateOutputs count."
+  else
+    DuplicateOutputs n op
+
+
+-- | Lift a (t -> u) op to work on (array t -> array u).
+mapOp :: Int -> Op -> Op
+mapOp n op =
+  if n <= 0 then
+    error "Map must have positive parallelism."
+  else
+    MapOp n op
+
+
+-- | Reduce using a binary operator (a, b -> c).
+-- First int is number of tokens combined by one reduce operation.
+-- Second int is the parallelism: the number of tokens processed
+-- in one logical cycle*. If parallelism < numTokens, then
+-- numTokens/parallelism must be an integer; this is the number
+-- of logical cycles it takes to produce one output token.
+--
+-- *Not sure if still true for non-combinational reduced op.
+reduceOp :: Int -> Int -> Op -> Op
+reduceOp numTokens parallelism op =
+  if numTokens <= 0 || parallelism <= 0 then
+    error "Reduce needs positive parameters."
+  else if numTokens `mod` parallelism /= 0 then
+    error "numTokens/parallelism must be an integer in reduce."
+  else if illegalOp op then
+    error "Reduced op must be binary operator with 2 identical in ports."
+  else
+    ReduceOp numTokens parallelism op
+  where
+    illegalOp op =
+      let [a,b] = inPorts op
+      in
+        length (inPorts op) /= 2 || length (outPorts op) /= 1 ||
+          pTType a /= pTType b || pSeqLen a /= pSeqLen b
+
+
 -- Function for applying LogicalUtil to an op.
 -- | Slow down an op by an integer factor.
 underutil :: Int -> Op -> Op
 underutil denom
   | denom > 0 = scaleUtil (1%denom)
   | otherwise = error "Cannot underutil by non-positive denominator."
+
 
 -- | Scale the op's logical speed by the given fraction in (0, 1].
 scaleUtil :: Ratio Int -> Op -> Op
@@ -189,6 +288,7 @@ scaleUtil ratio op@(SequenceArrayRepack iTuple oTuple oldCPS t) =
       SequenceArrayRepack iTuple oTuple (numerator newCPS) t
 scaleUtil ratio op =
   LogicalUtil ratio op
+
 
 -- Function for wrapping an op in a ready-valid interface.
 readyValid :: Op -> Op

@@ -23,6 +23,20 @@ data TokenType =
   | T_Array Int TokenType
   deriving (Eq, Show)
 
+-- Prettier way of expressing array token types.
+
+-- | Int array token type. Pass list of array dimensions, slowest to
+-- fastest varying.
+tInts :: [Int] -> TokenType
+tInts [] = T_Int
+tInts (dim:dims) = T_Array dim (tInts dims)
+
+-- | Bit array token type. Pass list of array dimensions, slowest to
+-- fastest varying.
+tBits :: [Int] -> TokenType
+tBits [] = T_Bit
+tBits (dim:dims) = T_Array dim (tBits dims)
+
 instance HasLen TokenType where
   len T_Unit = 0
   len T_Int = 8
