@@ -1,5 +1,4 @@
 module Aetherling.Operations.ReadyValid (
-  readyValid,
   portsReadyValid,
   inPortsReadyValid,
   outPortsReadyValid
@@ -7,10 +6,6 @@ module Aetherling.Operations.ReadyValid (
 import Aetherling.Operations.AST
 import Aetherling.Operations.Types
 import Aetherling.Analysis.PortsAndThroughput
-
--- | Wrap an op in a ready-valid interface.
-readyValid :: Op -> Op
-readyValid op = ReadyValid op
 
 -- | Inspect ports to determine if the op is ready valid.  Due to the
 -- restriction against using ComposePar on a mix of ready-valid and
