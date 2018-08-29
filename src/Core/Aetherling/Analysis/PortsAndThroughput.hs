@@ -9,7 +9,8 @@ module Aetherling.Analysis.PortsAndThroughput (
   clocksPerSequence, cps,
   inPorts, outPorts,
   inThroughput, outThroughput, portThroughput,
-  inPortsLen, outPortsLen
+  inPortsLen, outPortsLen,
+  readyValidComposeSeqImpl -- Temporary
   )
 where
 import Aetherling.Operations.Types
@@ -85,7 +86,15 @@ inPorts (Delay _ op) = inPorts op
 
 inPorts cPar@(ComposePar ops) = renamePorts "I" $ scalePortsSeqLens
   (getSeqLenScalingsForAllPorts cPar ops inPorts) (unionPorts inPorts ops)
--- this depends on only wiring up things that have matching throughputs
+
+-- For ComposeSeq of ready-valid, can't depend on matching throughputs.
+-- Examine outports to determine if ready-valid; in theory the in ports
+-- might not be ready valid even though the whole thing is, e.g. there
+-- could be a data-dependent filter or something in there.
+inPorts (ComposeSeq ops) | seqReadyValidOps ops =
+  fst $ fst $ readyValidComposeSeqImpl ops
+-- Otherwise, use this, which depends on only wiring up things that
+-- have matching throughputs
 inPorts (ComposeSeq []) = []
 inPorts cSeq@(ComposeSeq (hd:_)) = renamePorts "I" $
   scalePortsSeqLens (getSeqLenScalingsForAllPorts cSeq [hd] inPorts) (inPorts hd)
@@ -159,11 +168,16 @@ outPorts (Delay _ op) = outPorts op
 -- output from composePar only on clocks when all ops in it are emitting.
 outPorts cPar@(ComposePar ops) = renamePorts "O" $ scalePortsSeqLens
   (getSeqLenScalingsForAllPorts cPar ops outPorts) (unionPorts outPorts ops)
+
+-- For ComposeSeq of ready-valid, can't depend on matching throughputs.
+outPorts (ComposeSeq ops) | seqReadyValidOps ops =
+  snd $ fst $ readyValidComposeSeqImpl ops
 -- this depends on only wiring up things that have matching throughputs
 outPorts (ComposeSeq []) = []
 outPorts cSeq@(ComposeSeq ops) = renamePorts "O" $ scalePortsSeqLens
   (getSeqLenScalingsForAllPorts cSeq [lastOp] outPorts) (outPorts lastOp)
   where lastOp = last ops
+
 outPorts (ReadyValid op) =
   [T_Port name seq pt pct True | T_Port name seq pt pct _ <- outPorts op]
 outPorts (Failure _) = []
@@ -301,6 +315,10 @@ clocksPerSequence (Delay _ op) = cps op
 -- here we just make all the times match up, worry about what to do during
 -- those times in port seq len
 clocksPerSequence (ComposePar ops) = foldl lcm 1 $ map cps ops
+
+-- For ComposeSeq of ready-valid, can't depend on matching throughputs.
+clocksPerSequence (ComposeSeq ops) | seqReadyValidOps ops =
+  snd $ readyValidComposeSeqImpl ops
 -- this depends on only wiring up things that have matching throughputs
 clocksPerSequence (ComposeSeq ops) = foldl lcm 1 $ map cps ops
 
@@ -333,3 +351,125 @@ inPortsLen op = sum $ map (len . pTType) (inPorts op)
 -- | Total len of out ports types.
 outPortsLen :: Op -> Int
 outPortsLen op = sum $ map (len .pTType) (outPorts op)
+
+
+
+-- | Calculate the inPorts, outPorts, and CPS of a ComposeSeq of
+-- ready-valid ops (given list of ops that are composed). (Extract
+-- these values when asked in the inPorts/outPorts/cps functions; with
+-- luck Haskell will optimize out multiple calls to this function).
+--
+-- Need this because we're allowed to compose ops with different
+-- throughputs, so to find out the real throughput (seqLen/cps) we
+-- have to take into account the op with the lowest throughput
+-- (bottleneck).
+--
+-- What we do is start by assuming the first op is able to run at
+-- maximum utilization (100%). Calculate the utilization ratio the
+-- second op neeeds to match pace with the first op (may be >100%).
+-- Then assuming the second op is running at that utilization ratio
+-- (possibly magically if >100%), calculate the third op's needed
+-- utilization, and so on. Take the max of all ops' needed utilization
+-- ratios (including the first op's 100%). Call this M; this is the
+-- factor by which the slowest op slows down the first op.
+--
+-- The real cps of the first op is the op's cps times M.
+--
+-- The real cps of the last op is the op's cps times M/M_last, where
+-- M_last is the needed utilization calculated for the last op.
+--
+-- Then, since all ops need to share one cps value for the ComposeSeq,
+-- do the trick we do for the regular ComposeSeq: Report the final cps
+-- as the lcm of cps_in and cps_out; and scale the seqLens of the
+-- in/out ports to match.
+readyValidComposeSeqImpl :: [Op] -> (([PortType], [PortType]), Int)
+readyValidComposeSeqImpl [] =
+  error "ComposeSeq [] has no cps/inPorts/outPorts."
+readyValidComposeSeqImpl ops =
+  let
+    firstFoldData = FoldData (head ops) 1 1
+    lastFoldData = foldl foldLambda firstFoldData (tail ops)
+
+    firstOp = head ops
+    FoldData lastOp m_last m = lastFoldData
+
+    -- cps as fractions first.
+    cps_in' = (cps firstOp % 1) * m             :: Ratio Int
+    cps_out' = (cps lastOp % 1) * (m / m_last)  :: Ratio Int
+
+    -- Fix cps to int.
+    lcmDenom = lcm (denominator cps_in') (denominator cps_out') :: Int
+    cps_in = numerator (cps_in' * (lcmDenom%1))                 :: Int
+    cps_out = numerator (cps_out' * (lcmDenom%1))               :: Int
+
+    cpsValue = lcm cps_in cps_out
+    inSeqScale = cpsValue `div` cps_in
+    outSeqScale = cpsValue `div` cps_out
+
+    inPorts_ = [
+      T_Port n (s*inSeqScale) t c rv | T_Port n s t c rv <- inPorts (head ops)]
+    outPorts_ = [
+      T_Port n (s*outSeqScale) t c rv | T_Port n s t c rv <- outPorts lastOp]
+  in
+    ((inPorts_, outPorts_), cpsValue)
+
+
+
+data FoldData = FoldData {
+    prevOp_ :: Op,             -- Previous op in ComposeSeq chain.
+    prevUtil_ :: Ratio Int,    -- Needed utilization of previous op.
+    maxUtil_ :: Ratio Int      -- Highest needed utilization seen so far.
+  }
+
+
+
+foldLambda :: FoldData -> Op -> FoldData
+foldLambda (FoldData prevOp prevUtil maxUtil) thisOp =
+  let
+    portPairs = zip (outPorts prevOp) (inPorts thisOp)
+    cps_out = cps prevOp
+    cps_in = cps thisOp
+
+    -- For each output port of the previous op, calculate how much
+    -- faster it's able to output data compared to this op's
+    -- corresponding input port's ability to receive data.
+    ratios = [
+        ((pSeqLen outPort)*cps_in) % ((pSeqLen inPort)*cps_out)
+        | (outPort, inPort) <- portPairs
+      ]
+
+    -- Maximum of the above ratios is how much greater our utilization
+    -- must be compared to the previous op's utilization.
+    thisUtil = prevUtil * (maximum ratios)
+  in
+    FoldData thisOp thisUtil (max maxUtil thisUtil)
+
+
+
+-- Given the list of a ComposeSeq's child ops, determine if we should
+-- delegate to the more complicated ports/cps function above. Look at
+-- the out ports to determine this (in theory we could have ops that
+-- have synchronous inputs but ready-valid outputs, for example a data
+-- dependent filter).
+--
+-- By default we look at the last op, but if it has no out ports
+-- (e.g. MemWrite) then we have to look back. Default to False if none
+-- of the ops have outputs (rare corner case that will probably not
+-- get tested).
+seqReadyValidOps :: [Op] -> Bool
+seqReadyValidOps ops =
+  case seqReadyValidOpsImpl ops of
+    Nothing -> False
+    Just result -> result
+
+-- Nothing if there's no out ports (so look at the op behind).
+seqReadyValidOpsImpl :: [Op] -> Maybe Bool
+seqReadyValidOpsImpl [] = Nothing
+seqReadyValidOpsImpl (op:ops) =
+  case seqReadyValidOpsImpl ops of
+    Just result -> Just result
+    Nothing ->
+      case outPorts op of
+        [] -> Nothing
+        ports ->
+          Just $ any pReadyValid ports
