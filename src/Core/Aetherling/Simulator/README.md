@@ -134,7 +134,7 @@ a. Write a `[ValueType]->[ValueType]` function that simulates the
    should do `[x, y] -> [x+y]`. For certain patterns, helpers like
    `simhlBinaryOp` can further simplify this task (see
    `Combinational.hs`). By convention the new function should be in a
-   file in the `SimulateLib` directory and its name should be
+   file in the `Simulator` directory and its name should be
    something like `simhlFoo` (`simhl` = simulate high level).
 
 b. In the list of simhl pattern matches in Simulator.hs, add an entry

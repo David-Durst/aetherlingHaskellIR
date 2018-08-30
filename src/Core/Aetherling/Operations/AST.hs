@@ -7,23 +7,29 @@ for identifying errors in that tree.
 -}
 module Aetherling.Operations.AST where
 import Aetherling.Operations.Types
+import Aetherling.LineBufferManifestoModule
+import Data.Ratio
 
 -- | The operations that can be used to create dataflow DAGs in Aetherling
 data Op =
   -- LEAF OPS
-  Add TokenType
-  | Sub TokenType
-  | Mul TokenType
-  | Div TokenType
-  | Max TokenType
-  | Min TokenType
-  | Ashr Int TokenType
-  | Shl Int TokenType
-  | Abs TokenType
-  | Not TokenType
-  | And TokenType
-  | Or TokenType
-  | XOr TokenType
+  Add
+  | Sub
+  | Mul
+  | Div
+  | Max
+  | Min
+  | Ashr Int
+  | Shl Int
+  | Abs
+  | Not
+  | NotInt
+  | And
+  | AndInt
+  | Or
+  | OrInt
+  | XOr
+  | XOrInt
   | Eq
   | Neq
   | Lt
@@ -42,6 +48,13 @@ data Op =
   -- Last is the type of the pixel element
   | LineBuffer {pxPerClock :: [Int], windowWidth :: [Int], image :: [Int],
                 lbInT :: TokenType, boundaryCondition :: BoundaryConditions}
+
+  -- Temporary line buffer op based on semantics in "The Line Buffer
+  -- Manifesto".  I need a working line buffer to make progress on my
+  -- work. Later when we refine our main line buffer to work I can go back
+  -- and port uses of LineBufferManifesto to the main line buffer.
+  | LineBufferManifesto ManifestoData
+
   -- | Array is constant produced, int is sequence length
   | Constant_Int {intConstProduced :: [Int]}
   -- | Array is constant produced
@@ -49,14 +62,26 @@ data Op =
 
   -- TYPE MANIPULATORS
   --
-  -- | Reshapes an input array sequence through space and time.  Buffers
+  -- | Reshapes an input array sequence through space and time. Buffers
   -- inputs (left-to-right) and emits output only when sufficient
-  -- outputs are ready.  Args: input tuple, output tuple, array entry
-  -- type. Tuple consists of (sequence length, array length) for the
-  -- one input or one output port. Array type may be another array; if
-  -- so, it's treated as atomic and not split between two output
-  -- cycles.
-  | SequenceArrayRepack (Int, Int) (Int, Int) TokenType
+  -- outputs are ready (but sometimes a bit later than that).
+  --
+  -- Args:
+  --
+  -- (Int, Int) -> input sequence length and array width
+  -- (Int, Int) -> output sequence length and array width
+  -- Int        -> clocks per sequence
+  -- TokenType  -> Type of array entries
+  --
+  -- In words: SequenceArrayRepack (iSeq, iWidth) (oSeq, oWidth) cps t
+  -- takes in a sequence of iSeq iWidth-arrays of t and emits a
+  -- sequence of oSeq oWidth-arrays of t, over cps clock cycles.
+  --
+  -- The array entries (t) are treated as an atomic type. If t is itself
+  -- an array type, its elements will never be broken up and emitted
+  -- on different clock cycles or in separate arrays.
+  | SequenceArrayRepack (Int, Int) (Int, Int) Int TokenType
+
   -- | First is list of input port types, second is output.
   -- Pure combinational device: decomposes the input and output arrays to
   -- a sequence of wires, and wires up inputs to outputs in order.
@@ -69,27 +94,69 @@ data Op =
 
   -- TIMING HELPERS
   | NoOp [TokenType]
-  -- | run underOp at CPS = utilDenominator * old CPS
-  | Underutil {utilDenominator :: Int, underutilizedOp :: Op}
-  | Delay {delayClocks :: Int, delayedOp :: Op}
+  -- | Logically change the (time) utilization of the utilOp.  If
+  -- utilRatio is A/B, then utilOp only has "meaningful" inputs and
+  -- outputs on A out of B cycles. A/B must be in (0,1], and A/B *
+  -- clocks-per-sequence of utilOp must still be an integer.  I
+  -- recommend against constructing this op manually; use the helper
+  -- functions. "Logical" is meant to emphasize my viewpoint that
+  -- this changes our interpretation of an op's outputs, and
+  -- LogicalUtil may not have any physical effect on the actual
+  -- hardware (space function does not reflect this view).
+  | LogicalUtil {utilRatio :: Ratio Int, utilOp :: Op}
+
+  -- Represents back-to-back registers (regClocks of them) holding
+  -- data of regToken type. The regUtil field is just there to
+  -- satisfy type-checking (throughput matching). Like SequenceArrayRepack,
+  -- Register needs to know its true speed, otherwise the regClocks
+  -- meaning is ambiguous. (Round up or down?)
+  --
+  -- Use functions regInputs, regOutputs instead of using Register directly.
+  | Register {regClocks :: Int, regUtil :: Ratio Int, regToken :: TokenType}
 
   -- COMPOSE OPS
   | ComposePar [Op]
   | ComposeSeq [Op]
-  | Failure FailureType 
+  | Failure FailureType
   deriving (Eq, Show)
 
-data BoundaryConditions = Crop | KeepGarbage deriving (Eq, Show)
+-- | The how to handle boundaries where LineBuffer emits invalid data.
+-- this is here so that LineBuffer signature doesn't have warmup.
+-- The warmup makes synchronously timing the circuit very difficult
+-- as need downstream ops to have weird underutilization patterns
+-- that are hard to automatically change in a speed up or slow down.
+data BoundaryConditions =
+  -- | Crop means to have the system automatically remove these values
+  -- from the output using an op at the end of the DAG
+  Crop
+  -- | KeepGarbage means to leave in the outputs during invalid clocks.
+  -- The user will handle them.
+  | KeepGarbage
+  deriving (Eq, Show)
 
 data FailureType =
   ComposeFailure ComposeResult (Op, Op)
   | InvalidThroughputModification {attemptedMult :: Int, actualMult :: Int}
+  -- | UtilFailure indicates that the util ratio wasn't appropriate for
+  -- the op being underutilized.
+  | UtilFailure String
+  -- | ArrayReshapeTypeMismatch indicates that it's not possible to wire
+  -- up the inputs to the outputs correctly. The fields indicate the
+  -- "flattened" types of the input and output token list.
+  -- e.g. -- [tInts [3], T_Bit] becomes [T_Int, T_Int, T_Int, T_Bit]
+  | ArrayReshapeTypeMismatch
+      {flattenedInTokens :: [TokenType], flattenedOutTokens :: [TokenType]}
   deriving (Eq, Show)
 
 data ComposeResult = 
-  PriorFailure 
-  -- | SeqPortMismatch indicates couldn't do comopse as composeSeq requires 
-  -- all port types and latencies 
+  PriorFailure
+  | PortCountMismatch
+  -- | TokenTypeMismatch indicates that we tried to glue two ports of
+  -- different type together.
+  | TokenTypeMismatch PortType PortType
+  -- | SeqPortMismatch indicates couldn't do comopse as composeSeq
+  -- requires all port types and latencies (for reasons besides 2
+  -- above -- I think just throughput mismatches?)
   | SeqPortMismatch {outPortsThroughput :: [PortThroughput],
                      inPortsThroughput :: [PortThroughput]}
   | ComposeSuccess
@@ -99,19 +166,23 @@ data ComposeResult =
 -- get the ops contained inside other ops, for going down ComposeFailure trees
 getChildOp n op = getChildOps op !! n
 getChildOps :: Op -> [Op]
-getChildOps (Add _) = []
-getChildOps (Sub _) = []
-getChildOps (Mul _) = []
-getChildOps (Div _) = []
-getChildOps (Max _) = []
-getChildOps (Min _) = []
-getChildOps (Ashr _ _) = []
-getChildOps (Shl  _ _) = []
-getChildOps (Abs _) = []
-getChildOps (Not _) = []
-getChildOps (And _) = []
-getChildOps (Or _) = []
-getChildOps (XOr _) = []
+getChildOps (Add) = []
+getChildOps (Sub) = []
+getChildOps (Mul) = []
+getChildOps (Div) = []
+getChildOps (Max) = []
+getChildOps (Min) = []
+getChildOps (Ashr _) = []
+getChildOps (Shl _) = []
+getChildOps (Abs) = []
+getChildOps (Not) = []
+getChildOps (NotInt) = []
+getChildOps (And) = []
+getChildOps (AndInt) = []
+getChildOps (Or) = []
+getChildOps (OrInt) = []
+getChildOps (XOr) = []
+getChildOps (XOrInt) = []
 getChildOps (Eq) = []
 getChildOps (Neq) = []
 getChildOps (Lt) = []
@@ -122,16 +193,17 @@ getChildOps (LUT _) = []
 getChildOps (MemRead _) = []
 getChildOps (MemWrite _) = []
 getChildOps (LineBuffer _ _ _ _ _) = []
+getChildOps (LineBufferManifesto _) = []
 getChildOps (Constant_Int _) = []
 getChildOps (Constant_Bit _) = []
-getChildOps (SequenceArrayRepack _ _ _) = []
+getChildOps (SequenceArrayRepack _ _ _ _) = []
 getChildOps (ArrayReshape _ _) = []
 getChildOps (DuplicateOutputs _ op) = [op]
 getChildOps (MapOp _ op) = [op]
 getChildOps (ReduceOp _ _ op) = [op]
 getChildOps (NoOp _) = []
-getChildOps (Underutil _ op) = [op]
-getChildOps (Delay _ op) = [op]
+getChildOps (LogicalUtil _ op) = [op]
+getChildOps (Register _ _ _) = []
 getChildOps (ComposePar ops) = ops
 getChildOps (ComposeSeq ops) = ops
 getChildOps (Failure (ComposeFailure _ (op0, op1))) = [op0, op1]
@@ -147,3 +219,4 @@ hasChildWithError op = (<) 0 $ length $
 getFirstError op | hasChildWithError op = head $ map getFirstError $ getChildOps op
 getFirstError op | isFailure op = op
 getFirstError op = op
+

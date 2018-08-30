@@ -6,23 +6,27 @@ Describes properties that are intrinsic to operators that do not
 require any analysis, like if the operator has a combinational path from at
 least one input port to one output port.
 -}
-module Aetherling.Operations.Properties where
+module Aetherling.Operations.Properties (isComb, hasInternalState) where
 import Aetherling.Operations.AST
 
 isComb :: Op -> Bool
-isComb (Add t) = True
-isComb (Sub t) = True
-isComb (Mul t) = True
-isComb (Div t) = True
-isComb (Max t) = True
-isComb (Min t) = True
-isComb (Ashr _ t) = True
-isComb (Shl _ t) = True
-isComb (Abs t) = True
-isComb (Not t) = True
-isComb (And t) = True
-isComb (Or t) = True
-isComb (XOr t) = True
+isComb (Add) = True
+isComb (Sub) = True
+isComb (Mul) = True
+isComb (Div) = True
+isComb (Max) = True
+isComb (Min) = True
+isComb (Ashr _) = True
+isComb (Shl _) = True
+isComb (Abs) = True
+isComb (Not) = True
+isComb (NotInt) = True
+isComb (And) = True
+isComb (AndInt) = True
+isComb (Or) = True
+isComb (OrInt) = True
+isComb (XOr) = True
+isComb (XOrInt) = True
 isComb Eq = True
 isComb Neq = True
 isComb Lt = True
@@ -35,10 +39,11 @@ isComb (LUT _) = True
 isComb (MemRead _) = True
 isComb (MemWrite _) = True
 isComb (LineBuffer _ _ _ _ _) = True
+isComb (LineBufferManifesto _) = False -- Why is LineBuffer True???
 isComb (Constant_Int _) = True
 isComb (Constant_Bit _) = True
 
-isComb (SequenceArrayRepack _ _ _) = False
+isComb (SequenceArrayRepack _ _ _ _) = False
 isComb (ArrayReshape _ _) = True
 isComb (DuplicateOutputs _ _) = True
 
@@ -47,28 +52,32 @@ isComb (ReduceOp numTokens par op) | par == numTokens = isComb op
 isComb (ReduceOp _ _ op) = False
 
 isComb (NoOp tTypes) = True 
-isComb (Underutil denom op) = isComb op
+isComb (LogicalUtil _ op) = isComb op
 -- since pipelined, this doesn't affect clocks per stream
-isComb (Delay _ op) = False
+isComb (Register _ _ _) = False
 
 isComb (ComposePar ops) = length (filter isComb ops) > 0
 isComb (ComposeSeq ops) = length (filter isComb ops) > 0
 isComb (Failure _) = True
 
 hasInternalState :: Op -> Bool
-hasInternalState (Add t) = False
-hasInternalState (Sub t) = False
-hasInternalState (Mul t) = False
-hasInternalState (Div t) = False
-hasInternalState (Max t) = False
-hasInternalState (Min t) = False
-hasInternalState (Ashr _ t) = False
-hasInternalState (Shl _ t) = False
-hasInternalState (Abs t) = False
-hasInternalState (Not t) = False
-hasInternalState (And t) = False
-hasInternalState (Or t) = False
-hasInternalState (XOr t) = False
+hasInternalState (Add) = False
+hasInternalState (Sub) = False
+hasInternalState (Mul) = False
+hasInternalState (Div) = False
+hasInternalState (Max) = False
+hasInternalState (Min) = False
+hasInternalState (Ashr _) = False
+hasInternalState (Shl _) = False
+hasInternalState (Abs) = False
+hasInternalState (Not) = False
+hasInternalState (NotInt) = False
+hasInternalState (And) = False
+hasInternalState (AndInt) = False
+hasInternalState (Or) = False
+hasInternalState (OrInt) = False
+hasInternalState (XOr) = False
+hasInternalState (XOrInt) = False
 hasInternalState Eq = False
 hasInternalState Neq = False
 hasInternalState Lt = False
@@ -81,10 +90,11 @@ hasInternalState (LUT _) = False
 hasInternalState (MemRead _) = True
 hasInternalState (MemWrite _) = True
 hasInternalState (LineBuffer _ _ _ _ _) = True
+hasInternalState (LineBufferManifesto _) = True
 hasInternalState (Constant_Int _) = False
 hasInternalState (Constant_Bit _) = False
 
-hasInternalState (SequenceArrayRepack _ _ _) = True
+hasInternalState (SequenceArrayRepack _ _ _ _) = True
 hasInternalState (ArrayReshape _ _) = False
 hasInternalState (DuplicateOutputs _ _) = False
 
@@ -93,9 +103,9 @@ hasInternalState (ReduceOp numTokens par op) | par == numTokens = hasInternalSta
 hasInternalState (ReduceOp _ _ op) = True
 
 hasInternalState (NoOp tTypes) = False
-hasInternalState (Underutil denom op) = hasInternalState op
+hasInternalState (LogicalUtil _ op) = hasInternalState op
 -- since pipelined, this doesn't affect clocks per stream
-hasInternalState (Delay _ op) = hasInternalState op
+hasInternalState (Register _ _ _) = True
 
 hasInternalState (ComposePar ops) = length (filter hasInternalState ops) > 0
 hasInternalState (ComposeSeq ops) = length (filter hasInternalState ops) > 0

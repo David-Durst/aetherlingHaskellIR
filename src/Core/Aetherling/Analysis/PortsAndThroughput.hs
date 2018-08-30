@@ -5,29 +5,41 @@ Description: Compute interfaces of Aetherling ops
 Determines the input and output ports of an op, the clocks per 
 sequence used to process the inputs on those ports, and the resulting throughput
 -}
-module Aetherling.Analysis.PortsAndThroughput where
+module Aetherling.Analysis.PortsAndThroughput (
+  clocksPerSequence, cps,
+  inPorts, outPorts,
+  inThroughput, outThroughput, portThroughput,
+  inPortsLen, outPortsLen,
+  )
+where
 import Aetherling.Operations.Types
 import Aetherling.Operations.AST
 import Aetherling.Operations.Properties
 import Aetherling.Analysis.Metrics
 import Data.Bool
 import Data.Ratio
+import Aetherling.LineBufferManifestoModule
+import Debug.Trace
 
 -- | Compute the in ports of a module.
 inPorts :: Op -> [PortType]
-inPorts (Add t) = twoInSimplePorts t
-inPorts (Sub t) = twoInSimplePorts t
-inPorts (Mul t) = twoInSimplePorts t
-inPorts (Div t) = twoInSimplePorts t
-inPorts (Max t) = twoInSimplePorts t
-inPorts (Min t) = twoInSimplePorts t
-inPorts (Ashr _ t) = oneInSimplePort t
-inPorts (Shl _ t) = oneInSimplePort t
-inPorts (Abs t) = oneInSimplePort t
-inPorts (Not t) = oneInSimplePort t
-inPorts (And t) = twoInSimplePorts t
-inPorts (Or t) = twoInSimplePorts t
-inPorts (XOr t) = twoInSimplePorts t
+inPorts (Add) = twoInSimplePorts T_Int
+inPorts (Sub) = twoInSimplePorts T_Int
+inPorts (Mul) = twoInSimplePorts T_Int
+inPorts (Div) = twoInSimplePorts T_Int
+inPorts (Max) = twoInSimplePorts T_Int
+inPorts (Min) = twoInSimplePorts T_Int
+inPorts (Ashr _) = oneInSimplePort T_Int
+inPorts (Shl _) = oneInSimplePort T_Int
+inPorts (Abs) = oneInSimplePort T_Int
+inPorts (Not) = oneInSimplePort T_Bit
+inPorts (NotInt) = oneInSimplePort T_Int
+inPorts (And) = twoInSimplePorts T_Bit
+inPorts (AndInt) = twoInSimplePorts T_Int
+inPorts (Or) = twoInSimplePorts T_Bit
+inPorts (OrInt) = twoInSimplePorts T_Int
+inPorts (XOr) = twoInSimplePorts T_Bit
+inPorts (XOrInt) = twoInSimplePorts T_Int
 inPorts Eq = twoInSimplePorts T_Int
 inPorts Neq = twoInSimplePorts T_Int
 inPorts Lt = twoInSimplePorts T_Int
@@ -43,10 +55,13 @@ inPorts (MemWrite t) = [T_Port "I" 1 t 1]
 inPorts lb@(LineBuffer p _ img t _) = [T_Port "I" (cps lb) parallelType 1]
   where
     parallelType = foldr (\pDim innerType -> T_Array pDim innerType) t p
+
+inPorts (LineBufferManifesto lb) = manifestoInPorts lb
+
 inPorts (Constant_Int _) = []
 inPorts (Constant_Bit _) = []
 
-inPorts (SequenceArrayRepack (inSeq, inWidth) _ inType) =
+inPorts (SequenceArrayRepack (inSeq, inWidth) _ _ inType) =
   [T_Port "I" inSeq (T_Array inWidth inType) 1]
 inPorts (ArrayReshape inTypes _) = renamePorts "I" $ map makePort inTypes
   where makePort t = head $ oneInSimplePort t
@@ -61,16 +76,21 @@ inPorts (ReduceOp numTokens par op) = renamePorts "I" $ map scaleSeqLen $
   where 
     scaleSeqLen (T_Port name origSLen tType pct) =
       T_Port name (origSLen * (numTokens `ceilDiv` par)) tType pct
-    portToDuplicate ((T_Port name sLen tType pct):_) = [T_Port name sLen tType pct]
+    portToDuplicate ((T_Port name sLen tType pct):_) =
+      [T_Port name sLen tType pct]
     portToDuplicate [] = []
 
 inPorts (NoOp tTypes) = renamePorts "I" $ map (head . oneInSimplePort) tTypes
-inPorts (Underutil _ op) = inPorts op
-inPorts (Delay _ op) = inPorts op
+inPorts (LogicalUtil ratio op) =
+  scalePortsSeqLens1 (numerator ratio) (inPorts op)
+
+inPorts (Register _ utilRatio t) =
+  [T_Port "I" (numerator utilRatio) t 1]
 
 inPorts cPar@(ComposePar ops) = renamePorts "I" $ scalePortsSeqLens
   (getSeqLenScalingsForAllPorts cPar ops inPorts) (unionPorts inPorts ops)
--- this depends on only wiring up things that have matching throughputs
+
+-- depends on only wiring up things that have matching throughputs
 inPorts (ComposeSeq []) = []
 inPorts cSeq@(ComposeSeq (hd:_)) = renamePorts "I" $
   scalePortsSeqLens (getSeqLenScalingsForAllPorts cSeq [hd] inPorts) (inPorts hd)
@@ -78,19 +98,23 @@ inPorts (Failure _) = []
 
 -- | Compute the out ports of a module.
 outPorts :: Op -> [PortType]
-outPorts (Add t) = oneOutSimplePort t
-outPorts (Sub t) = oneOutSimplePort t
-outPorts (Mul t) = oneOutSimplePort t
-outPorts (Div t) = oneOutSimplePort t
-outPorts (Max t) = oneOutSimplePort t
-outPorts (Min t) = oneOutSimplePort t
-outPorts (Ashr _ t) = oneOutSimplePort t
-outPorts (Shl _ t) = oneOutSimplePort t
-outPorts (Abs t) = oneOutSimplePort t
-outPorts (Not t) = oneOutSimplePort t
-outPorts (And t) = oneOutSimplePort t
-outPorts (Or t) = oneOutSimplePort t
-outPorts (XOr t) = oneOutSimplePort t
+outPorts (Add) = oneOutSimplePort T_Int
+outPorts (Sub) = oneOutSimplePort T_Int
+outPorts (Mul) = oneOutSimplePort T_Int
+outPorts (Div) = oneOutSimplePort T_Int
+outPorts (Max) = oneOutSimplePort T_Int
+outPorts (Min) = oneOutSimplePort T_Int
+outPorts (Ashr _) = oneOutSimplePort T_Int
+outPorts (Shl _) = oneOutSimplePort T_Int
+outPorts (Abs) = oneOutSimplePort T_Int
+outPorts (Not) = oneOutSimplePort T_Bit
+outPorts (NotInt) = oneOutSimplePort T_Int
+outPorts (And) = oneOutSimplePort T_Bit
+outPorts (AndInt) = oneOutSimplePort T_Int
+outPorts (Or) = oneOutSimplePort T_Bit
+outPorts (OrInt) = oneOutSimplePort T_Int
+outPorts (XOr) = oneOutSimplePort T_Bit
+outPorts (XOrInt) = oneOutSimplePort T_Int
 outPorts Eq = oneOutSimplePort T_Bit
 outPorts Neq  = oneOutSimplePort T_Bit
 outPorts Lt = oneOutSimplePort T_Bit
@@ -113,10 +137,13 @@ outPorts lb@(LineBuffer p w img t _) = [T_Port "O" seqLen parallelStencilType 1]
       foldr (\pDim innerType -> T_Array pDim innerType) singleStencilType p
     -- seqLen is same as inputs, except with nothing on warmup inputs
     seqLen = (pSeqLen $ head $ inPorts lb)
+
+outPorts (LineBufferManifesto lb) = manifestoOutPorts lb
+
 outPorts (Constant_Int ints) = [T_Port "O" 1 (T_Array (length ints) T_Int) 1]
 outPorts (Constant_Bit bits) = [T_Port "O" 1 (T_Array (length bits) T_Bit) 1]
 
-outPorts (SequenceArrayRepack _ (outSeq, outWidth) outType) =
+outPorts (SequenceArrayRepack _ (outSeq, outWidth) _ outType) =
   [T_Port "O" outSeq (T_Array outWidth outType) 1]
 outPorts (ArrayReshape _ outTypes) = renamePorts "O" $ map makePort outTypes
   where makePort t = head $ oneOutSimplePort t
@@ -128,13 +155,17 @@ outPorts (MapOp par op) = renamePorts "O" $ liftPortsTypes par (outPorts op)
 outPorts (ReduceOp _ _ op) = renamePorts "O" $ outPorts op
 
 outPorts (NoOp tTypes) = renamePorts "O" $ map (head . oneOutSimplePort) tTypes
--- verifying assertions stated in STAST.hs
-outPorts (Underutil _ op) = outPorts op
-outPorts (Delay _ op) = outPorts op
+
+outPorts (LogicalUtil ratio op) =
+  scalePortsSeqLens1 (numerator ratio) (outPorts op)
+
+outPorts (Register _ utilRatio t) =
+  [T_Port "O" (numerator utilRatio) t 1]
 
 -- output from composePar only on clocks when all ops in it are emitting.
 outPorts cPar@(ComposePar ops) = renamePorts "O" $ scalePortsSeqLens
   (getSeqLenScalingsForAllPorts cPar ops outPorts) (unionPorts outPorts ops)
+
 -- this depends on only wiring up things that have matching throughputs
 outPorts (ComposeSeq []) = []
 outPorts cSeq@(ComposeSeq ops) = renamePorts "O" $ scalePortsSeqLens
@@ -182,8 +213,18 @@ getSeqLenScalingsForAllPorts containerOp ops portGetter = ssScalings
 scalePortsSeqLens :: [Int] -> [PortType] -> [PortType]
 scalePortsSeqLens sLenScalings ports = map updatePort $ zip ports sLenScalings
   where
-    updatePort (T_Port name origSLen tType pct, sLenScaling) = 
+    updatePort (T_Port name origSLen tType pct, sLenScaling) =
       T_Port name (origSLen * sLenScaling) tType pct
+
+-- | Scale the sequence lengths of a list of ports by a provided
+-- scaling. This is used when scaling ports to match how cps' are
+-- scaled.
+scalePortsSeqLens1 :: Int -> [PortType] -> [PortType]
+scalePortsSeqLens1 sLenScaling ports = map updatePort ports
+  where
+    updatePort (T_Port name origSLen tType pct) =
+      T_Port name (origSLen * sLenScaling) tType pct
+
 
 -- | This is shorthand for clocksPerSequence
 cps op = clocksPerSequence op
@@ -194,19 +235,23 @@ registerCPS = 1
 -- sequence to each of its ports assuming the op is fully pipelined.
 -- This is the time in a throughput computation.
 clocksPerSequence :: Op -> Int
-clocksPerSequence (Add t) = combinationalCPS
-clocksPerSequence (Sub t) = combinationalCPS
-clocksPerSequence (Mul t) = combinationalCPS
-clocksPerSequence (Div t) = combinationalCPS
-clocksPerSequence (Max t) = combinationalCPS
-clocksPerSequence (Min t) = combinationalCPS
-clocksPerSequence (Ashr _ t) = combinationalCPS
-clocksPerSequence (Shl _ t) = combinationalCPS
-clocksPerSequence (Abs t) = combinationalCPS
-clocksPerSequence (Not t) = combinationalCPS
-clocksPerSequence (And t) = combinationalCPS
-clocksPerSequence (Or t) = combinationalCPS
-clocksPerSequence (XOr t) = combinationalCPS
+clocksPerSequence (Add) = combinationalCPS
+clocksPerSequence (Sub) = combinationalCPS
+clocksPerSequence (Mul) = combinationalCPS
+clocksPerSequence (Div) = combinationalCPS
+clocksPerSequence (Max) = combinationalCPS
+clocksPerSequence (Min) = combinationalCPS
+clocksPerSequence (Ashr _) = combinationalCPS
+clocksPerSequence (Shl _) = combinationalCPS
+clocksPerSequence (Abs) = combinationalCPS
+clocksPerSequence (Not) = combinationalCPS
+clocksPerSequence (NotInt) = combinationalCPS
+clocksPerSequence (And) = combinationalCPS
+clocksPerSequence (AndInt) = combinationalCPS
+clocksPerSequence (Or) = combinationalCPS
+clocksPerSequence (OrInt) = combinationalCPS
+clocksPerSequence (XOr) = combinationalCPS
+clocksPerSequence (XOrInt) = combinationalCPS
 clocksPerSequence Eq = combinationalCPS
 clocksPerSequence Neq = combinationalCPS
 clocksPerSequence Lt = combinationalCPS
@@ -223,13 +268,14 @@ clocksPerSequence (LineBuffer (pHd:[]) _ (imgHd:[]) t _) = imgHd `ceilDiv` pHd
 clocksPerSequence (LineBuffer (pHd:pTl) (_:wTl) (imgHd:imgTl) t bc) =
   (imgHd `ceilDiv` pHd) * (cps $ LineBuffer pTl wTl imgTl t bc)
 clocksPerSequence (LineBuffer _ _ _ _ _) = -1
+
+clocksPerSequence (LineBufferManifesto lb) = manifestoCPS lb
+
 clocksPerSequence (Constant_Int _) = combinationalCPS
 clocksPerSequence (Constant_Bit _) = combinationalCPS
 
--- Assuming either the input or output is fully utilized (dense), the
--- clocks taken per sequence is just the longer sequence of the two.
-clocksPerSequence (SequenceArrayRepack (inSeq, _) (outSeq, _) _) =
-  max inSeq outSeq
+-- Now SequenceArrayRepack has its cps explicitly specified so just extract it.
+clocksPerSequence (SequenceArrayRepack (inSeq, _) (outSeq, _) cps_ _) = cps_
 clocksPerSequence (ArrayReshape _ _) = combinationalCPS
 clocksPerSequence (DuplicateOutputs _ _) = combinationalCPS
 
@@ -250,16 +296,20 @@ clocksPerSequence (ReduceOp numTokens par op) |
 clocksPerSequence (ReduceOp numTokens par op) = cps op * (numTokens `ceilDiv` par)
 
 clocksPerSequence (NoOp _) = combinationalCPS
-clocksPerSequence (Underutil denom op) = denom * cps op
--- since pipelined, this doesn't affect clocks per stream
-clocksPerSequence (Delay _ op) = cps op
+clocksPerSequence (LogicalUtil ratio op) =
+  cps op * denominator ratio
+
+clocksPerSequence (Register _ utilRatio _) =
+  denominator utilRatio
 
 -- will handle fact of doing max warmup in port sequence lengths, not here.
 -- here we just make all the times match up, worry about what to do during
 -- those times in port seq len
 clocksPerSequence (ComposePar ops) = foldl lcm 1 $ map cps ops
+
 -- this depends on only wiring up things that have matching throughputs
 clocksPerSequence (ComposeSeq ops) = foldl lcm 1 $ map cps ops
+
 clocksPerSequence (Failure _) = -1
 
 -- | A helper constant that defines the CPS for a combinational circuit 
@@ -278,3 +328,11 @@ inThroughput op = map (portThroughput op) $ inPorts op
 -- | Computes the throughput for all of an op's output ports
 outThroughput :: Op -> [PortThroughput]
 outThroughput op = map (portThroughput op) $ outPorts op
+
+-- | Total len of in ports types.
+inPortsLen :: Op -> Int
+inPortsLen op = sum $ map (len . pTType) (inPorts op)
+
+-- | Total len of out ports types.
+outPortsLen :: Op -> Int
+outPortsLen op = sum $ map (len .pTType) (outPorts op)

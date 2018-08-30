@@ -1,27 +1,28 @@
 module Aetherling.SimpleExamples where
 import Aetherling.Operations.Types
 import Aetherling.Operations.AST
+import Aetherling.Operations.Ops
 import Aetherling.Operations.Compose
 import Aetherling.Analysis.Latency
 import Aetherling.Analysis.PortsAndThroughput
 import Aetherling.Analysis.Space
 import Text.Pretty.Simple (pPrint)
 
-combinationalAdd = Add T_Int
+combinationalAdd = Add
 
-reduce44 = ReduceOp 4 4 (Add T_Int)
+reduce44 = ReduceOp 4 4 Add
 
-reduce44Retimed = Delay 2 $ ReduceOp 4 4 (Add T_Int)
+reduce44Retimed = regOutputs 2 $ ReduceOp 4 4 Add
 
-reduce41 = ReduceOp 4 1 (Add T_Int)
+reduce41 = ReduceOp 4 1 Add
 
-map4 = MapOp 4 (Add T_Int)
+map4 = MapOp 4 Add
 
 lb13 = LineBuffer [1] [3] [300] T_Int Crop
 
 lb23 = LineBuffer [2] [3] [300] T_Int Crop
 
-lb13Underutil = Underutil 2 $ LineBuffer [2] [3] [300] T_Int Crop
+lb13Underutil = underutil 2 $ LineBuffer [2] [3] [300] T_Int Crop
 
 lbChain = 
   Constant_Int [1] |>>=|
@@ -34,15 +35,15 @@ memReadInt = MemRead T_Int
 
 memWriteInt = MemWrite T_Int
 
-spaceAndTimeReshape = SequenceArrayRepack (1, 2) (2, 1) T_Int |>>=|
+spaceAndTimeReshape = sequenceArrayRepack (1, 2) (2, 1) T_Int |>>=|
   ArrayReshape [T_Array 1 T_Int] [T_Int]
 
 constantSpaceTimeReshape = 
-  Underutil 3 (Constant_Int [1, 1, 1]) |>>=| 
-  SequenceArrayRepack (1, 3) (3, 1) T_Int |>>=|
+  underutil 3 (Constant_Int [1, 1, 1]) |>>=| 
+  sequenceArrayRepack (1, 3) (3, 1) T_Int |>>=|
   ArrayReshape [T_Array 1 T_Int] [T_Int]
 
-duplicateAdd = DuplicateOutputs 3 (Add T_Int)
+duplicateAdd = DuplicateOutputs 3 Add
 
 conv1PxPerClock = 
   (
@@ -54,8 +55,8 @@ conv1PxPerClock =
     ) |&|
     Constant_Int [1, 1, 1]
   ) |>>=|
-  MapOp 3 (Add T_Int) |>>=|
-  ReduceOp 3 3 (Add T_Int) |>>=|
+  addInts (T_Array 3 T_Int) |>>=|
+  ReduceOp 3 3 Add |>>=|
   MemWrite T_Int
 
 describeMethod name op = do
@@ -67,7 +68,7 @@ describeMethod name op = do
   print $ "Throughput Out Ports: " ++ show (outThroughput op)
   print $ "Clocks Per Sequence: " ++ show (cps op)
   print $ "Space: " ++ show (space op)
-  print $ "Initial Latency: " ++ show (initialLatency op)
+  print $ "Register Latency: " ++ show (sequentialLatency op)
   print $ "Maximum Combinational Path: " ++ show (maxCombPath op)
   print $ "Utilization: " ++ show (util op)
   putStr "\n"

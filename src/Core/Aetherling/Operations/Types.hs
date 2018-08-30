@@ -23,6 +23,20 @@ data TokenType =
   | T_Array Int TokenType
   deriving (Eq, Show)
 
+-- Prettier way of expressing array token types.
+
+-- | Int array token type. Pass list of array dimensions, slowest to
+-- fastest varying.
+tInts :: [Int] -> TokenType
+tInts [] = T_Int
+tInts (dim:dims) = T_Array dim (tInts dims)
+
+-- | Bit array token type. Pass list of array dimensions, slowest to
+-- fastest varying.
+tBits :: [Int] -> TokenType
+tBits [] = T_Bit
+tBits (dim:dims) = T_Array dim (tBits dims)
+
 instance HasLen TokenType where
   len T_Unit = 0
   len T_Int = 8
@@ -71,9 +85,13 @@ valueTypeTail V_Unit = V_Unit
 valueTypeTail (V_Array arr) = V_Array (tail arr)
 valueTypeTail _ = error "valueTypeTail of non-array non-unit ValueType"
 
--- implicitly not banning multiple ports with same name here
--- names are only helpful reminders, can have duplicates with non-renamed ports
+-- implicitly not banning multiple ports with same name here names are
+-- only helpful reminders, can have duplicates with non-renamed ports
 -- pCTime tracks the combinonal time from the module through this port
+-- Note: if pReadyValid is true, then the other values are just
+-- estimates.  This is still useful data to keep around, for example
+-- if we want to match the throughputs of 2 ready-valid ops for
+-- performance (not correctness) reasons.
 data PortType = T_Port {pName :: [Char], pSeqLen :: Int,
   pTType :: TokenType, pCTime :: Int} deriving (Show)
 
