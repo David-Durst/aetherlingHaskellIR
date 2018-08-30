@@ -104,34 +104,34 @@ composeTest9 =
 -- Make sure ComposeSeq detects port count mismatches.
 composeTest10 =
   testComposeFailure
-    "Illegal ComposeSeq of ops with different number of ports." $
+    "Illegal ComposeSeq of ops with different number of ports" $
     And |>>=| Or
 
 
 -- Make sure ComposeSeq rejects mix of ready-valid and synchronous.
 composeTest11 =
   testComposeFailure
-    "Illegal ComposeSeq of non-ready-valid and ready-valid ops." $
+    "Illegal ComposeSeq of non-ready-valid and ready-valid ops" $
     readyValid XOr |>>=| readyValid Not |>>=| MemWrite T_Bit
 
 
 -- Make sure ComposeSeq ready-valid mixing test sees inside ComposePar.
 composeTest12 =
   testComposeFailure
-    "Illegal ComposeSeq of non-ready-valid and ready-valid ComposePars." $
+    "Illegal ComposeSeq of non-ready-valid and ready-valid ComposePars" $
     (readyValid (MemRead T_Int) |&| readyValid (MemRead T_Int))
     |>>=| Mul
 
 composeTest13 =
   testComposeFailure
-    "Illegal ComposeSeq of non-ready-valid and ready-valid, reversed." $
+    "Illegal ComposeSeq of non-ready-valid and ready-valid, reversed" $
     (MemRead T_Int |&| MemRead T_Int) |>>=| readyValid Mul
 
 
 -- Make sure ComposePar rejects mix of ready-valid and non-ready-valid.
 composeTest14 =
   testComposeFailure
-    "Illegal ComposePar of ready-valid and non-ready-valid." $
+    "Illegal ComposePar of ready-valid and non-ready-valid" $
     readyValid (MemRead T_Int) |&| mapOp 4 XOrInt
 
 
@@ -139,14 +139,14 @@ composeTest14 =
 -- illegal ready-valid mix.
 composeTest15 =
   testComposeFailure
-    "Illegal ComposePar of mismatched ready-valid in ComposeSeq." $
+    "Illegal ComposePar of mismatched ready-valid in ComposeSeq" $
     (readyValid (MemRead T_Int) |>>=| readyValid NotInt) |&|  Or
 
 
 -- Make sure ComposeSeq of non-ready-valid detects throughput mismatches.
 composeTest16 =
   testComposeFailure
-    "Illegal throughput mismatch in ComposeSeq." $
+    "Illegal throughput mismatch in ComposeSeq" $
     reduceOp 4 2 Mul |>>=| MemWrite T_Int
 
 
