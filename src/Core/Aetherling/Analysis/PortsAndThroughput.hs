@@ -49,10 +49,10 @@ inPorts Geq = twoInSimplePorts T_Int
 inPorts (LUT _) = oneInSimplePort T_Int
 
 inPorts (MemRead _) = []
-inPorts (MemWrite t) = [T_Port "I" 1 t 1]
+inPorts (MemWrite t) = [T_Port "I" 1 t 1 False]
 -- since CPS includes both emitting and non-emitting times, and taking in
 -- one input per clock, input sequence length equal to CPS
-inPorts lb@(LineBuffer p _ img t _) = [T_Port "I" (cps lb) parallelType 1]
+inPorts lb@(LineBuffer p _ img t _) = [T_Port "I" (cps lb) parallelType 1 False]
   where
     parallelType = foldr (\pDim innerType -> T_Array pDim innerType) t p
 
@@ -62,7 +62,7 @@ inPorts (Constant_Int _) = []
 inPorts (Constant_Bit _) = []
 
 inPorts (SequenceArrayRepack (inSeq, inWidth) _ _ inType) =
-  [T_Port "I" inSeq (T_Array inWidth inType) 1]
+  [T_Port "I" inSeq (T_Array inWidth inType) 1 False]
 inPorts (ArrayReshape inTypes _) = renamePorts "I" $ map makePort inTypes
   where makePort t = head $ oneInSimplePort t
 -- for in ports, no duplicates
@@ -74,10 +74,10 @@ inPorts (MapOp par op) = renamePorts "I" $ liftPortsTypes par (inPorts op)
 inPorts (ReduceOp numTokens par op) = renamePorts "I" $ map scaleSeqLen $
   liftPortsTypes par $ portToDuplicate $ inPorts op
   where 
-    scaleSeqLen (T_Port name origSLen tType pct) =
-      T_Port name (origSLen * (numTokens `ceilDiv` par)) tType pct
-    portToDuplicate ((T_Port name sLen tType pct):_) =
-      [T_Port name sLen tType pct]
+    scaleSeqLen (T_Port name origSLen tType pct readyValid) =
+      T_Port name (origSLen * (numTokens `ceilDiv` par)) tType pct readyValid
+    portToDuplicate ((T_Port name sLen tType pct readyValid):_) =
+      [T_Port name sLen tType pct readyValid]
     portToDuplicate [] = []
 
 inPorts (NoOp tTypes) = renamePorts "I" $ map (head . oneInSimplePort) tTypes
@@ -85,15 +85,24 @@ inPorts (LogicalUtil ratio op) =
   scalePortsSeqLens1 (numerator ratio) (inPorts op)
 
 inPorts (Register _ utilRatio t) =
-  [T_Port "I" (numerator utilRatio) t 1]
+  [T_Port "I" (numerator utilRatio) t 1 False]
 
 inPorts cPar@(ComposePar ops) = renamePorts "I" $ scalePortsSeqLens
   (getSeqLenScalingsForAllPorts cPar ops inPorts) (unionPorts inPorts ops)
 
--- depends on only wiring up things that have matching throughputs
+-- For ComposeSeq of ready-valid, can't depend on matching throughputs.
+-- Examine outports to determine if ready-valid; in theory the in ports
+-- might not be ready valid even though the whole thing is, e.g. there
+-- could be a data-dependent filter or something in there.
+inPorts (ComposeSeq ops) | seqReadyValidOps ops =
+  fst $ fst $ readyValidComposeSeqImpl ops
+-- Otherwise, use this, which depends on only wiring up things that
+-- have matching throughputs
 inPorts (ComposeSeq []) = []
 inPorts cSeq@(ComposeSeq (hd:_)) = renamePorts "I" $
   scalePortsSeqLens (getSeqLenScalingsForAllPorts cSeq [hd] inPorts) (inPorts hd)
+inPorts (ReadyValid op) =
+  [T_Port name seq pt pct True | T_Port name seq pt pct _ <- inPorts op]
 inPorts (Failure _) = []
 
 -- | Compute the out ports of a module.
@@ -127,7 +136,7 @@ outPorts (MemRead t) = oneOutSimplePort t
 outPorts (MemWrite _) = []
 -- go back to (sLen - ((w `ceilDiv` p) - 1)) for out stream length when 
 -- including warmup and shutdown
-outPorts lb@(LineBuffer p w img t _) = [T_Port "O" seqLen parallelStencilType 1]
+outPorts lb@(LineBuffer p w img t _) = [T_Port "O" seqLen parallelStencilType 1 False]
   where
     -- make number of stencials equal to parallelism
     -- first is just one stencil
@@ -140,11 +149,11 @@ outPorts lb@(LineBuffer p w img t _) = [T_Port "O" seqLen parallelStencilType 1]
 
 outPorts (LineBufferManifesto lb) = manifestoOutPorts lb
 
-outPorts (Constant_Int ints) = [T_Port "O" 1 (T_Array (length ints) T_Int) 1]
-outPorts (Constant_Bit bits) = [T_Port "O" 1 (T_Array (length bits) T_Bit) 1]
+outPorts (Constant_Int ints) = [T_Port "O" 1 (T_Array (length ints) T_Int) 1 False]
+outPorts (Constant_Bit bits) = [T_Port "O" 1 (T_Array (length bits) T_Bit) 1 False]
 
 outPorts (SequenceArrayRepack _ (outSeq, outWidth) _ outType) =
-  [T_Port "O" outSeq (T_Array outWidth outType) 1]
+  [T_Port "O" outSeq (T_Array outWidth outType) 1 False]
 outPorts (ArrayReshape _ outTypes) = renamePorts "O" $ map makePort outTypes
   where makePort t = head $ oneOutSimplePort t
 
@@ -160,29 +169,35 @@ outPorts (LogicalUtil ratio op) =
   scalePortsSeqLens1 (numerator ratio) (outPorts op)
 
 outPorts (Register _ utilRatio t) =
-  [T_Port "O" (numerator utilRatio) t 1]
+  [T_Port "O" (numerator utilRatio) t 1 False]
 
 -- output from composePar only on clocks when all ops in it are emitting.
 outPorts cPar@(ComposePar ops) = renamePorts "O" $ scalePortsSeqLens
   (getSeqLenScalingsForAllPorts cPar ops outPorts) (unionPorts outPorts ops)
 
+-- For ComposeSeq of ready-valid, can't depend on matching throughputs.
+outPorts (ComposeSeq ops) | seqReadyValidOps ops =
+  snd $ fst $ readyValidComposeSeqImpl ops
 -- this depends on only wiring up things that have matching throughputs
 outPorts (ComposeSeq []) = []
 outPorts cSeq@(ComposeSeq ops) = renamePorts "O" $ scalePortsSeqLens
   (getSeqLenScalingsForAllPorts cSeq [lastOp] outPorts) (outPorts lastOp)
   where lastOp = last ops
+
+outPorts (ReadyValid op) =
+  [T_Port name seq pt pct True | T_Port name seq pt pct _ <- outPorts op]
 outPorts (Failure _) = []
 
 -- | commonly used in port that takes a type t in every with 1 seq len so can be
 -- scaled to anything
-oneInSimplePort t = [T_Port "I" 1 t 1]
+oneInSimplePort t = [T_Port "I" 1 t 1 False]
 -- | commonly used pair of in ports that each take a type t in every with 1 seq
 -- len so can be scaled to anything
-twoInSimplePorts t = [T_Port "I0" 1 t 1,  T_Port "I1" 1 t 1]
+twoInSimplePorts t = [T_Port "I0" 1 t 1 False,  T_Port "I1" 1 t 1 False]
 
 -- | commonly used out port that emits t once, can have seq len scaled any
 -- amount as length is just 1
-oneOutSimplePort t = [T_Port "O" 1 t 1]
+oneOutSimplePort t = [T_Port "O" 1 t 1 False]
 
 -- |Helper function that gets all the in or out ports for a collection ops
 -- This is used by composePar to get all the in or out ports from its children 
@@ -213,8 +228,8 @@ getSeqLenScalingsForAllPorts containerOp ops portGetter = ssScalings
 scalePortsSeqLens :: [Int] -> [PortType] -> [PortType]
 scalePortsSeqLens sLenScalings ports = map updatePort $ zip ports sLenScalings
   where
-    updatePort (T_Port name origSLen tType pct, sLenScaling) =
-      T_Port name (origSLen * sLenScaling) tType pct
+    updatePort (T_Port name origSLen tType pct readyValid, sLenScaling) =
+      T_Port name (origSLen * sLenScaling) tType pct readyValid
 
 -- | Scale the sequence lengths of a list of ports by a provided
 -- scaling. This is used when scaling ports to match how cps' are
@@ -222,8 +237,8 @@ scalePortsSeqLens sLenScalings ports = map updatePort $ zip ports sLenScalings
 scalePortsSeqLens1 :: Int -> [PortType] -> [PortType]
 scalePortsSeqLens1 sLenScaling ports = map updatePort ports
   where
-    updatePort (T_Port name origSLen tType pct) =
-      T_Port name (origSLen * sLenScaling) tType pct
+    updatePort (T_Port name origSLen tType pct readyValid) =
+      T_Port name (origSLen * sLenScaling) tType pct readyValid
 
 
 -- | This is shorthand for clocksPerSequence
@@ -307,9 +322,15 @@ clocksPerSequence (Register _ utilRatio _) =
 -- those times in port seq len
 clocksPerSequence (ComposePar ops) = foldl lcm 1 $ map cps ops
 
+-- For ComposeSeq of ready-valid, can't depend on matching throughputs.
+clocksPerSequence (ComposeSeq ops) | seqReadyValidOps ops =
+  snd $ readyValidComposeSeqImpl ops
 -- this depends on only wiring up things that have matching throughputs
 clocksPerSequence (ComposeSeq ops) = foldl lcm 1 $ map cps ops
 
+-- For ready-valid, clocksPerSequence is the ideal rate if the op
+-- upstream from here is always valid when we need it.
+clocksPerSequence (ReadyValid op) = clocksPerSequence op
 clocksPerSequence (Failure _) = -1
 
 -- | A helper constant that defines the CPS for a combinational circuit 
@@ -318,7 +339,7 @@ combinationalCPS = 1
 
 -- | Computes the throughput for one port of an op
 portThroughput :: Op -> PortType -> PortThroughput
-portThroughput op (T_Port _ seqLen tType _) =
+portThroughput op (T_Port _ seqLen tType _ _) =
   PortThroughput tType (seqLen % cps op)
 
 -- | Computes the throughput for all of an op's input ports
@@ -336,3 +357,125 @@ inPortsLen op = sum $ map (len . pTType) (inPorts op)
 -- | Total len of out ports types.
 outPortsLen :: Op -> Int
 outPortsLen op = sum $ map (len .pTType) (outPorts op)
+
+
+
+-- | Calculate the inPorts, outPorts, and CPS of a ComposeSeq of
+-- ready-valid ops (given list of ops that are composed). (Extract
+-- these values when asked in the inPorts/outPorts/cps functions; with
+-- luck Haskell will optimize out multiple calls to this function).
+--
+-- Need this because we're allowed to compose ops with different
+-- throughputs, so to find out the real throughput (seqLen/cps) we
+-- have to take into account the op with the lowest throughput
+-- (bottleneck).
+--
+-- What we do is start by assuming the first op is able to run at
+-- maximum utilization (100%). Calculate the utilization ratio the
+-- second op neeeds to match pace with the first op (may be >100%).
+-- Then assuming the second op is running at that utilization ratio
+-- (possibly magically if >100%), calculate the third op's needed
+-- utilization, and so on. Take the max of all ops' needed utilization
+-- ratios (including the first op's 100%). Call this M; this is the
+-- factor by which the slowest op slows down the first op.
+--
+-- The real cps of the first op is the op's cps times M.
+--
+-- The real cps of the last op is the op's cps times M/M_last, where
+-- M_last is the needed utilization calculated for the last op.
+--
+-- Then, since all ops need to share one cps value for the ComposeSeq,
+-- do the trick we do for the regular ComposeSeq: Report the final cps
+-- as the lcm of cps_in and cps_out; and scale the seqLens of the
+-- in/out ports to match.
+readyValidComposeSeqImpl :: [Op] -> (([PortType], [PortType]), Int)
+readyValidComposeSeqImpl [] =
+  error "ComposeSeq [] has no cps/inPorts/outPorts."
+readyValidComposeSeqImpl ops =
+  let
+    firstFoldData = FoldData (head ops) 1 1
+    lastFoldData = foldl foldLambda firstFoldData (tail ops)
+
+    firstOp = head ops
+    FoldData lastOp m_last m = lastFoldData
+
+    -- cps as fractions first.
+    cps_in' = (cps firstOp % 1) * m             :: Ratio Int
+    cps_out' = (cps lastOp % 1) * (m / m_last)  :: Ratio Int
+
+    -- Fix cps to int.
+    lcmDenom = lcm (denominator cps_in') (denominator cps_out') :: Int
+    cps_in = numerator (cps_in' * (lcmDenom%1))                 :: Int
+    cps_out = numerator (cps_out' * (lcmDenom%1))               :: Int
+
+    -- To make seq lens match, have to scale both by the lcm needed
+    -- to make cps_in/_out integers, and the lcm for the final cps.
+    cpsValue = lcm cps_in cps_out
+    inSeqScale = cpsValue `div` cps_in * lcmDenom
+    outSeqScale = cpsValue `div` cps_out * lcmDenom
+
+    inPorts_ = scalePortsSeqLens1 inSeqScale (inPorts (head ops))
+    outPorts_ = scalePortsSeqLens1 outSeqScale (outPorts lastOp)
+  in
+    ((inPorts_, outPorts_), cpsValue)
+
+
+
+data FoldData = FoldData {
+    prevOp_ :: Op,             -- Previous op in ComposeSeq chain.
+    prevUtil_ :: Ratio Int,    -- Needed utilization of previous op.
+    maxUtil_ :: Ratio Int      -- Highest needed utilization seen so far.
+  }
+
+
+
+foldLambda :: FoldData -> Op -> FoldData
+foldLambda (FoldData prevOp prevUtil maxUtil) thisOp =
+  let
+    portPairs = zip (outPorts prevOp) (inPorts thisOp)
+    cps_out = cps prevOp
+    cps_in = cps thisOp
+
+    -- For each output port of the previous op, calculate how much
+    -- faster it's able to output data compared to this op's
+    -- corresponding input port's ability to receive data.
+    ratios = [
+        ((pSeqLen outPort)*cps_in) % ((pSeqLen inPort)*cps_out)
+        | (outPort, inPort) <- portPairs
+      ]
+
+    -- Maximum of the above ratios is how much greater our utilization
+    -- must be compared to the previous op's utilization.
+    thisUtil = prevUtil * (maximum ratios)
+  in
+    FoldData thisOp thisUtil (max maxUtil thisUtil)
+
+
+
+-- Given the list of a ComposeSeq's child ops, determine if we should
+-- delegate to the more complicated ports/cps function above. Look at
+-- the out ports to determine this (in theory we could have ops that
+-- have synchronous inputs but ready-valid outputs, for example a data
+-- dependent filter).
+--
+-- By default we look at the last op, but if it has no out ports
+-- (e.g. MemWrite) then we have to look back. Default to False if none
+-- of the ops have outputs (rare corner case that will probably not
+-- get tested).
+seqReadyValidOps :: [Op] -> Bool
+seqReadyValidOps ops =
+  case seqReadyValidOpsImpl ops of
+    Nothing -> False
+    Just result -> result
+
+-- Nothing if there's no out ports (so look at the op behind).
+seqReadyValidOpsImpl :: [Op] -> Maybe Bool
+seqReadyValidOpsImpl [] = Nothing
+seqReadyValidOpsImpl (op:ops) =
+  case seqReadyValidOpsImpl ops of
+    Just result -> Just result
+    Nothing ->
+      case outPorts op of
+        [] -> Nothing
+        ports ->
+          Just $ any pReadyValid ports

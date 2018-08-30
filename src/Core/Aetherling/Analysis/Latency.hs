@@ -117,6 +117,7 @@ sequentialLatency (LogicalUtil ratio op) = phaseWhichCycle ratio (sequentialLate
 sequentialLatency (Register clks _ _) = clks
 sequentialLatency (ComposePar ops) = maximum (map sequentialLatency ops)
 sequentialLatency (ComposeSeq ops) = sum (map sequentialLatency ops)
+sequentialLatency (ReadyValid op) = sequentialLatency op -- Still useful for performance evaluation.
 sequentialLatency failure@(Failure _) =
   error("Failure type has no latency " ++ show failure)
 

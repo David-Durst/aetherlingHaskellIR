@@ -118,6 +118,11 @@ data Op =
   | ComposePar [Op]
   | ComposeSeq [Op]
   | Failure FailureType
+
+  -- Ready-valid meta-op.
+  -- Wraps the whole op with a ready-valid interface. Connections
+  -- between child ops within the wrapped op are not affected.
+  | ReadyValid Op
   deriving (Eq, Show)
 
 -- | The how to handle boundaries where LineBuffer emits invalid data.
@@ -149,7 +154,10 @@ data FailureType =
   deriving (Eq, Show)
 
 data ComposeResult = 
-  PriorFailure
+  PriorFailure 
+  -- | ReadyValidMismatch indicates that we tried to compose a synchronous op
+  -- with an op that has a ready-valid interface.
+  | ReadyValidMismatch
   | PortCountMismatch
   -- | TokenTypeMismatch indicates that we tried to glue two ports of
   -- different type together.
@@ -206,6 +214,7 @@ getChildOps (LogicalUtil _ op) = [op]
 getChildOps (Register _ _ _) = []
 getChildOps (ComposePar ops) = ops
 getChildOps (ComposeSeq ops) = ops
+getChildOps (ReadyValid op) = [op]
 getChildOps (Failure (ComposeFailure _ (op0, op1))) = [op0, op1]
 getChildOps (Failure _) = []
 
