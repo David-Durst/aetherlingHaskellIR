@@ -354,8 +354,8 @@ simhlMemSumDiffMinImpl _ [xv:xvs, yv:yvs] =
     ([theMin:theMins], [theSum:theSums, theDiff:theDiffs])
 simhlMemSumDiffMinImpl _ _ = error "Aetherling test internal error: case 9"
 simhlCase9 = SimhlTestCase
-  "Read numbers from two memory inputs, output sums and differences to \
-  \memory, mins to an output port. (Tests RegRetime, \
+  "Read from two memory inputs, output sums and differences to \
+  \memory, mins to an output port. (Tests \
   \DuplicateOutputs, MemRead, MemWrite, Add, Sub, Min, Register)"
   simhlMemSumDiffMinOp
   simhlMemSumDiffMinImpl
