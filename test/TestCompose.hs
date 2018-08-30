@@ -4,6 +4,7 @@ import Aetherling.Operations.AST
 import Aetherling.Operations.Ops
 import Aetherling.Operations.Compose
 import Aetherling.Operations.Types
+import Aetherling.Passes.Timing
 import Test.Tasty
 import Test.Tasty.HUnit
 
@@ -68,7 +69,7 @@ composeTest5 =
     ComposePar [readyValid (MemRead T_Int), readyValid Mul, readyValid Div]
 
 
--- Make sure ComposeSeq can "see" that MapOp contains ready-valid ops.
+-- Make sure ComposeSeq can "see" that ComposePar contains ready-valid ops.
 composeTest6 =
   testCase
     "ComposeSeq of ComposePar of ready-valid" $
@@ -150,6 +151,26 @@ composeTest16 =
     reduceOp 4 2 Mul |>>=| MemWrite T_Int
 
 
+-- Make sure ComposeSeq can still see type mismatches in long chains
+-- with ready-valid.
+composeTest17 =
+  testComposeFailure
+    "ComposeSeq ready-valid chain with type mismatch" $
+    readyValid And |>>=| readyValid (duplicateOutputs 2 Not)
+    |>>=| readyValid XOr |>>=| readyValid NotInt
+    |>>=| readyValid (MemWrite T_Int)
+
+
+-- Simple ComposePar retiming test.
+-- We should see a delay added to the other op in ComposePar, and
+-- the delay should be on the outputs (fewer bits).
+composeTest18 =
+  testCase
+    "Basic ComposePar register matching test." $
+     (retimeComposePar (And |&| Or |&| regOutputs 1 Div))
+     @?=
+     (regOutputs 1 And |&| regOutputs 1 Or |&| regOutputs 1 Div)
+  
 composeTests = testGroup "Compose op tests" $
   [
     composeTest1,
@@ -167,6 +188,8 @@ composeTests = testGroup "Compose op tests" $
     composeTest13,
     composeTest14,
     composeTest15,
-    composeTest16
+    composeTest16,
+    composeTest17,
+    composeTest18
   ]
 
