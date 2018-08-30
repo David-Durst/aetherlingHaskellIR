@@ -1,0 +1,6 @@
+*.png
+# We do NOT exclude subdirectories since we want them created for the user.
+# Keep only the input images.
+!./HalideParrot.png
+!./HalideParrot256.png
+!./.gitignore
