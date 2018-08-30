@@ -6,7 +6,7 @@ Determines the number of register delays from input to output of a
 circuit, and the max combinational path for the highest latency,
 single cycle part of the circuit.
 -}
-module Aetherling.Analysis.Latency (regLatency, maxCombPath) where
+module Aetherling.Analysis.Latency (sequentialLatency, maxCombPath) where
 import Aetherling.Operations.AST
 import Aetherling.Operations.Types
 import Aetherling.Operations.Properties
@@ -16,48 +16,49 @@ import Aetherling.Analysis.Phase
 import Aetherling.LineBufferManifestoModule
 import Data.Bool
 import Data.Ratio
-import Debug.Trace -- Temporary for regLatency ReduceOp warning.
+import Debug.Trace -- Temporary for sequentialLatency ReduceOp warning.
 
 -- Count of the number of registers on the path of the Op.
 -- For ComposePar, choose the path with the longest delay, since when the
 -- circuit is realized in hardware we'll have to pump up the delays on
 -- the other paths to match.
-regLatency :: Op -> Int
-regLatency Add = 0
-regLatency Sub = 0
-regLatency Mul = 0
-regLatency Div = 0
-regLatency Max = 0
-regLatency Min = 0
-regLatency (Ashr _) = 0
-regLatency (Shl _) = 0
-regLatency Abs = 0
-regLatency Not = 0
-regLatency NotInt = 0
-regLatency And = 0
-regLatency AndInt = 0
-regLatency Or = 0
-regLatency OrInt = 0
-regLatency XOr = 0
-regLatency XOrInt = 0
-regLatency Eq = 0
-regLatency Neq = 0
-regLatency Lt = 0
-regLatency Leq = 0
-regLatency Gt = 0
-regLatency Geq = 0
-regLatency (LUT _) = 0
-regLatency (MemRead _) = 0
-regLatency (MemWrite _) = 0
-regLatency (LineBuffer _ _ _ _ _) = 0
-regLatency (LineBufferManifesto manifestoData) = manifestoRegLatency manifestoData
-regLatency (Constant_Int _) = 0
-regLatency (Constant_Bit _) = 0
-regLatency (SequenceArrayRepack (inSeqLen, _) (outSeqLen, _) cps_ _) =
+sequentialLatency :: Op -> Int
+sequentialLatency Add = 0
+sequentialLatency Sub = 0
+sequentialLatency Mul = 0
+sequentialLatency Div = 0
+sequentialLatency Max = 0
+sequentialLatency Min = 0
+sequentialLatency (Ashr _) = 0
+sequentialLatency (Shl _) = 0
+sequentialLatency Abs = 0
+sequentialLatency Not = 0
+sequentialLatency NotInt = 0
+sequentialLatency And = 0
+sequentialLatency AndInt = 0
+sequentialLatency Or = 0
+sequentialLatency OrInt = 0
+sequentialLatency XOr = 0
+sequentialLatency XOrInt = 0
+sequentialLatency Eq = 0
+sequentialLatency Neq = 0
+sequentialLatency Lt = 0
+sequentialLatency Leq = 0
+sequentialLatency Gt = 0
+sequentialLatency Geq = 0
+sequentialLatency (LUT _) = 0
+sequentialLatency (MemRead _) = 0
+sequentialLatency (MemWrite _) = 0
+sequentialLatency (LineBuffer _ _ _ _ _) = 0
+sequentialLatency (LineBufferManifesto manifestoData) =
+  manifestoRegLatency manifestoData
+sequentialLatency (Constant_Int _) = 0
+sequentialLatency (Constant_Bit _) = 0
+sequentialLatency (SequenceArrayRepack (inSeqLen, _) (outSeqLen, _) cps_ _) =
   repackLatency inSeqLen outSeqLen cps_
-regLatency (ArrayReshape _ _) = 0
-regLatency (DuplicateOutputs _ op) = regLatency op
-regLatency (MapOp _ op) = regLatency op
+sequentialLatency (ArrayReshape _ _) = 0
+sequentialLatency (DuplicateOutputs _ op) = sequentialLatency op
+sequentialLatency (MapOp _ op) = sequentialLatency op
 
 -- Note: Actual latency of ReduceOp should be manually specified in my
 -- opinion. Even if the reduced op is combinational (which is almost
@@ -76,11 +77,11 @@ regLatency (MapOp _ op) = regLatency op
 -- won't be the real latency for non-combinational ops (well strictly
 -- speaking, ops with more than 1 reg delay). I need a placeholder for
 -- now, fix it later.
-regLatency (ReduceOp numTokens par op) =
+sequentialLatency (ReduceOp numTokens par op) =
   let
     traceMessage =
-      if numTokens /= par && regLatency op > 1 then
-        Just("regLatency for ReduceOp with par/=numTokens \
+      if numTokens /= par && sequentialLatency op > 1 then
+        Just("sequentialLatency for ReduceOp with par/=numTokens \
              \and non-combinational op is not yet correct.")
       else
         Nothing
@@ -90,33 +91,34 @@ regLatency (ReduceOp numTokens par op) =
         denominator (par % numTokens)
       else
         error "ReduceOp needs par to divide numTokens."
-    latency = (seqLen-1) + (regLatency op * treeDepth)
+    latency = (seqLen-1) + (sequentialLatency op * treeDepth)
   in
     case traceMessage of
       Nothing -> latency
       (Just msg) -> trace msg latency
 
-regLatency (NoOp _) = 0
--- For fractional util, there may be no single regLatency value for
--- each token.  e.g. consider tokens a, b, c passed on cycles 0, 1, 2
--- for an op f with latency 1. f(a), f(b), f(c) come out on cycles 1,
--- 2, 3 then. Suppose we reduce utilization to 2/3. Then a, b, c come
--- in on cycles 0, 1, 3 (skipping 2, 5, 8...) and come out on
--- cycles 1, 3, 4. a got delayed by 1 but b by 2.
+sequentialLatency (NoOp _) = 0
+-- For fractional util, there may be no single sequentialLatency value
+-- for each token.  e.g. consider tokens a, b, c passed on cycles 0,
+-- 1, 2 for an op f with latency 1. f(a), f(b), f(c) come out on
+-- cycles 1, 2, 3 then. Suppose we reduce utilization to 2/3. Then a,
+-- b, c come in on cycles 0, 1, 3 (skipping 2, 5, 8...) and come out
+-- on cycles 1, 3, 4. a got delayed by 1 but b by 2.
 --
--- In this case then we define the regLatency as the latency experienced
--- by the earliest token in a sequence. Latency tells us how many inputs (n)
--- have to arrive until this first output goes out. So, use phaseWhichCycle
--- to look up how long it actually takes for n inputs to come in.
+-- In this case then we define the sequentialLatency as the latency
+-- experienced by the earliest token in a sequence. Latency tells us
+-- how many inputs (n) have to arrive until this first output goes
+-- out. So, use phaseWhichCycle to look up how long it actually takes
+-- for n inputs to come in.
 --
 -- Note: This may not be correct if the op itself contains a
 -- FractionalUtil or a SequenceArrayRepack.
-regLatency (LogicalUtil ratio op) = phaseWhichCycle ratio (regLatency op)
-regLatency (Register clks _ _) = clks
-regLatency (ComposePar ops) = maximum (map regLatency ops)
-regLatency (ComposeSeq ops) = sum (map regLatency ops)
-regLatency (ReadyValid op) = regLatency op -- Still useful for performance evaluation.
-regLatency failure@(Failure _) =
+sequentialLatency (LogicalUtil ratio op) = phaseWhichCycle ratio (sequentialLatency op)
+sequentialLatency (Register clks _ _) = clks
+sequentialLatency (ComposePar ops) = maximum (map sequentialLatency ops)
+sequentialLatency (ComposeSeq ops) = sum (map sequentialLatency ops)
+sequentialLatency (ReadyValid op) = sequentialLatency op -- Still useful for performance evaluation.
+sequentialLatency failure@(Failure _) =
   error("Failure type has no latency " ++ show failure)
 
 

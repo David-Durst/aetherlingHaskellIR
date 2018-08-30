@@ -128,12 +128,12 @@ retimeComposeParImpl _ _ _ (LogicalUtil _ (SequenceArrayRepack _ _ _ _)) =
 -- Pump up the latencies on each path of the ComposeSeq
 retimeComposeParImpl policy lowLatencyDelta highLatencyDelta (ComposePar ops) =
   let
-    matchedLatency = regLatency (ComposePar ops)
+    matchedLatency = sequentialLatency (ComposePar ops)
 
     rcpResults =
       [
         let
-          opLatencyDelta = matchedLatency - regLatency op
+          opLatencyDelta = matchedLatency - sequentialLatency op
         in
           retimeComposeParImpl
             policy
