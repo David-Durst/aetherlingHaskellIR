@@ -209,6 +209,13 @@ retimeComposeParImpl policy lowLatencyDelta highLatencyDelta (MapOp n op) =
   in
     rcpWrapOp (MapOp n) (*n) rcp
 
+-- DuplicateOutputs can be handled similarly.
+retimeComposeParImpl policy lDelta hDelta (DuplicateOutputs n op) =
+  let
+    rcp = retimeComposeParImpl policy lDelta hDelta op
+  in
+    rcpWrapOp (DuplicateOutputs n) id rcp
+
 -- Regardless of ready-valid retime policy, we have to retime the op
 -- wrapped by the ReadyValid because the wrapped op may have
 -- synchronous timing. The ready-valid flag just controls whether we

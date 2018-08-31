@@ -166,11 +166,83 @@ composeTest17 =
 -- the delay should be on the outputs (fewer bits).
 composeTest18 =
   testCase
-    "Basic ComposePar register matching test." $
+    "Basic ComposePar register matching test" $
      (retimeComposePar (And |&| Or |&| regOutputs 1 Div))
      @?=
-     (regOutputs 1 And |&| regOutputs 1 Or |&| regOutputs 1 Div)
-  
+     ((And |>>=| Register 1 1 T_Bit)
+      |&| (Or |>>=| Register 1 1 T_Bit)
+      |&| (Div |>>=| Register 1 1 T_Int))
+     -- Add regs manually for this test to ensure regOutputs works.
+
+
+-- Check that retiming adds correct number of registers.
+-- The line buffer has a latency of 22. We should see 22 reg delays
+-- on the parallel path.
+lineBuffer19 = manifestoLineBuffer (1,1) (3,3) (10,10) (1,1) (0,0) T_Int
+composeTest19 =
+  testCase
+    "ComposePar retime should match line buffer latency exactly" $
+    (retimeComposePar (lineBuffer19 |&| Sub))
+    @?=
+    (lineBuffer19 |&| regOutputs 22 Sub)
+
+
+-- Check that the retiming peeks into the MapOp. It should see that
+-- the cheapest connection within the MapOp is the 1 int connection.
+mappedOp20 =
+  mapOp 4 (Shl 2) |>>=| reduceOp 4 4 Add |>>=| duplicateOutputs 2 NotInt
+mappedOp20' =
+  mapOp 4 (Shl 2) |>>=| reduceOp 4 4 Add
+    |>>=| regInputs 22 (duplicateOutputs 2 NotInt)
+-- I think that there's another correct solution: put the regInputs 22
+-- within the duplicateOutputs.
+composeTest20 =
+  testCase
+    "Retime should look inside the MapOp to delay the cheapest connection" $
+    (retimeComposePar (mapOp 3 mappedOp20 |&| lineBuffer19))
+    @?=
+    (mapOp 3 mappedOp20' |&| lineBuffer19)
+
+
+-- Recursive test. Test that the ComposePar within ComposePar gets all its
+-- child ops delayed to match the line buffer.
+reduce21 = reduceOp 4 4 (regOutputs 1 Mul) -- 2 delays, log2(4)=2.
+composeTest21 =
+  testCase
+    "Retiming ComposePar within ComposePar" $
+    (retimeComposePar $
+      (reduce21 |&| Not) |&|
+      (arrayReshape [T_Int] [tInts [1,1]] |>>=| lineBuffer19)
+    )
+    @?=
+    ((regOutputs 20 reduce21 |&| regOutputs 22 Not) |&|
+     (arrayReshape [T_Int] [tInts [1,1]] |>>=| lineBuffer19))
+
+
+-- Make sure retiming still works if outer-most op is ComposeSeq.
+reshape22 = arrayReshape [tInts [3]] [T_Int, T_Int, tInts [1,1]]
+composeTest22 =
+  testCase
+    "Retiming when outer-most op is ComposeSeq" $
+    (retimeComposePar $
+      reshape22 |>>=| (Max |&| lineBuffer19))
+    @?=
+    (reshape22 |>>=| (regOutputs 22 Max |&| lineBuffer19))
+
+
+-- Same as test 21, but the whole thing is wrapped in a ReadyValid.
+composeTest23 =
+  testCase
+    "Retiming ComposePar within ComposePar within ReadyValid" $
+    (retimeComposePar $ readyValid $
+      (reduce21 |&| Not) |&|
+      (arrayReshape [T_Int] [tInts [1,1]] |>>=| lineBuffer19)
+    )
+    @?=
+    readyValid ((regOutputs 20 reduce21 |&| regOutputs 22 Not) |&|
+     (arrayReshape [T_Int] [tInts [1,1]] |>>=| lineBuffer19))
+
+
 composeTests = testGroup "Compose op tests" $
   [
     composeTest1,
@@ -190,6 +262,11 @@ composeTests = testGroup "Compose op tests" $
     composeTest15,
     composeTest16,
     composeTest17,
-    composeTest18
+    composeTest18,
+    composeTest19,
+    composeTest20,
+    composeTest21,
+    composeTest22,
+    composeTest23
   ]
 
