@@ -190,7 +190,7 @@ composeTest19 =
     "ComposePar retime should match line buffer latency exactly" $
     (retimeComposePar (lbLatency22 |&| Sub))
     @?=
-    (lbLatency22 |&| regOutputs 22 Sub)
+    (lbLatency22 |&| (Sub |>>=| Register 22 1 T_Int))
 
 
 -- Check that the retiming peeks into the MapOp. It should see that
@@ -317,6 +317,45 @@ composeTest29 =
     (readAnd |&| regOutputs 22 Or |&| lbLatency22)
 
 
+-- Retiming a SequenceArrayRepack.
+repack30 = sequenceArrayRepack (5,3) (3,5) T_Int
+composeTest30 =
+  testCase
+    "Basic SequenceArrayRepack retiming test" $
+    (retimeComposePar $ repack30 |&| lbLatency22)
+    @?=
+    (regInputs 20 repack30 |&| lbLatency22)
+
+
+-- Retiming with underutil going on.
+reduce31 = reduceOp 8 2 Mul -- Has 3 latency.
+composeTest31 =
+  testCase
+    "Retime underutilized downstream of reduce" $
+    (retimeComposePar
+      (lbLatency22 |&| ((reduce31 |&| reduce31) |>>=| underutil 4 Add)))
+    @?=
+    (lbLatency22 |&| ((reduce31 |&| reduce31)
+                      |>>=| regOutputs 19 (underutil 4 Add)))
+
+
+-- Retiming underutilized sequenceArrayRepack.
+repack32 = sequenceArrayRepack (3,4) (4,3) T_Int
+seq32a = scaleUtil (2%3) (repack32 |>>=| reduceOp 3 3 Add)
+seq32b = lbLatency22 |>>=| arrayReshape [tInts [1,1,3,3]] [tInts [9]]
+                     |>>=| regInputs 1 (reduceOp 9 9 Max)
+-- Manually underutil SequenceArrayRepack, Register to check scaleUtil.
+seq32a' = SequenceArrayRepack (3,4) (4,3) 6 T_Int
+    |>>=| (reduceOp 3 3 (scaleUtil (2%3) Add))
+    |>>=| Register 22 (2%3) T_Int
+composeTest32 =
+  testCase
+    "Retime underutilized sequenceArrayRepack" $
+    (retimeComposePar (seq32a |&| seq32b))
+    @?=
+    (seq32a' |&| seq32b)
+
+
 composeTests = testGroup "Compose op tests" $
   [
     composeTest1,
@@ -347,6 +386,9 @@ composeTests = testGroup "Compose op tests" $
     composeTest26,
     composeTest27,
     composeTest28,
-    composeTest29
+    composeTest29,
+    composeTest30,
+    composeTest31,
+    composeTest32
   ]
 

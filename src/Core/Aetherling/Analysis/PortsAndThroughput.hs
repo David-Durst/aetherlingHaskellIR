@@ -295,12 +295,7 @@ clocksPerSequence (ArrayReshape _ _) = combinationalCPS
 clocksPerSequence (DuplicateOutputs _ _) = combinationalCPS
 
 clocksPerSequence (MapOp _ op) = cps op
--- if reducing combinational operator, clocks is number of iterations
--- reduce needs to get a complete sequence. If less than parallel,
--- need to write to register all but last, if fully parallel or more,
--- reduce is combinational
-clocksPerSequence (ReduceOp numTokens par op) |
-  isComb op = combinationalCPS * (numTokens `ceilDiv` par)
+
 -- Why not including tree height? Because can always can pipeline.
 -- Putting inputs in every clock where can accept inputs.
 -- Just reset register every numTokens/par if not fully parallel.
