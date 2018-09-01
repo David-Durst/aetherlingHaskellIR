@@ -32,19 +32,19 @@
 -- We construct a (3, 5) (5, 3) SequenceArrayRepack and
 -- match up input to outputs.
 --
--- = clk 0 = clk 1 | clk 2 | clk 3 | clk 4 |
---   ___     _     |       | __    |       |
---   01234   56789 | xxxxx | ABCDE | xxxxx |
---   |||||   ×.×.××××××××× | .×.×. |       |
---   |||||   ×.×........ × | .×.×.......   |
---   |||||   ×.××××|   . × | .×.×××××××.   |
---   |||||   ×....×|   . × | .×.......×.   |
---   |||||   ××× .×|   . × | .××   | .×.   |
---   ||||└----┐× .×××××. × | ..×   | .×.   |
---   |||└----┐|× .....×. ×××××.×   | .×.   |
---   |||     ||×   | .×.   | ×.×   | .×.   |
---   012     345   | 678   | 9AB   | CDE   |
--- = 000   = 110   | 111   | 200   | 111   | Token latency
+-- ‖ clk 0 ‖ clk 1 ‖ clk 2 ‖ clk 3 ‖ clk 4 ‖ Clock cycles (wide colmuns)
+-- ‖ ___   ‖ _     ‖       ‖ __    ‖       ‖
+-- ‖ 01234 ‖ 56789 ‖ xxxxx ‖ ABCDE ‖ xxxxx ‖ Tokens (in)
+-- ‖ ||||| ‖ ||||└-------┐ ‖ ||||| ‖       ‖
+-- ‖ ||||| ‖ |||└------┐ | ‖ ||||└-----┐   ‖
+-- ‖ ||||| ‖ ||└--┐‖   | | ‖ |||└-----┐|   ‖
+-- ‖ ||||| ‖ |└--┐|‖   | | ‖ ||└-----┐||   ‖
+-- ‖ ||||| ‖ └-┐ ||‖   | | ‖ |└┐   ‖ |||   ‖
+-- ‖ ||||└----┐| |└---┐| | ‖ └┐|   ‖ |||   ‖
+-- ‖ |||└----┐|| └---┐|| └---┐||   ‖ |||   ‖
+-- ‖ |||   ‖ |||   ‖ |||   ‖ |||   ‖ |||   ‖
+-- ‖ 012   ‖ 345   ‖ 678   ‖ 9AB   ‖ CDE   ‖ Tokens (out)
+-- ‖ 000   ‖ 110   ‖ 111   ‖ 200   ‖ 111   ‖ Token latency
 --
 -- Notice how none of the outputs (numbered 0-E) had to go backwards
 -- in time (so each input 5-array came as soon as it was needed) but
@@ -88,32 +88,32 @@
 --
 -- Example: Suppose we convert 4-sequence of 3-arrays to 3 4-arrays.
 --
--- | clk 0'| clk 1'| clk 2'| clk 3'|
--- |       |       |       |       |
--- | 012   | 345   | 678   | 9AB   |
--- | .×.   | ×.××××| .×.   | ×.×   |
--- | .×.   | ×....×| .×... | ×.××  |
--- | .×.   | ××××.×| .×××. | ×..×  |
--- | .×.........×.×| ...×. | ××.×  |
--- | .×××××××××.×.×××××.×. |  ×.×  |
--- | .........×.×.....×.×.....×.×  |
--- |       | .×.×  | .×.×  | .×.×  |
--- | xxxx  | 0123  | 4567  | 89AB  |
--- |       | 1110  | 1100  | 1000  | Token Latency
+-- ‖ clk 0'‖ clk 1'‖ clk 2'‖ clk 3'‖ Clock cycles (wide columns)
+-- ‖       ‖       ‖       ‖       ‖
+-- ‖ 012   ‖ 345   ‖ 678   ‖ 9AB   ‖ Tokens (in)
+-- ‖ |||   ‖ ||└--┐‖ |||   ‖ |||   ‖
+-- ‖ |||   ‖ |└---┐‖ ||└-┐ ‖ ||└┐  ‖
+-- ‖ |||   ‖ └--┐||‖ |└-┐| ‖ |└┐|  ‖
+-- ‖ ||└-------┐|||‖ └-┐|| ‖ └┐||  ‖
+-- ‖ |└-------┐|||└---┐||| ‖  |||  ‖
+-- ‖ └-------┐|||└---┐|||└---┐|||  ‖
+-- ‖       ‖ ||||  ‖ ||||  ‖ ||||  ‖
+-- ‖ xxxx  ‖ 0123  ‖ 4567  ‖ 89AB  ‖ Tokens (out)
+-- ‖       ‖ 1110  ‖ 1100  ‖ 1000  ‖ Token Latency
 --
 -- Now do the same thing, but spread out over 6 clocks. The input is
 -- 4-sequence over 6 clocks. By the rules above they should come in on
 -- cycles 0, 1, 3, and 4. The 3-sequence output should come cycles 1,
 -- 3, and 5. (Phase is 0, 2, 4; +1 latency).
 --
--- | clk 0 | clk 1 | clk 2 | clk 3 | clk 4 | clk 5 |
--- |       |       |       |       |       |       |
--- | 012   | 345   | xxx   | 678   | 9AB   | xxx   | Input
--- |       |       |       |       |       |       |
--- | xxxx  | 0123  | xxxx  | 4567  | xxxx  | 89AB  | Output
--- |       | 1110  |       | 2200  |       | 2111  | Token Latency (real)
--- |       |       |       |       |       |       |
--- | clk 0'| clk 1'|       | clk 2'|    clk 3'?    |
+-- ‖ clk 0 ‖ clk 1 ‖ clk 2 ‖ clk 3 ‖ clk 4 ‖ clk 5 ‖ Clock cycles
+-- ‖       ‖       ‖       ‖       ‖       ‖       ‖
+-- ‖ 012   ‖ 345   ‖ xxx   ‖ 678   ‖ 9AB   ‖ xxx   ‖ Tokens (in)
+-- ‖       ‖       ‖       ‖       ‖       ‖       ‖
+-- ‖ xxxx  ‖ 0123  ‖ xxxx  ‖ 4567  ‖ xxxx  ‖ 89AB  ‖ Tokens (out)
+-- ‖       ‖ 1110  ‖       ‖ 2200  ‖       ‖ 2111  ‖ Token Latency (real)
+-- ‖       ‖       ‖       ‖       ‖       ‖       ‖
+-- ‖ clk 0'‖ clk 1'‖       ‖ clk 2'‖    clk 3'?    ‖
 --
 -- There's actually no way to match up the 4-clocks-per-sequence
 -- example with the 6-cps example by idling for 2 cycles, as underutil
