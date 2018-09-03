@@ -366,7 +366,7 @@ attemptSlowDown requestedDiv op@Lt = (underutil requestedDiv op, requestedDiv)
 attemptSlowDown requestedDiv op@Leq = (underutil requestedDiv op, requestedDiv)
 attemptSlowDown requestedDiv op@Gt = (underutil requestedDiv op, requestedDiv)
 attemptSlowDown requestedDiv op@Geq = (underutil requestedDiv op, requestedDiv)
-attemptSlowDown requestedDiv op@(LUT _) = (MapOp requestedDiv op, requestedDiv)
+attemptSlowDown requestedDiv op@(LUT _) = (underutil requestedDiv op, requestedDiv)
 
 -- underutil instead of changing type for same reason as speedUp using map,
 -- want to do banking instead of making wider memories
