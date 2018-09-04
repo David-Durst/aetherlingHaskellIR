@@ -44,6 +44,39 @@ executables:
     - -with-rtsopts=-N
     dependencies:
     - AetherlingSTIR
+    - JuicyPixels >= 3.0
+    - bytestring >= 0.10
+  AetherlingSTIR-GaussianBlur-exe:
+    main:                Main.hs
+    source-dirs:
+    - src/Apps/
+    - src/AppMains/GaussianBlur
+    ghc-options:
+    - -threaded
+    - -rtsopts
+    - -with-rtsopts=-N
+    - -O2
+    - -prof -fprof-auto
+    dependencies:
+    - AetherlingSTIR
+    - JuicyPixels >= 3.0
+    - bytestring >= 0.10
+  AetherlingSTIR-MipMap-exe:
+    main:                Main.hs
+    source-dirs:
+    - src/Apps/
+    - src/AppMains/MipMap
+    ghc-options:
+    - -threaded
+    - -rtsopts
+    - -with-rtsopts=-N
+    - -O2
+    - -prof -fprof-auto
+    dependencies:
+    - AetherlingSTIR
+    - JuicyPixels >= 3.0
+    - bytestring >= 0.10
+
 
 tests:
   AetherlingSTIR-Examples-test:
@@ -59,3 +92,5 @@ tests:
     - AetherlingSTIR
     - tasty >= 1.0.0.0 && < 2.0.0.0
     - tasty-hunit >= 0.10.0.0
+    - JuicyPixels >= 3.0
+    - bytestring >= 0.10
