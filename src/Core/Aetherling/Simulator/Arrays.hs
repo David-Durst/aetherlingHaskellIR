@@ -1,5 +1,13 @@
-module Aetherling.Simulator.Arrays where
+module Aetherling.Simulator.Arrays (
+    simhlRepack,
+    simhlReshape,
+    simhlLineBuffer,
+    simhlPreRepack,
+    simhlPreReshape,
+    simhlPreLB
+) where
 import Data.Array
+import Data.List
 import Aetherling.Operations.AST
 import Aetherling.Operations.Types
 import Aetherling.Simulator.Combinational
@@ -8,14 +16,13 @@ import Aetherling.Simulator.State
 -- Simulator and preprocessor pass implementations for
 -- SequenceArrayRepack, ArrayReshape, and LineBuffer.
 
--- Reshape sequence of arrays through space and time.
+-- | Simulator implementation function for ArrayReshape (reshapes
+-- sequence of arrays through space and time).
 simhlRepack :: (Int,Int) -> (Int,Int) -> TokenType -> [[ValueType]]
             -> [[ValueType]]
 simhlRepack (inSeqLen, inWidth) (outSeqLen, outWidth) t [inStr] =
     if inSeqLen * inWidth /= outSeqLen * outWidth || inSeqLen * inWidth == 0
-    then error("Need product of sequence length and array width to be nonzero "
-           ++  "and equal in input and output. Simulating "
-           ++ show (SequenceArrayRepack (inSeqLen, inWidth) (outSeqLen, outWidth) t))
+    then error("Aetherling internal error: repack I/O throughput mismatch.")
     else
       let allInputs = simhlRepackUnpack inWidth inStr
       in [simhlRepackRepack outWidth allInputs]
@@ -42,7 +49,7 @@ simhlRepackRepack outWidth values =
       then (V_Array nowArray):(simhlRepackRepack outWidth futureValues)
       else []
 
--- Combinational device that decomposes arrays into fundamental types
+-- | Combinational device that decomposes arrays into fundamental types
 -- and puts them back together in a different order. This function
 -- takes an ArrayReshape Op and returns an implementation function
 -- suitable for simhlCombinational (list of in port values in one
@@ -57,15 +64,18 @@ simhlReshape _ _ =
 
 -- Take one instance of (possible nested) V_Arrays and a TokenType
 -- describing the intended type of the array, and recursively flatten
--- it down to a list of ValueType.
+-- it down to a list of ValueType. If we get a V_Unit in place
+-- of some array input, we need to make sure we generate N1*N2*...
+-- copies of the V_Unit, where N1, N2... are the dimensions of the array.
 -- Note: The line buffer depends on this function too.
 simhlSerializeArray :: TokenType -> ValueType -> [ValueType]
+simhlSerializeArray (T_Array 0 _) _ = []
 simhlSerializeArray (T_Array n t) V_Unit =
-    concat $ replicate n (simhlSerializeArray t V_Unit)
-simhlSerializeArray (T_Array n t) (V_Array array) =
-    concat $ map (simhlSerializeArray t) array
-simhlSerializeArray (T_Array _ _) value =
-    error "Aethering internal error: broken array serialization."
+    (simhlSerializeArray t V_Unit)
+     ++ simhlSerializeArray (T_Array (n-1) t) V_Unit
+simhlSerializeArray (T_Array n t) (V_Array (aHead:aTail)) =
+    (simhlSerializeArray t aHead)
+     ++ (simhlSerializeArray (T_Array (n-1) t) (V_Array aTail))
 simhlSerializeArray t value = [value]
 
 
@@ -77,7 +87,7 @@ simhlDeserializeArrays :: Op -> [ValueType]
 simhlDeserializeArrays (ArrayReshape inTypes outTypes) serialValues =
     let
       initTuple = (ArrayReshape inTypes outTypes, [], serialValues)
-      (_, result, _) = foldl simhlDeserializeLambda initTuple outTypes
+      (_, result, _) = foldl' simhlDeserializeLambda initTuple outTypes
     in
       result
 
@@ -125,7 +135,9 @@ simhlMunchArray op t (value:values) =
 simhlMunchArray op _ _ =
     error ("Aetherling internal error: broken munch for " ++ show op)
 
--- Line buffer simulator implementation.
+-- | Line buffer simulator implementation.
+--
+-- THIS FUNCTION IS OUT-OF-DATE DUE TO The Line Buffer Manifesto.
 --
 -- For now I'm only simulating 1D and 2D linebuffers. There's some
 -- important restrictions on pixels-per-clock UPDATE THIS IF/WHEN
@@ -203,12 +215,11 @@ simhlLineBuffer _ _ _ _ _ _ =
     error "Aetherling intenal error: Unexpected LineBuffer parameters"
 
 
--- Preprocessor pass implementations for ArrayReshape,
--- SequenceArrayRepack, and LineBuffer.
+-- | Preprocessor pass implementation for SequenceArrayRepack.
 simhlPreRepack :: [Op] -> [Maybe Int] -> SimhlPreState
                -> ([Maybe Int], SimhlPreState)
 simhlPreRepack
-      opStack@(SequenceArrayRepack (inSeqLen, inWidth) (outSeqLen, outWidth) t:_)
+      opStack@(SequenceArrayRepack (inSeqLen, inWidth) (outSeqLen, outWidth) _ t:_)
       inStrLens
       inState =
     if inSeqLen*inWidth /= outSeqLen*outWidth || inSeqLen*inWidth == 0 then
@@ -230,10 +241,10 @@ simhlPreRepack
         warning = warning' inStrLen
       in
         simhlPreResult opStack [outStrLen] warning inState
-
 simhlPreRepack _ _ _ =
     error "Aetherling internal error: expected SequenceArrayRepack"
 
+-- | Preprocessor pass implementation for ArrayReshape.
 simhlPreReshape :: [Op] -> [Maybe Int] -> SimhlPreState
                 -> ([Maybe Int], SimhlPreState)
 simhlPreReshape opStack@(ArrayReshape inTypes outTypes:_) inStrLens inState
@@ -250,6 +261,8 @@ simhlPreReshape opStack@(ArrayReshape inTypes outTypes:_) inStrLens inState
 simhlPreReshape _ _ _ =
     error "Aetherling internal error: expected ArrayReshape"
 
+-- | Preprocessor pass implementation for LineBuffer.
+--
 -- Check that the LineBuffer conforms to the restrictions commented on
 -- in simhlLineBuffer.
 simhlPreLB :: [Op] -> [Maybe Int] -> SimhlPreState

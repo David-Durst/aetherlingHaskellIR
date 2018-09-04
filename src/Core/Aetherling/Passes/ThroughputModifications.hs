@@ -62,9 +62,11 @@ to scale the throughputs of their child ops.
 module Aetherling.Passes.ThroughputModifications (speedUp, slowDown) where
 import Aetherling.Operations.Types
 import Aetherling.Operations.AST
+import Aetherling.Operations.Ops
 import Aetherling.Operations.Compose
 import Aetherling.Operations.Properties
 import Aetherling.Analysis.Metrics
+import Data.Ratio
 
 -- | Increase the throughput of an Aetherling DAG by increasing area and
 -- utilization. speedUp attempts to increase throughput by increasing
@@ -90,19 +92,23 @@ attemptSpeedUp :: Int -> Op -> (Op, Int)
 -- not change the type because that would change the semantics of the program.
 -- The passes will make the program handle greater of fewer of these RGB pixels
 -- per clock.
-attemptSpeedUp requestedMult op@(Add _) = (MapOp requestedMult op, requestedMult)
-attemptSpeedUp requestedMult op@(Sub _) = (MapOp requestedMult op, requestedMult)
-attemptSpeedUp requestedMult op@(Mul _) = (MapOp requestedMult op, requestedMult)
-attemptSpeedUp requestedMult op@(Div _) = (MapOp requestedMult op, requestedMult)
-attemptSpeedUp requestedMult op@(Max _) = (MapOp requestedMult op, requestedMult)
-attemptSpeedUp requestedMult op@(Min _) = (MapOp requestedMult op, requestedMult)
-attemptSpeedUp requestedMult op@(Ashr _ _) = (MapOp requestedMult op, requestedMult)
-attemptSpeedUp requestedMult op@(Shl _ _) = (MapOp requestedMult op, requestedMult)
-attemptSpeedUp requestedMult op@(Abs _) = (MapOp requestedMult op, requestedMult)
-attemptSpeedUp requestedMult op@(Not _) = (MapOp requestedMult op, requestedMult)
-attemptSpeedUp requestedMult op@(And _) = (MapOp requestedMult op, requestedMult)
-attemptSpeedUp requestedMult op@(Or  _) = (MapOp requestedMult op, requestedMult)
-attemptSpeedUp requestedMult op@(XOr _) = (MapOp requestedMult op, requestedMult)
+attemptSpeedUp requestedMult op@(Add) = (MapOp requestedMult op, requestedMult)
+attemptSpeedUp requestedMult op@(Sub) = (MapOp requestedMult op, requestedMult)
+attemptSpeedUp requestedMult op@(Mul) = (MapOp requestedMult op, requestedMult)
+attemptSpeedUp requestedMult op@(Div) = (MapOp requestedMult op, requestedMult)
+attemptSpeedUp requestedMult op@(Max) = (MapOp requestedMult op, requestedMult)
+attemptSpeedUp requestedMult op@(Min) = (MapOp requestedMult op, requestedMult)
+attemptSpeedUp requestedMult op@(Ashr _) = (MapOp requestedMult op, requestedMult)
+attemptSpeedUp requestedMult op@(Shl _) = (MapOp requestedMult op, requestedMult)
+attemptSpeedUp requestedMult op@(Abs) = (MapOp requestedMult op, requestedMult)
+attemptSpeedUp requestedMult op@(Not) = (MapOp requestedMult op, requestedMult)
+attemptSpeedUp requestedMult op@(NotInt) = (MapOp requestedMult op, requestedMult)
+attemptSpeedUp requestedMult op@(And) = (MapOp requestedMult op, requestedMult)
+attemptSpeedUp requestedMult op@(AndInt) = (MapOp requestedMult op, requestedMult)
+attemptSpeedUp requestedMult op@(Or ) = (MapOp requestedMult op, requestedMult)
+attemptSpeedUp requestedMult op@(OrInt) = (MapOp requestedMult op, requestedMult)
+attemptSpeedUp requestedMult op@(XOr) = (MapOp requestedMult op, requestedMult)
+attemptSpeedUp requestedMult op@(XOrInt) = (MapOp requestedMult op, requestedMult)
 attemptSpeedUp requestedMult op@Eq = (MapOp requestedMult op, requestedMult)
 attemptSpeedUp requestedMult op@Neq = (MapOp requestedMult op, requestedMult)
 attemptSpeedUp requestedMult op@Lt = (MapOp requestedMult op, requestedMult)
@@ -167,11 +173,14 @@ attemptSpeedUp requestedMult (LineBuffer p w img t bc) =
 -- SequenceArrayRepack (4, 2) (2, 4) T_Int
 -- could decrease sLenIn and sLenOut as increase throughput, but not going
 -- to do that as don't want to deal with fractional sequence lengths,
--- which could happen if dividing sLenIn or sLenOut 
+-- which could happen if dividing sLenIn or sLenOut
+--
+-- Akeley: Just passing through cps field for now without modification
+-- to make it compile. This should be refined.
 attemptSpeedUp requestedMult (SequenceArrayRepack (sLenIn, oldArrLenIn)
-                              (sLenOut, oldArrLenOut) t) =
+                              (sLenOut, oldArrLenOut) cps_ t) =
   (SequenceArrayRepack (sLenIn, oldArrLenIn * requestedMult)
-    (sLenOut, oldArrLenOut * requestedMult) t, requestedMult)
+    (sLenOut, oldArrLenOut * requestedMult) cps_ t, requestedMult)
 
 
 -- PARENT, INDIRECTLY SCALABLE
@@ -179,9 +188,6 @@ attemptSpeedUp requestedMult (SequenceArrayRepack (sLenIn, oldArrLenIn)
 -- point in mapping over these as can just defer that to doing over children.
 
 attemptSpeedUp requestedMult op@(NoOp _) = (MapOp requestedMult op, requestedMult)
-attemptSpeedUp requestedMult (Delay d innerOp) =
-  (Delay d spedUpInnerOp, innerMult)
-  where (spedUpInnerOp, innerMult) = attemptSpeedUp requestedMult innerOp 
 
 attemptSpeedUp requestedMult (ComposePar ops) = 
   let
@@ -242,25 +248,27 @@ attemptSpeedUp requestedMult (ReduceOp numTokens par innerOp) =
   let (spedUpInnerOp, actualMult) = attemptSpeedUp requestedMult innerOp
   in (ReduceOp numTokens par spedUpInnerOp, actualMult)
 
--- cases:
--- 1. if requestedMult less than or equal to than denom and requestedMult
--- divides cleanly into denom, just decrease the underutil denom
--- 2. if requestedMult greater than denom and denom divides cleanly into
--- requestedMult, remove the underutil and speed up the innerOp using the
--- remaining part of requestedMult
--- 3. fall back, just speed up the inner op
-attemptSpeedUp requestedMult (Underutil denom op) |
-  (denom `mod` requestedMult) == 0 =
-  (Underutil (denom `ceilDiv` requestedMult) op, requestedMult)
-attemptSpeedUp requestedMult (Underutil denom op) |
-  (requestedMult `mod` denom) == 0 =
-  (spedUpOp, denom*innerMult)
-  where
-    remainingMult = requestedMult `ceilDiv` denom
-    (spedUpOp, innerMult) = attemptSpeedUp remainingMult op 
-attemptSpeedUp requestedMult op@(Underutil denom innerOp) =
-  (Underutil denom innerSpedUpOp, innerMult)
-  where (innerSpedUpOp, innerMult) = attemptSpeedUp requestedMult innerOp
+-- Akeley: Needs to be adapted for fractional underutilization (LogicalUtil).
+--
+-- -- cases:
+-- -- 1. if requestedMult less than or equal to than denom and requestedMult
+-- -- divides cleanly into denom, just decrease the underutil denom
+-- -- 2. if requestedMult greater than denom and denom divides cleanly into
+-- -- requestedMult, remove the underutil and speed up the innerOp using the
+-- -- remaining part of requestedMult
+-- -- 3. fall back, just speed up the inner op
+-- attemptSpeedUp requestedMult (Underutil denom op) |
+--   (denom `mod` requestedMult) == 0 =
+--   (Underutil (denom `ceilDiv` requestedMult) op, requestedMult)
+-- attemptSpeedUp requestedMult (Underutil denom op) |
+--   (requestedMult `mod` denom) == 0 =
+--   (spedUpOp, denom*innerMult)
+--   where
+--     remainingMult = requestedMult `ceilDiv` denom
+--     (spedUpOp, innerMult) = attemptSpeedUp remainingMult op 
+-- attemptSpeedUp requestedMult op@(Underutil denom innerOp) =
+--   (Underutil denom innerSpedUpOp, innerMult)
+--   where (innerSpedUpOp, innerMult) = attemptSpeedUp requestedMult innerOp
 
 attemptSpeedUp _ op@(Failure _) = (op, 1)
 
@@ -343,41 +351,45 @@ slowDown requestedDiv op = Failure $ InvalidThroughputModification requestedDiv 
 -- underutil instead of map, with same assumption regarding not changing the
 -- type.
 attemptSlowDown :: Int -> Op -> (Op, Int)
-attemptSlowDown requestedDiv op@(Add _) = (Underutil requestedDiv op, requestedDiv)
-attemptSlowDown requestedDiv op@(Sub _) = (Underutil requestedDiv op, requestedDiv)
-attemptSlowDown requestedDiv op@(Mul _) = (Underutil requestedDiv op, requestedDiv)
-attemptSlowDown requestedDiv op@(Div _) = (Underutil requestedDiv op, requestedDiv)
-attemptSlowDown requestedDiv op@(Max _) = (Underutil requestedDiv op, requestedDiv)
-attemptSlowDown requestedDiv op@(Min _) = (Underutil requestedDiv op, requestedDiv)
-attemptSlowDown requestedDiv op@(Ashr _ _) = (Underutil requestedDiv op, requestedDiv)
-attemptSlowDown requestedDiv op@(Shl _ _) = (Underutil requestedDiv op, requestedDiv)
-attemptSlowDown requestedDiv op@(Abs _) = (Underutil requestedDiv op, requestedDiv)
-attemptSlowDown requestedDiv op@(Not _) = (Underutil requestedDiv op, requestedDiv)
-attemptSlowDown requestedDiv op@(And _) = (Underutil requestedDiv op, requestedDiv)
-attemptSlowDown requestedDiv op@(Or  _) = (Underutil requestedDiv op, requestedDiv)
-attemptSlowDown requestedDiv op@(XOr _) = (Underutil requestedDiv op, requestedDiv)
-attemptSlowDown requestedDiv op@Eq = (Underutil requestedDiv op, requestedDiv)
-attemptSlowDown requestedDiv op@Neq = (Underutil requestedDiv op, requestedDiv)
-attemptSlowDown requestedDiv op@Lt = (Underutil requestedDiv op, requestedDiv)
-attemptSlowDown requestedDiv op@Leq = (Underutil requestedDiv op, requestedDiv)
-attemptSlowDown requestedDiv op@Gt = (Underutil requestedDiv op, requestedDiv)
-attemptSlowDown requestedDiv op@Geq = (Underutil requestedDiv op, requestedDiv)
-attemptSlowDown requestedDiv op@(LUT _) = (MapOp requestedDiv op, requestedDiv)
+attemptSlowDown requestedDiv op@(Add) = (underutil requestedDiv op, requestedDiv)
+attemptSlowDown requestedDiv op@(Sub) = (underutil requestedDiv op, requestedDiv)
+attemptSlowDown requestedDiv op@(Mul) = (underutil requestedDiv op, requestedDiv)
+attemptSlowDown requestedDiv op@(Div) = (underutil requestedDiv op, requestedDiv)
+attemptSlowDown requestedDiv op@(Max) = (underutil requestedDiv op, requestedDiv)
+attemptSlowDown requestedDiv op@(Min) = (underutil requestedDiv op, requestedDiv)
+attemptSlowDown requestedDiv op@(Ashr _) = (underutil requestedDiv op, requestedDiv)
+attemptSlowDown requestedDiv op@(Shl _) = (underutil requestedDiv op, requestedDiv)
+attemptSlowDown requestedDiv op@(Abs) = (underutil requestedDiv op, requestedDiv)
+attemptSlowDown requestedDiv op@(Not) = (underutil requestedDiv op, requestedDiv)
+attemptSlowDown requestedDiv op@(NotInt) = (underutil requestedDiv op, requestedDiv)
+attemptSlowDown requestedDiv op@(And) = (underutil requestedDiv op, requestedDiv)
+attemptSlowDown requestedDiv op@(AndInt) = (underutil requestedDiv op, requestedDiv)
+attemptSlowDown requestedDiv op@(Or ) = (underutil requestedDiv op, requestedDiv)
+attemptSlowDown requestedDiv op@(OrInt) = (underutil requestedDiv op, requestedDiv)
+attemptSlowDown requestedDiv op@(XOr) = (underutil requestedDiv op, requestedDiv)
+attemptSlowDown requestedDiv op@(XOrInt) = (underutil requestedDiv op, requestedDiv)
+attemptSlowDown requestedDiv op@Eq = (underutil requestedDiv op, requestedDiv)
+attemptSlowDown requestedDiv op@Neq = (underutil requestedDiv op, requestedDiv)
+attemptSlowDown requestedDiv op@Lt = (underutil requestedDiv op, requestedDiv)
+attemptSlowDown requestedDiv op@Leq = (underutil requestedDiv op, requestedDiv)
+attemptSlowDown requestedDiv op@Gt = (underutil requestedDiv op, requestedDiv)
+attemptSlowDown requestedDiv op@Geq = (underutil requestedDiv op, requestedDiv)
+attemptSlowDown requestedDiv op@(LUT _) = (underutil requestedDiv op, requestedDiv)
 
 -- underutil instead of changing type for same reason as speedUp using map,
 -- want to do banking instead of making wider memories
-attemptSlowDown requestedDiv op@(MemRead _) = (Underutil requestedDiv op, requestedDiv)
-attemptSlowDown requestedDiv op@(MemWrite _) = (Underutil requestedDiv op, requestedDiv)
+attemptSlowDown requestedDiv op@(MemRead _) = (underutil requestedDiv op, requestedDiv)
+attemptSlowDown requestedDiv op@(MemWrite _) = (underutil requestedDiv op, requestedDiv)
 
 attemptSlowDown requestedDiv op@(ArrayReshape _ _) =
-  (Underutil requestedDiv op, requestedDiv)
+  (underutil requestedDiv op, requestedDiv)
 attemptSlowDown requestedDiv op@(DuplicateOutputs _ _) =
-  (Underutil requestedDiv op, requestedDiv)
+  (underutil requestedDiv op, requestedDiv)
 
 attemptSlowDown requestedDiv op@(Constant_Int _) =
-  (Underutil requestedDiv op, requestedDiv)
+  (underutil requestedDiv op, requestedDiv)
 attemptSlowDown requestedDiv op@(Constant_Bit _) =
-  (Underutil requestedDiv op, requestedDiv)
+  (underutil requestedDiv op, requestedDiv)
 
 -- LEAF, DIRECTLY SCALABLE
 -- If possible, slow down by changing the throughput parameter. Otherwise, just
@@ -404,21 +416,21 @@ attemptSlowDown requestedDiv (LineBuffer p w img t bc) =
 -- SequenceArrayRepack (4, 1) (2, 2) T_Int
 -- not going to change SLen in consistency with speed up
 -- can only slow down if both array lengths are divisible by requestedDiv
+--
+-- Akeley: As earlier, pass through cps to make it compile. Probably
+-- not correct.
 attemptSlowDown requestedDiv (SequenceArrayRepack (sLenIn, oldArrLenIn)
-                              (sLenOut, oldArrLenOut) t) |
+                              (sLenOut, oldArrLenOut) cps_ t) |
   (oldArrLenIn `mod` requestedDiv == 0) && (oldArrLenOut `mod` requestedDiv == 0) =
   (SequenceArrayRepack (sLenIn, oldArrLenIn `ceilDiv` requestedDiv)
-    (sLenOut, oldArrLenOut `ceilDiv` requestedDiv) t, requestedDiv)
-attemptSlowDown requestedDiv op@(SequenceArrayRepack _ _ _) = (op, 1)
+    (sLenOut, oldArrLenOut `ceilDiv` requestedDiv) cps_ t, requestedDiv)
+attemptSlowDown requestedDiv op@(SequenceArrayRepack _ _ _ _) = (op, 1)
 
 -- PARENT, INDIRECTLY SCALABLE
 -- Slow their child ops. No throughput parameter to modify on these and no
 -- point in underutilizing these as can just defer that to children.
 
 attemptSlowDown requestedDiv op@(NoOp _) = (MapOp requestedDiv op, requestedDiv)
-attemptSlowDown requestedDiv (Delay d innerOp) =
-  (Delay d slowedInnerOp, innerMult)
-  where (slowedInnerOp, innerMult) = attemptSlowDown requestedDiv innerOp 
 
 attemptSlowDown requestedDiv (ComposePar ops) = 
   let
@@ -470,8 +482,9 @@ attemptSlowDown requestedDiv (ReduceOp numTokens par innerOp) =
   let (slowedInnerOp, actualDiv) = attemptSlowDown requestedDiv innerOp
   in (ReduceOp numTokens par slowedInnerOp, actualDiv)
 
-attemptSlowDown requestedDiv (Underutil denom op) =
-  (Underutil (denom * requestedDiv) op, requestedDiv)
+attemptSlowDown requestedDiv (LogicalUtil ratio op) =
+  let newRatio = numerator ratio % (denominator ratio * requestedDiv)
+  in (LogicalUtil newRatio op, requestedDiv)
 
 attemptSlowDown _ op@(Failure _) = (op, 1)
 
