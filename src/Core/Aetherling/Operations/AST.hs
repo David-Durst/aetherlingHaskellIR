@@ -106,10 +106,15 @@ data Op =
   | LogicalUtil {utilRatio :: Ratio Int, utilOp :: Op}
 
   -- Represents back-to-back registers (regClocks of them) holding
-  -- data of regToken type. The regUtil field is just there to
-  -- satisfy type-checking (throughput matching). Like SequenceArrayRepack,
+  -- data of regToken type. The regUtil field is just there to satisfy
+  -- type-checking (throughput matching). Like SequenceArrayRepack,
   -- Register needs to know its true speed, otherwise the regClocks
-  -- meaning is ambiguous. (Round up or down?)
+  -- meaning is ambiguous: there is a choice between rounding up and
+  -- rounding down. (e.g., consider a 3-delay register, utilized by
+  -- 2%3. 3 / (2%3) = 4.5; should this be rounded down to a 4-delay
+  -- or up to a 5-delay? The correct answer depends on what's going on
+  -- in the paths of the circuit parallel to this register,
+  -- information we don't have here).
   --
   -- Use functions regInputs, regOutputs instead of using Register directly.
   | Register {regClocks :: Int, regUtil :: Ratio Int, regToken :: TokenType}
