@@ -282,11 +282,11 @@ simhlCase5 = SimhlTestCase
   199
   []
 
--- Same thing, but take 15 inputs sequentially.
+-- Same thing, but take 15 inputs sequentially, and test readyValid here.
 simhlMul7Max15TimeOp =
-  (simhlBox T_Int |&| underutil 15 (Constant_Int [7])) |>>=|
-  (ReduceOp 15 1 Max |&| underutil 15 (simhlUnbox T_Int)) |>>=|
-  (underutil 15 Mul)
+  readyValid (simhlBox T_Int |&| underutil 15 (Constant_Int [7])) |>>=|
+  readyValid (ReduceOp 15 1 Max |&| underutil 15 (simhlUnbox T_Int)) |>>=|
+  readyValid (underutil 15 Mul)
 simhlMul7Max15TimeImpl :: [[ValueType]] -> [[ValueType]]
                        -> ( [[ValueType]], [[ValueType]] )
 simhlMul7Max15TimeImpl portInputs _ =
@@ -298,8 +298,8 @@ simhlMul7Max15TimeImpl portInputs _ =
   in
     ([doMax $ head portInputs], [])
 simhlCase6 = SimhlTestCase
-  "Similar to the other maximum times 7, but input is sequential. \
-        \(Tests ReduceOp, Max)"
+  "Similar to the other maximum times 7, but input is sequential and using \
+        \ready-valid timing. (Tests ReduceOp, Max, ReadyValid)"
   simhlMul7Max15TimeOp
   simhlMul7Max15TimeImpl
   150

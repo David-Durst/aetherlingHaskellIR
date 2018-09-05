@@ -58,6 +58,7 @@ isComb (Register _ _ _) = False
 
 isComb (ComposePar ops) = length (filter isComb ops) > 0
 isComb (ComposeSeq ops) = length (filter isComb ops) > 0
+isComb (ReadyValid op) = isComb op -- Should it actually be always False?
 isComb (Failure _) = True
 
 hasInternalState :: Op -> Bool
@@ -109,4 +110,5 @@ hasInternalState (Register _ _ _) = True
 
 hasInternalState (ComposePar ops) = length (filter hasInternalState ops) > 0
 hasInternalState (ComposeSeq ops) = length (filter hasInternalState ops) > 0
+hasInternalState (ReadyValid op) = hasInternalState op
 hasInternalState (Failure _) = True

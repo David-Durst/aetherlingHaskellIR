@@ -206,6 +206,8 @@ simhl op@(ComposeSeq _) inStrs state =
     simhlSeq simhl op inStrs state
 simhl op@(ComposePar _) inStrs state =
     simhlPar simhl op inStrs state
+simhl (ReadyValid op) inStrs state =
+    simhl op inStrs state
 simhl (Failure _) _ _ =
     error "Aetherling internal error: Failure in simulation."
 
@@ -308,6 +310,8 @@ simhlPre opStack@(ComposePar _:_) inStrLens inState =
     simhlPrePar simhlPre opStack inStrLens inState
 simhlPre opStack@(ComposeSeq _:_) inStrLens inState =
     simhlPreSeq simhlPre opStack inStrLens inState
+simhlPre opStack@(ReadyValid op:_) inStrLens inState =
+    simhlPre (op:opStack) inStrLens inState
 simhlPre opStack@(Failure _:_) inStrLens inState =
     error("Failure cannot be simulated at\n"
        ++ (simhlFormatOpStack opStack))

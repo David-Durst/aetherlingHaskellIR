@@ -10,6 +10,7 @@ module Aetherling.Operations.Ops where
 import Aetherling.Operations.AST
 import Aetherling.Operations.Types
 import Aetherling.Operations.Compose
+import Aetherling.Operations.ReadyValid
 import Aetherling.LineBufferManifestoModule
 import Aetherling.Analysis.PortsAndThroughput
 import Aetherling.Analysis.Latency
@@ -305,8 +306,13 @@ regInputs n op =
     registers = [Register n (pSeqLen port % cps_) (pTType port)
                 | port <- inPorts op]
     result =
-      if null registers then op
-      else foldr1 (|&|) registers |>>=| op
+      case inPortsReadyValid op of
+        Just True ->
+          readyValid (foldr1 (|&|) registers) |>>=| op
+        Just False ->
+          foldr1 (|&|) registers |>>=| op
+        Nothing ->  -- No inputs to delay.
+          op
   in
     case result of
       fail@(Failure _) ->
@@ -323,10 +329,20 @@ regOutputs n op =
     registers = [Register n (pSeqLen port % cps_) (pTType port)
                 | port <- outPorts op]
     result =
-      if null registers then op
-      else op |>>=| foldr1 (|&|) registers
+      case outPortsReadyValid op of
+        Just True ->
+          op |>>=| readyValid (foldr1 (|&|) registers)
+        Just False ->
+          op |>>=| foldr1 (|&|) registers
+        Nothing ->  -- No outputs to delay.
+          op
   in
     case result of
       fail@(Failure _) ->
         error("Aetherling internal error: regOutputs " ++ (show fail))
       result' -> result'
+
+
+-- Function for wrapping an op in a ready-valid interface.
+readyValid :: Op -> Op
+readyValid op = ReadyValid op

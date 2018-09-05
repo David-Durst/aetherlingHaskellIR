@@ -6,9 +6,10 @@ import Aetherling.SimpleExamples
 import TestSimulator
 import TestThroughputPasses
 import TestSimpleExamples
+import TestCompose
 
 main :: IO ()
 main = defaultMain tests
 
 tests :: TestTree
-tests = testGroup "Example Tests" [simpleExamplesTests, simulatorTests, throughputTests]
+tests = testGroup "Example Tests" [simpleExamplesTests, simulatorTests, throughputTests, composeTests]
