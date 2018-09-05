@@ -130,6 +130,7 @@
 module Aetherling.Analysis.Phase (
   boolPhase,
   fillPhase,
+  fillPhaseInts,
   phaseWhichCycle,
   repackLatency
 ) where
@@ -184,26 +185,36 @@ boolPhaseImpl ratio inCount outCount
 fillPhase :: Ratio Int -> [Int]
 fillPhase ratio
   | ratio > 1 || ratio <= 0 = error "Util ratio needs to be in (0, 1]."
-  | otherwise = fillPhaseImpl ratio 0 0
+  | otherwise = fillPhaseImpl (numerator ratio) (denominator ratio) 0 0
 
-fillPhaseImpl :: Ratio Int -> Int -> Int -> [Int]
-fillPhaseImpl ratio inCount outCount
-  | outCount > denominator ratio =
+-- | Like fillPhase, but we explicitly specify the sequence length (in
+-- valid token count) and the clocks-per-sequence. This may be useful
+-- when you don't want ratio's fraction simplification behavior.
+-- (e.g. fillPhase 4 6 is [1,2,2,3,4,4], not [1,2,2]).
+fillPhaseInts :: Int -> Int -> [Int]
+fillPhaseInts tokenCount cps
+  | tokenCount > cps || tokenCount <= 0 =
+    error "tokenCount needs to be in (0, cps]."
+  | otherwise = fillPhaseImpl tokenCount cps 0 0
+
+fillPhaseImpl :: Int -> Int -> Int -> Int -> [Int]
+fillPhaseImpl tokenCount cps inCount outCount
+  | outCount > cps =
     error "Aetherling internal error: phase overflowed."
-  | outCount == denominator ratio = [] -- cps is denominator.
+  | outCount == cps = []
   | otherwise =
     let
-      inWidth = denominator ratio
-      outWidth = numerator ratio
+      inWidth = cps
+      outWidth = tokenCount
       tokensAhead = inCount*inWidth - outCount*outWidth
     in
       if tokensAhead < outWidth then
         -- Would run out if we emitted an outWidth-array this cycle
         -- without reading a new one in.
-        inCount + 1:fillPhaseImpl ratio (inCount+1) (outCount+1)
+        inCount + 1:fillPhaseImpl tokenCount cps (inCount+1) (outCount+1)
       else
         -- We always emit an output each cycle. seqLen = cps.
-        inCount:fillPhaseImpl ratio inCount (outCount+1)
+        inCount:fillPhaseImpl tokenCount cps inCount (outCount+1)
 
 
 -- | Given a utilization ratio and the index of an output, find out on
@@ -236,29 +247,50 @@ phaseWhichCycle ratio n =
 -- prototype only.
 repackLatency :: Int -> Int -> Int -> Int
 repackLatency iSeqLen oSeqLen cps =
-  -- Compare i and o phases. Figure out how many tokens "behind" we
-  -- are in the worst case. Then ceiling-divide that amount by the
-  -- width of the input array to figure out how many cycles of extra
-  -- input (latency) needed to avoid violating causality.
+  -- Assume that the SequenceArrayRepack has 0 latency. For each
+  -- token that passes through the repack (number them 0, 1..),
+  -- determine which clock cycle the token was input to or
+  -- emitted by the repack. For each token, determine by how many
+  -- clock cycles it violated causality. The worst violation is
+  -- the latency of the actual repack op.
   let
-    iPhase = boolPhase (iSeqLen%cps)
-    oPhase = boolPhase (oSeqLen%cps)
+    -- We already know our exact input/output phase patterns per the
+    -- header comment.
+    iFillPhase = fillPhaseInts iSeqLen cps
+    oFillPhase = fillPhaseInts oSeqLen cps
 
     -- Can just assume these complimentary array widths.
-    iWidth = oSeqLen
-    oWidth = iSeqLen
+    gcd' = gcd iSeqLen oSeqLen
+    iWidth = oSeqLen `div` gcd'
+    oWidth = iSeqLen `div` gcd'
+    totalTokens = oWidth * oSeqLen
 
-    -- Fold lambda. Cycle through iPhase and oPhase, recording in the tuple:
-    -- (input token count, output token count, max behind).
-    -- Here, 1 token is 1 array entry.
-    f (iPriorTokens, oPriorTokens, priorBehind) (iValid, oValid) =
-      let
-        iTokens = if iValid then iPriorTokens+iWidth else iPriorTokens
-        oTokens = if oValid then oPriorTokens+oWidth else oPriorTokens
-      in
-        (iTokens, oTokens, max priorBehind (oTokens-iTokens))
+    -- Make lists associating token number with its input/output
+    -- cycle. e.g. iSchedule !! 5 = 3 means that the 5th token
+    -- came in on the 3rd cycle (0-indexed in both cases).
+    makeSchedule :: Int -> [Int] -> Int -> Int -> [Int]
+    makeSchedule arrayWidth fillPhaseLeft clkIndex tokenIndex
+      | tokenIndex == totalTokens = []
+      | otherwise =
+        if arrayCount*arrayWidth > tokenIndex then
+          -- We're creating the the `tokenIndex`th entry of the final
+          -- list here. Since according to the fill phase, there's
+          -- been enough input/output at the `clkIndex`th clock to
+          -- have seen the `tokenIndex`th token, set
+          -- schedule!tokenIndex to clkIndex.
+          clkIndex:
+            (makeSchedule arrayWidth fillPhaseLeft clkIndex (tokenIndex+1))
+        else
+          -- Not enough input, maybe there's enough on the next cycle?
+          makeSchedule arrayWidth (tail fillPhaseLeft) (clkIndex+1) tokenIndex
+        where
+          arrayCount = head fillPhaseLeft
 
-    validPairs = take cps $ zip (cycle iPhase) (cycle oPhase)
-    (_,_,behind) = foldl f (0, 0, 0) validPairs
+    iSchedule = makeSchedule iWidth iFillPhase 0 0
+    oSchedule = makeSchedule oWidth oFillPhase 0 0
   in
-    behind `ceilDiv` iWidth
+    -- Figure out N = worst causality violation. That N is the amount
+    -- of latency in our actual SequenceArrayRepack needed to avoid
+    -- said causality violation.
+    maximum [iTokenClk - oTokenClk
+            | (iTokenClk, oTokenClk) <- zip iSchedule oSchedule]
