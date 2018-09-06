@@ -114,7 +114,7 @@ mapIntAdapter rawOp t =
 
 mapBitAdapter :: Op -> TokenType -> Op
 mapBitAdapter rawOp T_Bit = rawOp
-mapBitAdapter rawOp (T_Array n t) = MapOp n (mapIntAdapter rawOp t)
+mapBitAdapter rawOp (T_Array n t) = MapOp n (mapBitAdapter rawOp t)
 mapBitAdapter rawOp t =
   error (show rawOp ++ " does not accept " ++ show t ++ " input.")
 
