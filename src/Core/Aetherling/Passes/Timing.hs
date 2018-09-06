@@ -103,7 +103,7 @@ rcpWrapOp f g (RetimeComposeParResult lowOp highOp cost) =
 -- that the AST has been processed by distributeUtil.
 --
 -- Step 1 is to fix all ComposePars found in the AST so that all its
--- paths (child ops) have the same latency.
+-- paths (ComposePar child ops) have the same latency.
 --
 -- Step 2 is to increase the latency of the entire AST passed by
 -- lowLatencyDelta or highLatencyDelta (non-negative ints).
