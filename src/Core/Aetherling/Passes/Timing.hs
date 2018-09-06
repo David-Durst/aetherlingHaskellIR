@@ -91,7 +91,8 @@ data RetimeComposeParResult = RetimeComposeParResult {
 
 
 -- Apply the transformation to both Ops in a RetimeComposeParResult,
--- and the other transformation to the cost.
+-- and the other transformation to the cost. Useful for ops where
+-- we can retime by just delegating retiming to the child op.
 rcpWrapOp :: (Op -> Op) -> (Int -> Int) -> RetimeComposeParResult
           -> RetimeComposeParResult
 rcpWrapOp f g (RetimeComposeParResult lowOp highOp cost) =
@@ -99,7 +100,7 @@ rcpWrapOp f g (RetimeComposeParResult lowOp highOp cost) =
 
 
 -- Recursive implementation function for ComposePar retiming. Assumes
--- that the AST has been processed by distributeUtil
+-- that the AST has been processed by distributeUtil.
 --
 -- Step 1 is to fix all ComposePars found in the AST so that all its
 -- paths (child ops) have the same latency.
@@ -109,8 +110,8 @@ rcpWrapOp f g (RetimeComposeParResult lowOp highOp cost) =
 --
 -- Results returned in RetimeComposeParResult record.
 --
--- rcpLowDelay: Transformed AST with lowLatencyDelta used in step 2
--- rcpHighDelay: Same, but using highLatencyDelta
+-- rcpLowDelay: Transformed AST with lowLatencyDelta used in step 2.
+-- rcpHighDelay: Same, but using highLatencyDelta.
 -- rcpCost: Cost difference between the two ASTs, in bits of registers used.
 retimeComposeParImpl :: RetimeComposeParPolicy -> Int -> Int -> Op
                      -> RetimeComposeParResult
@@ -122,7 +123,7 @@ retimeComposeParImpl _ lowLatencyDelta highLatencyDelta _
 
 -- Calling distributeUtil is a precondition of this function.  Check
 -- here that it was done: a LogicalUtil should not contain a non-leaf
--- Op (or a SequenceArrayRepack).
+-- Op (or a SequenceArrayRepack or Register).
 retimeComposeParImpl _ _ _ (LogicalUtil _ op) | getChildOps op /= [] =
   error "Aetherling internal error: distributeUtil precondition failed."
 retimeComposeParImpl _ _ _ (LogicalUtil _ (SequenceArrayRepack _ _ _ _)) =
@@ -154,11 +155,11 @@ retimeComposeParImpl policy lowLatencyDelta highLatencyDelta (ComposePar ops) =
       ]
   in
     RetimeComposeParResult
-      (foldl1 (|&|) (map rcpLowDelay rcpResults))
-      (foldl1 (|&|) (map rcpHighDelay rcpResults))
+      (foldl1 (|&|) (map rcpLowDelay rcpResults))  -- The A's from the comment.
+      (foldl1 (|&|) (map rcpHighDelay rcpResults)) -- The B's from the comment.
       (sum (map rcpCost rcpResults))
 
--- For a ComposeSeq, Request all child ops increase their latency by 0
+-- For a ComposeSeq, request all child ops increase their latency by 0
 -- and highLatencyDelta. (0 case just fixes their ComposePar
 -- children). Pick the one that reports the lowest cost and modify its
 -- latency (both by low and high latency delta), and compose it with
@@ -167,27 +168,36 @@ retimeComposeParImpl policy lowLatencyDelta highLatencyDelta (ComposePar ops) =
 -- of the child ops' latencies.
 retimeComposeParImpl policy lowLatencyDelta highLatencyDelta (ComposeSeq ops) =
   let
-    rcpResults = map (retimeComposeParImpl policy 0 highLatencyDelta) ops
+    rcpResults = map (retimeComposeParImpl policy 0 highLatencyDelta) ops --(*)
     minCost = minimum (map rcpCost rcpResults)
 
-    -- Index of op to have its latency increased.
+    -- Index of op to have its latency increased. This is the op that
+    -- reported the lowest cost (in reg bits) for increasing latency. (**)
     Just latencyIdx = findIndex (\r -> rcpCost r == minCost) rcpResults
 
-    -- The chain of ops we will compose together to get our rcpHighDelay
-    -- result. Note that we always choose (rcpLowDelay rcp = child op
-    -- with 0 additional latency), except when we encounter the op
-    -- we chose to have increased latency.
+    -- The chain of ops we will compose together to get our
+    -- rcpHighDelay result. Note that we always choose the retimed op
+    -- with 0 additional latency (rcpLowDelay, since we set
+    -- lowLatencyDelta=0 at (*)), except when we encounter the op we
+    -- chose to have increased latency.
     highDelayOps =
-      [
-        if i == latencyIdx then rcpHighDelay rcp else rcpLowDelay rcp
-        | (i, rcp) <- zip [0,1..] rcpResults
-      ]
+      let
+        retimedDelayedOp = rcpHighDelay
+        retimedOp = rcpLowDelay
+      in
+        [
+          if i == latencyIdx then retimedDelayedOp rcp else retimedOp rcp
+            | (i, rcp) <- zip [0,1..] rcpResults
+        ]
 
     highCost = rcpCost (rcpResults !! latencyIdx)
 
     (lowDelayOps, cost) =
       if lowLatencyDelta /= 0 then
         let
+          -- delayedOp is the op we chose earlier (**), with its latency
+          -- increased by lowLatencyDelta. Glue that op with the other
+          -- retimed ops to get our rcpLowDelay result.
           opToDelay = ops !! latencyIdx
           rcp' = retimeComposeParImpl policy 0 lowLatencyDelta opToDelay
           delayedOp = rcpHighDelay rcp'
@@ -214,10 +224,11 @@ retimeComposeParImpl policy lowLatencyDelta highLatencyDelta (ComposeSeq ops) =
 
 -- For MapOp, we can pass on the responsibility for increasing latency
 -- to the child op. This could be more efficient than the default
--- implementation below. Consider a MapOp 10 over an op that takes 4
+-- implementation (last pattern match for
+-- retimeComposeParImpl). Consider a MapOp 10 over an op that takes 4
 -- ints, converts to 1 int, then back to 4 ints. By looking inside the
--- child op, we can get away with just 10*1 ints delayed instead of the
--- 40 needed to delay the array input/output of the map.
+-- child op, we can get away with just 10*1 ints delayed instead of
+-- the 40 needed to delay the array input/output of the map.
 --
 -- We can do this for MapOp because we know the latency of the map is
 -- the same as the latency of the mapped op.
@@ -225,9 +236,16 @@ retimeComposeParImpl policy lowLatencyDelta highLatencyDelta (MapOp n op) =
   let
     rcp = retimeComposeParImpl policy lowLatencyDelta highLatencyDelta op
   in
-    rcpWrapOp (MapOp n) (*n) rcp
+    -- rcp is the result we got from requesting the child op retime itself.
+    -- Just need to rewrap both versions of the retimed op in a MapOp, and
+    -- multiply the reg bit cost by the map's width (since we need to
+    -- duplicate the reg delays on each lane of the map).
+    rcpWrapOp (mapOp n) (*n) rcp
 
--- DuplicateOutputs can be handled similarly.
+-- DuplicateOutputs can be handled similarly, except we don't have to
+-- multiply the cost (imagine that if we put the registers after the
+-- op, we put it between the original op's outputs and the duplication
+-- circuit's input).
 retimeComposeParImpl policy lDelta hDelta (DuplicateOutputs n op) =
   let
     rcp = retimeComposeParImpl policy lDelta hDelta op
@@ -260,24 +278,24 @@ retimeComposeParImpl policy lowLatencyDelta' highLatencyDelta' (ReadyValid op) =
 -- In step 1 we specify latency delta = 0. This is because it's in
 -- general not safe to rely on increasing the child ops' latency to
 -- increase the parent op's latency predictably (e.g. consider
--- ReduceOp). For ops where this can be done safely (MapOp),
+-- ReduceOp). For ops where this can be done safely (e.g. MapOp),
 -- we specialize this function elsewhere.
 --
 -- We have a choice between delaying the inputs or outputs.
 -- Choose the side that has fewer bits.
-retimeComposeParImpl policy lowLatencyDelta highLatencyDelta op' =
+retimeComposeParImpl policy lowLatencyDelta highLatencyDelta originalOp =
   let
-    op = mapChildOps (rcpLowDelay . retimeComposeParImpl policy 0 0) op'
+    retimeOpZeroAddedLatency = rcpLowDelay . retimeComposeParImpl policy 0 0
+    retimedOp = mapChildOps retimeOpZeroAddedLatency originalOp
 
-    inBits = sum (map (len . pTType) (inPorts op))
-    outBits = sum (map (len . pTType) (outPorts op))
+    inBits = sum (map (len . pTType) (inPorts retimedOp))
+    outBits = sum (map (len . pTType) (outPorts retimedOp))
 
     cost = (highLatencyDelta - lowLatencyDelta) * (min inBits outBits)
 
-    delay =
-      if inBits < outBits then regInputs else regOutputs
+    regInputsOrOutputs = if inBits < outBits then regInputs else regOutputs
   in
     RetimeComposeParResult
-      (delay lowLatencyDelta op)
-      (delay highLatencyDelta op)
+      (regInputsOrOutputs lowLatencyDelta retimedOp)
+      (regInputsOrOutputs highLatencyDelta retimedOp)
       cost

@@ -464,7 +464,7 @@ expected36 = readyValid lbLatency22
 
 composeTest36 =
   testCase
-    "Complicated stress-test with ReadyValid" $
+    "Complicated stress-test with ReadyValid, with alternate policy" $
       retimeComposePar' retimeReadyValidPolicy pipeline36 @?= expected36
 
 
