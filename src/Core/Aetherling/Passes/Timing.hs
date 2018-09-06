@@ -15,6 +15,7 @@ import Aetherling.Analysis.PortsAndThroughput
 import Aetherling.Passes.MapOps
 import Data.Ratio
 import Data.List
+import Debug.Trace
 
 -- | Given an AST, distribute all LogicalUtil ops to leaf ops, so that
 -- each leaf op in the output AST is wrapped (if needed) with a
@@ -27,9 +28,10 @@ import Data.List
 --
 -- Note: This will not remove Delay ops, but their delay amount will
 -- be reset to 1. In this function it's infeasible to determine the
--- actual delay needed (which way to round for fractional ops?). I set
--- it to 1 instead of leaving delay untouched to avoid a false sense
--- of security.
+-- actual delay needed (which way to round for fractional
+-- underutil?). I set it to 1 instead of leaving delay untouched to
+-- avoid a false sense of security. The timing can be fixed using
+-- retimeComposePar.
 --
 -- Note: SequenceArrayRepack and Register must know their real speeds,
 -- so it's not wrapped in a LogicalUtil. scaleUtil knows how to modify
@@ -43,10 +45,8 @@ distributeUtil = distributeUtilImpl 1
 distributeUtilImpl :: (Ratio Int) -> Op -> Op
 distributeUtilImpl ratio0 (LogicalUtil ratio1 op) =
   distributeUtilImpl (ratio0 * ratio1) op
-distributeUtilImpl ratio (ReadyValid op) =
-  ReadyValid (distributeUtilImpl 1 op)
 distributeUtilImpl ratio op =
-  mapChildLeaf2
+  mapChildOrLeaf
     (distributeUtilImpl ratio)  -- Non-leaf op action
     (scaleUtil ratio)           -- Leaf op action
     op
@@ -55,21 +55,6 @@ distributeUtilImpl ratio op =
 data RetimeComposeParPolicy = RetimeComposeParPolicy {
   rcpRetimeReadyValid_ :: Bool
 }
-
--- Internal data type used in recursive implementation function
--- for retimeComposePar. See function for field meanings.
-data RetimeComposeParResult = RetimeComposeParResult {
-  rcpLowDelay :: Op,
-  rcpHighDelay :: Op,
-  rcpCost :: Int
-}
-
--- Apply the transformation to both Ops in a RetimeComposeParResult,
--- and the other transformation to the cost.
-rcpWrapOp :: (Op -> Op) -> (Int -> Int) -> RetimeComposeParResult
-          -> RetimeComposeParResult
-rcpWrapOp f g (RetimeComposeParResult lowOp highOp cost) =
-  RetimeComposeParResult (f lowOp) (f highOp) (g cost)
 
 -- | Default policy for retimeComposePar.
 rcpDefault = RetimeComposeParPolicy False
@@ -94,6 +79,24 @@ retimeComposePar' policy op =
 -- | retimeComposePar' with the default policy.
 retimeComposePar :: Op -> Op
 retimeComposePar = retimeComposePar' rcpDefault
+
+
+-- Internal data type used in recursive implementation function
+-- for retimeComposePar. See retimeComposeParImpl for field meanings.
+data RetimeComposeParResult = RetimeComposeParResult {
+  rcpLowDelay :: Op,
+  rcpHighDelay :: Op,
+  rcpCost :: Int
+}
+
+
+-- Apply the transformation to both Ops in a RetimeComposeParResult,
+-- and the other transformation to the cost.
+rcpWrapOp :: (Op -> Op) -> (Int -> Int) -> RetimeComposeParResult
+          -> RetimeComposeParResult
+rcpWrapOp f g (RetimeComposeParResult lowOp highOp cost) =
+  RetimeComposeParResult (f lowOp) (f highOp) (g cost)
+
 
 -- Recursive implementation function for ComposePar retiming. Assumes
 -- that the AST has been processed by distributeUtil
@@ -124,8 +127,15 @@ retimeComposeParImpl _ _ _ (LogicalUtil _ op) | getChildOps op /= [] =
   error "Aetherling internal error: distributeUtil precondition failed."
 retimeComposeParImpl _ _ _ (LogicalUtil _ (SequenceArrayRepack _ _ _ _)) =
   error "Aetherling internal error: distributeUtil precondition failed (repack)."
+retimeComposeParImpl _ _ _ (LogicalUtil _ (Register _ _ _)) =
+  error "Aetherling internal error: distributeUtil precondition failed (register)."
 
--- Pump up the latencies on each path of the ComposeSeq
+-- When we encounter a ComposePar, first determine the path (child op)
+-- with the highest latency (call it matchedLatency). Then, for each
+-- original child op of the ComposePar, make 2 new versions of said child op
+-- so that version A's latency is matchedLatency+lowLatencyDelta and version
+-- B's latency is matchedLatency+highLatencyDelta. Glue together the A's
+-- to get rcpLowDelay and the B's to get rcpHighDelay for our result.
 retimeComposeParImpl policy lowLatencyDelta highLatencyDelta (ComposePar ops) =
   let
     matchedLatency = sequentialLatency (ComposePar ops)
@@ -152,7 +162,9 @@ retimeComposeParImpl policy lowLatencyDelta highLatencyDelta (ComposePar ops) =
 -- and highLatencyDelta. (0 case just fixes their ComposePar
 -- children). Pick the one that reports the lowest cost and modify its
 -- latency (both by low and high latency delta), and compose it with
--- the other non-modified ops.
+-- the other non-modified ops. We can do this because we know for a
+-- fact that the sequential latency of a compose seq is just the sum
+-- of the child ops' latencies.
 retimeComposeParImpl policy lowLatencyDelta highLatencyDelta (ComposeSeq ops) =
   let
     rcpResults = map (retimeComposeParImpl policy 0 highLatencyDelta) ops
@@ -161,6 +173,10 @@ retimeComposeParImpl policy lowLatencyDelta highLatencyDelta (ComposeSeq ops) =
     -- Index of op to have its latency increased.
     Just latencyIdx = findIndex (\r -> rcpCost r == minCost) rcpResults
 
+    -- The chain of ops we will compose together to get our rcpHighDelay
+    -- result. Note that we always choose (rcpLowDelay rcp = child op
+    -- with 0 additional latency), except when we encounter the op
+    -- we chose to have increased latency.
     highDelayOps =
       [
         if i == latencyIdx then rcpHighDelay rcp else rcpLowDelay rcp
@@ -186,7 +202,9 @@ retimeComposeParImpl policy lowLatencyDelta highLatencyDelta (ComposeSeq ops) =
           (opList, highCost-lowCost)
       else
         -- If lowLatencyDelta is 0, just glue together the rcpLowDelay
-        -- results (recall low delay = 0).
+        -- results (recall low delay = 0, so gluing together the ops
+        -- will lead to a ComposeSeq with the same latency as the
+        -- original ComposeSeq).
         (map rcpLowDelay rcpResults, highCost)
   in
     RetimeComposeParResult

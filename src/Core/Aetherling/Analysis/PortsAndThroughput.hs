@@ -82,7 +82,7 @@ inPorts (ReduceOp numTokens par op) = renamePorts "I" $ map scaleSeqLen $
 
 inPorts (NoOp tTypes) = renamePorts "I" $ map (head . oneInSimplePort) tTypes
 inPorts (LogicalUtil ratio op) =
-  scalePortsSeqLens1 (numerator ratio) (inPorts op)
+  scalePortsSeqLensBySameFactor (numerator ratio) (inPorts op)
 
 inPorts (Register _ utilRatio t) =
   [T_Port "I" (numerator utilRatio) t 1 False]
@@ -166,7 +166,7 @@ outPorts (ReduceOp _ _ op) = renamePorts "O" $ outPorts op
 outPorts (NoOp tTypes) = renamePorts "O" $ map (head . oneOutSimplePort) tTypes
 
 outPorts (LogicalUtil ratio op) =
-  scalePortsSeqLens1 (numerator ratio) (outPorts op)
+  scalePortsSeqLensBySameFactor (numerator ratio) (outPorts op)
 
 outPorts (Register _ utilRatio t) =
   [T_Port "O" (numerator utilRatio) t 1 False]
@@ -234,8 +234,8 @@ scalePortsSeqLens sLenScalings ports = map updatePort $ zip ports sLenScalings
 -- | Scale the sequence lengths of a list of ports by a provided
 -- scaling. This is used when scaling ports to match how cps' are
 -- scaled.
-scalePortsSeqLens1 :: Int -> [PortType] -> [PortType]
-scalePortsSeqLens1 sLenScaling ports = map updatePort ports
+scalePortsSeqLensBySameFactor :: Int -> [PortType] -> [PortType]
+scalePortsSeqLensBySameFactor sLenScaling ports = map updatePort ports
   where
     updatePort (T_Port name origSLen tType pct readyValid) =
       T_Port name (origSLen * sLenScaling) tType pct readyValid
@@ -409,8 +409,8 @@ readyValidComposeSeqImpl ops =
     inSeqScale = cpsValue `div` cps_in * lcmDenom
     outSeqScale = cpsValue `div` cps_out * lcmDenom
 
-    inPorts_ = scalePortsSeqLens1 inSeqScale (inPorts (head ops))
-    outPorts_ = scalePortsSeqLens1 outSeqScale (outPorts lastOp)
+    inPorts_ = scalePortsSeqLensBySameFactor inSeqScale (inPorts (head ops))
+    outPorts_ = scalePortsSeqLensBySameFactor outSeqScale (outPorts lastOp)
   in
     ((inPorts_, outPorts_), cpsValue)
 

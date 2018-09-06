@@ -15,7 +15,7 @@ main = do
           Right theData -> theData
   let op = MapOp 3 (appsGaussianBlur7 inImageSize) -- Map over RGB.
   putStrLn "Running simulator on convolution pipeline."
-  let ([output], _, warnings) = simulateHighLevel' op [pixels] []
+  let ([output], _, warnings) = simulateHighLevelWarnings op [pixels] []
   let outImageSize = (fst inImageSize - 6, snd inImageSize - 6)
 
   putStrLn warnings

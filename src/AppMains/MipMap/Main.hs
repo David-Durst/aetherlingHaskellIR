@@ -11,7 +11,7 @@ main = do
   let dimLog2 = 8    -- log2 of original image dimensions
   let speedLog2 = 5  -- log2 of input pixels per clock.
   -- RGB MipMap type = int[3]
-  let op = appsMipMap (T_Array 3 T_Int) dimLog2 speedLog2
+  let op = appsMipMap (tInts [3]) dimLog2 speedLog2
 
   let filename = "Images/HalideParrot256.png"
   putStrLn ("Reading " ++ filename)
@@ -23,7 +23,7 @@ main = do
             if imgSize == (256, 256) then pixels
             else error "Expected 256 x 256 image."
   putStrLn "Running simulation."
-  let (_, memOuts, warnings) = simulateHighLevel' op [pixels] []
+  let (_, memOuts, warnings) = simulateHighLevelWarnings op [pixels] []
 
   putStrLn warnings
   writeMipMaps memOuts 1 (dimLog2-1) (speedLog2-2)
