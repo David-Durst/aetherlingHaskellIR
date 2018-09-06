@@ -356,6 +356,119 @@ composeTest32 =
     (seq32a' |&| seq32b)
 
 
+-- Complicated example. Stress test for the retimeComposePar.
+-- Some potential bugs aren't apparent except through interaction
+-- between many different features
+--
+-- This pipeline is lbLatency22 composepar'd with (A |>>=| (MapOp (B
+-- |&| C) |&| D)), with the correct solution being to increase B, C,
+-- and D's latencies. The goal is to see that retimeComposePar can
+-- correctly see through all those meta-ops to find the optimal
+-- solution.
+a33 = reduceOp 16 16 (addInts $ tInts[4])
+  |&| reduceOp 10 10 (addInts $ tInts[4])
+  |&| arrayReshape [tBits[10]] [tBits[4], tBits[4], tBits[2]]
+b33 = duplicateOutputs 6 (regInputs 1 Div)
+c33 = And
+d33 = reduceOp 8 2 XOr
+
+a33' = a33
+b33' = duplicateOutputs 6 (regInputs 1 (regOutputs 21 Div))
+c33' = regOutputs 22 And
+d33' = regOutputs 19 (reduceOp 8 2 XOr)
+
+pipeline33 = lbLatency22 |&| (a33 |>>=| (mapOp 4 (b33 |&| c33) |&| d33))
+expected33 = lbLatency22 |&| (a33' |>>=| (mapOp 4 (b33' |&| c33') |&| d33'))
+
+composeTest33 =
+  testCase
+    "Complicated stress-test" $
+    retimeComposePar pipeline33 @?= expected33
+
+
+-- Similar to previous complicated example, but now we replace the reduces
+-- with MemReads in (a) so that delaying a is now the optimal solution.
+-- (But still have to delay b and c some to match d, just less than earlier).
+a34 = MemRead (tInts[4]) |&| MemRead (tInts[4])
+  |&| arrayReshape [tBits[10]] [tBits[4], tBits[4], tBits[2]]
+b34 = duplicateOutputs 6 (regInputs 1 Div)
+c34 = And
+d34 = reduceOp 8 2 XOr
+
+-- Note: for a34', regInputs 20 (arrayReshape ...) is also correct.
+a34' = MemRead (tInts[4]) |&| MemRead (tInts[4])
+  |&| regOutputs 19 (arrayReshape [tBits[10]] [tBits[4], tBits[4], tBits[2]])
+b34' = duplicateOutputs 6 (regInputs 1 (regOutputs 2 Div))
+c34' = regOutputs 3 And
+d34' = reduceOp 8 2 XOr
+
+pipeline34 = lbLatency22 |&| (a34 |>>=| (mapOp 4 (b34 |&| c34) |&| d34))
+expected34 = lbLatency22 |&| (a34' |>>=| (mapOp 4 (b34' |&| c34') |&| d34'))
+
+composeTest34 =
+  testCase
+    "Complicated stress-test with MemRead" $
+    retimeComposePar pipeline34 @?= expected34
+
+
+-- Similar to test 33, but with readyValid.
+a35 = reduceOp 16 16 (addInts $ tInts[4])
+  |&| reduceOp 10 10 (addInts $ tInts[4])
+  |&| arrayReshape [tBits[10]] [tBits[4], tBits[4], tBits[2]]
+b35 = duplicateOutputs 6 (regInputs 1 Div)
+c35 = And
+d35 = reduceOp 8 2 XOr
+
+a35' = a35
+b35' = duplicateOutputs 6 (regInputs 1 (regOutputs 2 Div))
+c35' = regOutputs 3 And
+d35' = reduceOp 8 2 XOr
+
+pipeline35 = readyValid lbLatency22
+         |&| (readyValid a35
+              |>>=| readyValid ((mapOp 4 (b35 |&| c35) |&| d35))
+             )
+expected35 = readyValid lbLatency22
+         |&| (readyValid a35'
+              |>>=| readyValid ((mapOp 4 (b35' |&| c35') |&| d35'))
+             )
+
+composeTest35 =
+  testCase
+    "Complicated stress-test with ReadyValid" $
+      retimeComposePar pipeline35 @?= expected35
+
+
+-- Same as above test, but with alternate ready-valid retime policy.
+
+a36 = reduceOp 16 16 (addInts $ tInts[4])
+  |&| reduceOp 10 10 (addInts $ tInts[4])
+  |&| arrayReshape [tBits[10]] [tBits[4], tBits[4], tBits[2]]
+b36 = duplicateOutputs 6 (regInputs 1 Div)
+c36 = And
+d36 = reduceOp 8 2 XOr
+
+a36' = a36
+b36' = duplicateOutputs 6 (regInputs 1 (regOutputs 21 Div))
+c36' = regOutputs 22 And
+d36' = regOutputs 19 (reduceOp 8 2 XOr)
+
+pipeline36 = readyValid lbLatency22
+         |&| (readyValid a36
+              |>>=| readyValid ((mapOp 4 (b36 |&| c36) |&| d36))
+             )
+expected36 = readyValid lbLatency22
+         |&| (readyValid a36'
+              |>>=| readyValid ((mapOp 4 (b36' |&| c36') |&| d36'))
+             )
+
+composeTest36 =
+  testCase
+    "Complicated stress-test with ReadyValid" $
+      retimeComposePar' retimeReadyValidPolicy pipeline36 @?= expected36
+
+
+
 composeTests = testGroup "Compose op tests" $
   [
     composeTest1,
@@ -389,6 +502,10 @@ composeTests = testGroup "Compose op tests" $
     composeTest29,
     composeTest30,
     composeTest31,
-    composeTest32
+    composeTest32,
+    composeTest33,
+    composeTest34,
+    composeTest35,
+    composeTest36
   ]
 
