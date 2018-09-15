@@ -82,7 +82,7 @@ inPorts (ReduceOp numTokens par op) = renamePorts "I" $ map scaleSeqLen $
 
 inPorts (NoOp tTypes) = renamePorts "I" $ map (head . oneInSimplePort) tTypes
 inPorts (LogicalUtil ratio op) =
-  scalePortsSeqLens1 (numerator ratio) (inPorts op)
+  scalePortsSeqLensBySameFactor (numerator ratio) (inPorts op)
 
 inPorts (Register _ utilRatio t) =
   [T_Port "I" (numerator utilRatio) t 1 False]
@@ -166,7 +166,7 @@ outPorts (ReduceOp _ _ op) = renamePorts "O" $ outPorts op
 outPorts (NoOp tTypes) = renamePorts "O" $ map (head . oneOutSimplePort) tTypes
 
 outPorts (LogicalUtil ratio op) =
-  scalePortsSeqLens1 (numerator ratio) (outPorts op)
+  scalePortsSeqLensBySameFactor (numerator ratio) (outPorts op)
 
 outPorts (Register _ utilRatio t) =
   [T_Port "O" (numerator utilRatio) t 1 False]
@@ -234,8 +234,8 @@ scalePortsSeqLens sLenScalings ports = map updatePort $ zip ports sLenScalings
 -- | Scale the sequence lengths of a list of ports by a provided
 -- scaling. This is used when scaling ports to match how cps' are
 -- scaled.
-scalePortsSeqLens1 :: Int -> [PortType] -> [PortType]
-scalePortsSeqLens1 sLenScaling ports = map updatePort ports
+scalePortsSeqLensBySameFactor :: Int -> [PortType] -> [PortType]
+scalePortsSeqLensBySameFactor sLenScaling ports = map updatePort ports
   where
     updatePort (T_Port name origSLen tType pct readyValid) =
       T_Port name (origSLen * sLenScaling) tType pct readyValid
@@ -295,12 +295,7 @@ clocksPerSequence (ArrayReshape _ _) = combinationalCPS
 clocksPerSequence (DuplicateOutputs _ _) = combinationalCPS
 
 clocksPerSequence (MapOp _ op) = cps op
--- if reducing combinational operator, clocks is number of iterations
--- reduce needs to get a complete sequence. If less than parallel,
--- need to write to register all but last, if fully parallel or more,
--- reduce is combinational
-clocksPerSequence (ReduceOp numTokens par op) |
-  isComb op = combinationalCPS * (numTokens `ceilDiv` par)
+
 -- Why not including tree height? Because can always can pipeline.
 -- Putting inputs in every clock where can accept inputs.
 -- Just reset register every numTokens/par if not fully parallel.
@@ -414,8 +409,8 @@ readyValidComposeSeqImpl ops =
     inSeqScale = cpsValue `div` cps_in * lcmDenom
     outSeqScale = cpsValue `div` cps_out * lcmDenom
 
-    inPorts_ = scalePortsSeqLens1 inSeqScale (inPorts (head ops))
-    outPorts_ = scalePortsSeqLens1 outSeqScale (outPorts lastOp)
+    inPorts_ = scalePortsSeqLensBySameFactor inSeqScale (inPorts (head ops))
+    outPorts_ = scalePortsSeqLensBySameFactor outSeqScale (outPorts lastOp)
   in
     ((inPorts_, outPorts_), cpsValue)
 

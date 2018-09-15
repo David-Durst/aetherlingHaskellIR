@@ -299,6 +299,8 @@ scaleUtil ratio op =
 
 -- | Gate the inputs of an op with registers (n of them, back-to-back).
 regInputs :: Int -> Op -> Op
+regInputs n _ | n < 0 = error "Cannot have negative register count."
+regInputs 0 op = op
 regInputs n failure@(Failure _) = failure
 regInputs n op =
   let
@@ -322,6 +324,8 @@ regInputs n op =
 
 -- | Gate the outputs of an op with registers (n of them, back-to-back).
 regOutputs :: Int -> Op -> Op
+regOutputs n _ | n < 0 = error "Cannot have negative register count."
+regOutputs 0 op = op
 regOutputs n failure@(Failure _) = failure
 regOutputs n op =
   let

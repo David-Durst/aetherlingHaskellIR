@@ -4,8 +4,10 @@ import Aetherling.Operations.AST
 import Aetherling.Operations.Ops
 import Aetherling.Operations.Compose
 import Aetherling.Operations.Types
+import Aetherling.Passes.Timing
 import Test.Tasty
 import Test.Tasty.HUnit
+import Data.Ratio
 
 -- Create a test case that expects a failure.
 -- Map all failures to Nothing, and non-failures to Just Op.
@@ -21,6 +23,11 @@ testComposeFailure description op =
       op' -> Just op'
   in
     testCase description (maybe @?= Nothing)
+
+
+-- retimeComposePar policy set to continue matching latencies
+-- even if ReadyValid is used.
+retimeReadyValidPolicy = rcpRetimeReadyValid True rcpDefault
 
 
 -- Make sure that normal ComposeSeq is working.
@@ -68,7 +75,7 @@ composeTest5 =
     ComposePar [readyValid (MemRead T_Int), readyValid Mul, readyValid Div]
 
 
--- Make sure ComposeSeq can "see" that MapOp contains ready-valid ops.
+-- Make sure ComposeSeq can "see" that ComposePar contains ready-valid ops.
 composeTest6 =
   testCase
     "ComposeSeq of ComposePar of ready-valid" $
@@ -150,6 +157,318 @@ composeTest16 =
     reduceOp 4 2 Mul |>>=| MemWrite T_Int
 
 
+-- Make sure ComposeSeq can still see type mismatches in long chains
+-- with ready-valid.
+composeTest17 =
+  testComposeFailure
+    "ComposeSeq ready-valid chain with type mismatch" $
+    readyValid And |>>=| readyValid (duplicateOutputs 2 Not)
+    |>>=| readyValid XOr |>>=| readyValid NotInt
+    |>>=| readyValid (MemWrite T_Int)
+
+
+-- Simple ComposePar retiming test.
+-- We should see a delay added to the other op in ComposePar, and
+-- the delay should be on the outputs (fewer bits).
+composeTest18 =
+  testCase
+    "Basic ComposePar register matching test" $
+     (retimeComposePar (And |&| Or |&| regOutputs 1 Div))
+     @?=
+     ((And |>>=| Register 1 1 T_Bit)
+      |&| (Or |>>=| Register 1 1 T_Bit)
+      |&| (Div |>>=| Register 1 1 T_Int))
+     -- Add regs manually for this test to ensure regOutputs works.
+
+
+-- Check that retiming adds correct number of registers.
+-- The line buffer has a latency of 22. We should see 22 reg delays
+-- on the parallel path.
+lbLatency22 = manifestoLineBuffer (1,1) (3,3) (10,10) (1,1) (0,0) T_Int
+composeTest19 =
+  testCase
+    "ComposePar retime should match line buffer latency exactly" $
+    (retimeComposePar (lbLatency22 |&| Sub))
+    @?=
+    (lbLatency22 |&| (Sub |>>=| Register 22 1 T_Int))
+
+
+-- Check that the retiming peeks into the MapOp. It should see that
+-- the cheapest connection within the MapOp is the 1 int connection.
+mappedOp20 =
+  mapOp 4 (Shl 2) |>>=| reduceOp 4 4 Add |>>=| duplicateOutputs 2 NotInt
+mappedOp20' =
+  mapOp 4 (Shl 2) |>>=| reduceOp 4 4 Add
+    |>>=| regInputs 22 (duplicateOutputs 2 NotInt)
+-- I think that there's another correct solution: put the regInputs 22
+-- within the duplicateOutputs.
+composeTest20 =
+  testCase
+    "Retime should look inside the MapOp to delay the cheapest connection" $
+    (retimeComposePar (mapOp 3 mappedOp20 |&| lbLatency22))
+    @?=
+    (mapOp 3 mappedOp20' |&| lbLatency22)
+
+
+-- Recursive test. Test that the ComposePar within ComposePar gets all its
+-- child ops delayed to match the line buffer.
+reduce21 = reduceOp 4 4 (regOutputs 1 Mul) -- 2 delays, log2(4)=2.
+composeTest21 =
+  testCase
+    "Retiming ComposePar within ComposePar" $
+    (retimeComposePar $
+      (reduce21 |&| Not) |&|
+      (arrayReshape [T_Int] [tInts [1,1]] |>>=| lbLatency22)
+    )
+    @?=
+    ((regOutputs 20 reduce21 |&| regOutputs 22 Not) |&|
+     (arrayReshape [T_Int] [tInts [1,1]] |>>=| lbLatency22))
+
+
+-- Make sure retiming still works if outer-most op is ComposeSeq.
+reshape22 = arrayReshape [tInts [3]] [T_Int, T_Int, tInts [1,1]]
+composeTest22 =
+  testCase
+    "Retiming when outer-most op is ComposeSeq" $
+    (retimeComposePar $
+      reshape22 |>>=| (Max |&| lbLatency22))
+    @?=
+    (reshape22 |>>=| (regOutputs 22 Max |&| lbLatency22))
+
+
+-- Same as test 21, but the whole thing is wrapped in a ReadyValid.
+composeTest23 =
+  testCase
+    "Retiming ComposePar within ComposePar within ReadyValid" $
+    (retimeComposePar $ readyValid $
+      (reduce21 |&| Not) |&|
+      (arrayReshape [T_Int] [tInts [1,1]] |>>=| lbLatency22)
+    )
+    @?=
+    readyValid ((regOutputs 20 reduce21 |&| regOutputs 22 Not) |&|
+     (arrayReshape [T_Int] [tInts [1,1]] |>>=| lbLatency22))
+
+
+-- By default, retimeComposePar shouldn't pump up the latency
+-- of things in ReadyValid.
+composeTest24 =
+  testCase
+    "Retiming 2 ready-valid ops" $
+    (retimeComposePar $
+     (readyValid (lbLatency22) |&| readyValid (regInputs 1 Add |&| XOr)))
+    @?=
+    (readyValid (lbLatency22) |&|
+     readyValid (regInputs 1 Add |&| regOutputs 1 XOr))
+
+
+-- With alternate policy, we'll match latencies between readyValid ops.
+-- (Also check that user's registers are not removed, even if suboptimal).
+composeTest25 =
+  testCase
+    "Retiming 2 ready-valid ops, with alternate policy" $
+    (retimeComposePar' retimeReadyValidPolicy $
+     (readyValid (lbLatency22) |&| readyValid (regInputs 1 Add |&| XOr)))
+    @?=
+    (readyValid (lbLatency22) |&|
+     readyValid (regInputs 1 (regOutputs 21 Add) |&| regOutputs 22 XOr))
+
+
+-- Check that we can retime within duplicateOutputs.
+composeTest26 =
+  testCase
+    "Retiming child op of DuplicateOutputs" $
+    (retimeComposePar $ duplicateOutputs 3 Min |&| lbLatency22)
+    @?=
+    (duplicateOutputs 3 (regOutputs 22 Min) |&| lbLatency22)
+
+
+-- Check that ComposeSeq as child op still gets retimed correctly.
+lbLatency0 = manifestoLineBuffer (1,1) (2,2) (10,10) (1,1) (-1,-1) T_Int
+reshape27 = arrayReshape [tInts [1,1,2,2]] [T_Int, T_Int, T_Int, T_Int]
+seq27 = lbLatency0 |>>=| reshape27
+seq27' = regInputs 22 lbLatency0 |>>=| reshape27
+composeTest27 =
+  testCase
+    "Retiming ComposeSeq child op of map (all in ComposePar)" $
+    (retimeComposePar $ seq27 |&| lbLatency22)
+    @?=
+    (seq27' |&| lbLatency22)
+
+
+-- Retiming should not mess uneccessarily with paths that end in
+-- MemWrite (since it doesn't have to match with other paths; there's
+-- no circuit output).
+addWrite = Add |>>=| MemWrite T_Int
+composeTest28 =
+  testCase
+    "Retiming path with MemWrite should add no delay" $
+    (retimeComposePar $ addWrite |&| lbLatency22 |&| lbLatency0)
+    @?=
+    (addWrite |&| lbLatency22 |&| regInputs 22 lbLatency0)
+
+
+-- Same with MemRead.
+readAnd = (MemRead T_Bit |&| MemRead T_Bit) |>>=| And
+composeTest29 =
+  testCase
+    "Retiming path with MemRead should add no delay" $
+    (retimeComposePar $ readAnd |&| Or |&| lbLatency22)
+    @?=
+    (readAnd |&| regOutputs 22 Or |&| lbLatency22)
+
+
+-- Retiming a SequenceArrayRepack.
+repack30 = sequenceArrayRepack (5,3) (3,5) T_Int
+composeTest30 =
+  testCase
+    "Basic SequenceArrayRepack retiming test" $
+    (retimeComposePar $ repack30 |&| lbLatency22)
+    @?=
+    (regInputs 20 repack30 |&| lbLatency22)
+
+
+-- Retiming with underutil going on.
+reduce31 = reduceOp 8 2 Mul -- Has 3 latency.
+composeTest31 =
+  testCase
+    "Retime underutilized downstream of reduce" $
+    (retimeComposePar
+      (lbLatency22 |&| ((reduce31 |&| reduce31) |>>=| underutil 4 Add)))
+    @?=
+    (lbLatency22 |&| ((reduce31 |&| reduce31)
+                      |>>=| regOutputs 19 (underutil 4 Add)))
+
+
+-- Retiming underutilized sequenceArrayRepack.
+repack32 = sequenceArrayRepack (3,4) (4,3) T_Int
+seq32a = scaleUtil (2%3) (repack32 |>>=| reduceOp 3 3 Add)
+seq32b = lbLatency22 |>>=| arrayReshape [tInts [1,1,3,3]] [tInts [9]]
+                     |>>=| regInputs 1 (reduceOp 9 9 Max)
+-- Manually underutil SequenceArrayRepack, Register to check scaleUtil.
+seq32a' = SequenceArrayRepack (3,4) (4,3) 6 T_Int
+    |>>=| (reduceOp 3 3 (scaleUtil (2%3) Add))
+    |>>=| Register 22 (2%3) T_Int
+composeTest32 =
+  testCase
+    "Retime underutilized sequenceArrayRepack" $
+    (retimeComposePar (seq32a |&| seq32b))
+    @?=
+    (seq32a' |&| seq32b)
+
+
+-- Complicated example. Stress test for the retimeComposePar.
+-- Some potential bugs aren't apparent except through interaction
+-- between many different features
+--
+-- This pipeline is lbLatency22 composepar'd with (A |>>=| (MapOp (B
+-- |&| C) |&| D)), with the correct solution being to increase B, C,
+-- and D's latencies. The goal is to see that retimeComposePar can
+-- correctly see through all those meta-ops to find the optimal
+-- solution.
+a33 = reduceOp 16 16 (addInts $ tInts[4])
+  |&| reduceOp 10 10 (addInts $ tInts[4])
+  |&| arrayReshape [tBits[10]] [tBits[4], tBits[4], tBits[2]]
+b33 = duplicateOutputs 6 (regInputs 1 Div)
+c33 = And
+d33 = reduceOp 8 2 XOr
+
+a33' = a33
+b33' = duplicateOutputs 6 (regInputs 1 (regOutputs 21 Div))
+c33' = regOutputs 22 And
+d33' = regOutputs 19 (reduceOp 8 2 XOr)
+
+pipeline33 = lbLatency22 |&| (a33 |>>=| (mapOp 4 (b33 |&| c33) |&| d33))
+expected33 = lbLatency22 |&| (a33' |>>=| (mapOp 4 (b33' |&| c33') |&| d33'))
+
+composeTest33 =
+  testCase
+    "Complicated stress-test" $
+    retimeComposePar pipeline33 @?= expected33
+
+
+-- Similar to previous complicated example, but now we replace the reduces
+-- with MemReads in (a) so that delaying a is now the optimal solution.
+-- (But still have to delay b and c some to match d, just less than earlier).
+a34 = MemRead (tInts[4]) |&| MemRead (tInts[4])
+  |&| arrayReshape [tBits[10]] [tBits[4], tBits[4], tBits[2]]
+b34 = duplicateOutputs 6 (regInputs 1 Div)
+c34 = And
+d34 = reduceOp 8 2 XOr
+
+-- Note: for a34', regInputs 20 (arrayReshape ...) is also correct.
+a34' = MemRead (tInts[4]) |&| MemRead (tInts[4])
+  |&| regOutputs 19 (arrayReshape [tBits[10]] [tBits[4], tBits[4], tBits[2]])
+b34' = duplicateOutputs 6 (regInputs 1 (regOutputs 2 Div))
+c34' = regOutputs 3 And
+d34' = reduceOp 8 2 XOr
+
+pipeline34 = lbLatency22 |&| (a34 |>>=| (mapOp 4 (b34 |&| c34) |&| d34))
+expected34 = lbLatency22 |&| (a34' |>>=| (mapOp 4 (b34' |&| c34') |&| d34'))
+
+composeTest34 =
+  testCase
+    "Complicated stress-test with MemRead" $
+    retimeComposePar pipeline34 @?= expected34
+
+
+-- Similar to test 33, but with readyValid.
+a35 = reduceOp 16 16 (addInts $ tInts[4])
+  |&| reduceOp 10 10 (addInts $ tInts[4])
+  |&| arrayReshape [tBits[10]] [tBits[4], tBits[4], tBits[2]]
+b35 = duplicateOutputs 6 (regInputs 1 Div)
+c35 = And
+d35 = reduceOp 8 2 XOr
+
+a35' = a35
+b35' = duplicateOutputs 6 (regInputs 1 (regOutputs 2 Div))
+c35' = regOutputs 3 And
+d35' = reduceOp 8 2 XOr
+
+pipeline35 = readyValid lbLatency22
+         |&| (readyValid a35
+              |>>=| readyValid ((mapOp 4 (b35 |&| c35) |&| d35))
+             )
+expected35 = readyValid lbLatency22
+         |&| (readyValid a35'
+              |>>=| readyValid ((mapOp 4 (b35' |&| c35') |&| d35'))
+             )
+
+composeTest35 =
+  testCase
+    "Complicated stress-test with ReadyValid" $
+      retimeComposePar pipeline35 @?= expected35
+
+
+-- Same as above test, but with alternate ready-valid retime policy.
+
+a36 = reduceOp 16 16 (addInts $ tInts[4])
+  |&| reduceOp 10 10 (addInts $ tInts[4])
+  |&| arrayReshape [tBits[10]] [tBits[4], tBits[4], tBits[2]]
+b36 = duplicateOutputs 6 (regInputs 1 Div)
+c36 = And
+d36 = reduceOp 8 2 XOr
+
+a36' = a36
+b36' = duplicateOutputs 6 (regInputs 1 (regOutputs 21 Div))
+c36' = regOutputs 22 And
+d36' = regOutputs 19 (reduceOp 8 2 XOr)
+
+pipeline36 = readyValid lbLatency22
+         |&| (readyValid a36
+              |>>=| readyValid ((mapOp 4 (b36 |&| c36) |&| d36))
+             )
+expected36 = readyValid lbLatency22
+         |&| (readyValid a36'
+              |>>=| readyValid ((mapOp 4 (b36' |&| c36') |&| d36'))
+             )
+
+composeTest36 =
+  testCase
+    "Complicated stress-test with ReadyValid, with alternate policy" $
+      retimeComposePar' retimeReadyValidPolicy pipeline36 @?= expected36
+
+
+
 composeTests = testGroup "Compose op tests" $
   [
     composeTest1,
@@ -167,6 +486,26 @@ composeTests = testGroup "Compose op tests" $
     composeTest13,
     composeTest14,
     composeTest15,
-    composeTest16
+    composeTest16,
+    composeTest17,
+    composeTest18,
+    composeTest19,
+    composeTest20,
+    composeTest21,
+    composeTest22,
+    composeTest23,
+    composeTest24,
+    composeTest25,
+    composeTest26,
+    composeTest27,
+    composeTest28,
+    composeTest29,
+    composeTest30,
+    composeTest31,
+    composeTest32,
+    composeTest33,
+    composeTest34,
+    composeTest35,
+    composeTest36
   ]
 
