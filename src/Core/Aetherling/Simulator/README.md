@@ -44,7 +44,7 @@ port. For example, in
 
 ```haskell
 > inputs = [[V_Int 0, V_Int 2, V_Int 4], [V_Int 30, V_Int 20, V_Int 10]]
-> simulateHighLevel (Add T_Int) inputs [] -- Empty memory argument
+> simulateHighLevel (addInts T_Int) inputs [] -- Empty memory argument
 ([[V_Int 30,V_Int 22,V_Int 14]],[])
 ```
 
@@ -58,8 +58,8 @@ As mentioned the simulator does not concern itself with exact timing,
 so the lengths of the inner lists need not match. Example:
 
 ```haskell
-> add4stream = ArrayReshape [T_Int] [T_Array 1 T_Int] |>>=| ReduceOp 1 4 (Add T_Int)
-> pipeline = (add4stream |&| Underutil 4 (Shl 4 T_Int)) |>>=| Underutil 4 (Max T_Int)
+> add4stream = arrayReshape [T_Int] [tInts [1]] |>>=| reduceOp 4 1 (addInts T_Int)
+> pipeline = (add4stream |&| underutil 4 (Shl 4)) |>>=| underutil 4 (maxInts T_Int)
 > :{
 | inputs =
 |         [ [V_Int 1, V_Int 2, V_Int 3, V_Int 4, V_Int 5, V_Int 6, V_Int 7, V_Int 8],
@@ -85,8 +85,8 @@ AST. Example:
 > :{
 | pipeline =
 |   (MemRead T_Bit |&| MemRead T_Bit) |>>=|
-|   ArrayReshape [T_Bit, T_Bit] [T_Array 2 T_Bit] |>>=|
-|   MapOp 2 ((MemRead T_Bit |&| Not T_Bit) |>>=| XOr T_Bit)
+|   arrayReshape [T_Bit, T_Bit] [T_Array 2 T_Bit] |>>=|
+|   mapOp 2 ((MemRead T_Bit |&| notBits T_Bit) |>>=| xorBits T_Bit)
 | inputs =
 |           [ [V_Bit True, V_Bit False],
 |             [V_Bit False, V_Bit True],
