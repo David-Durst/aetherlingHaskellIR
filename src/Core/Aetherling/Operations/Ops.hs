@@ -119,16 +119,81 @@ mapBitAdapter rawOp t =
   error (show rawOp ++ " does not accept " ++ show t ++ " input.")
 
 
--- Function for making a line buffer (based on The Line Buffer Manifesto).
-manifestoLineBuffer :: (Int, Int) -> (Int, Int) -> (Int, Int)
-                    -> (Int, Int) -> (Int, Int) -> TokenType
-                     -> Op
-manifestoLineBuffer pxPerClk window image stride origin token =
-  case manifestoCheckAssumptions
-       (ManifestoData pxPerClk window image stride origin token) of
+-- Functions for making a line buffer 
+linebuffer1D :: Int -> Int -> Int -> Int -> Int -> TokenType -> Op
+linebuffer1D pxPerClk window image stride origin token =
+  case linebufferCheckAssumptions
+       (LineBufferData (1, pxPerClk) (1, window) (1, image) (1, stride)
+        (1, origin) (1, token)) of
     Left message -> error message
-    Right lb -> LineBufferManifesto lb
+    Right lbData -> LineBufferManifesto lbData
 
+linebuffer2D :: (Int, Int) -> (Int, Int) -> (Int, Int)
+             -> (Int, Int) -> (Int, Int) -> TokenType
+             -> Op
+linebuffer2d pxPerClk window image stride origin token =
+  case linebufferCheckAssumptions
+       (LineBufferData pxPerClk window image stride origin token) of
+    Left message -> error message
+    Right lbData -> LineBufferManifesto lbData
+
+-- True iff the line buffer satisfies the requirements specified
+-- in The Line Buffer Manifesto. Returns Left String with error
+-- message if it doesn't, Right ManifestoData with the same data
+-- passed in if it does.
+linebufferCheckAssumptions :: LineBufferData -> Either String LineBufferData
+linebufferCheckAssumptions lb =
+  let
+    (yPerClk, xPerClk) = lbPxPerClk lb
+    (windowY, windowX) = lbWindow lb
+    (imgY, imgX) = lbImage lb
+    (strideY, strideX) = lbStride lb
+    (originY, originX) = lbOrigin lb
+
+    inThroughput = yPerClk * xPerClk
+    strideArea = strideY * strideX
+
+    divides x y = y `mod` x == 0
+
+    -- Check there are no meaningless non-positive parameters (origin ok).
+    allPositive = all (> 0)
+        [yPerClk, xPerClk, imgY, imgX, strideY, strideX, windowY, windowX]
+
+    windowThroughput = (fromIntegral inThroughput :: Double)
+                     / (fromIntegral strideArea :: Double)
+
+    -- Check that window throughput is integer or reciprocal of integer.
+    windowThroughputOK =
+      strideArea `divides` inThroughput || inThroughput `divides` strideArea
+
+    -- Check the stride divides image size requirement.
+    stridesOK = strideY `divides` imgY && strideX `divides` imgX
+
+    -- Check the pxPerClk divides image size requirement.
+    pxPerClkOK = yPerClk `divides` imgY && xPerClk `divides` imgX
+
+    -- Check the origin near upper-left requirement.
+    -- THIS IS UNDOCUMENTED FIXIT.
+    originOK = originY <= 0 && originY > -windowY
+            && originX <= 0 && originX > -windowX
+  in
+    -- Check the yPerClk = 1 requirement.
+    if yPerClk /= 1 then
+      Left "Need pixels/clk to have height 1."
+    else if not allPositive then
+      Left "Can't interpret non-positive parameters."
+    else if not windowThroughputOK then
+      Left ("Window throughput must be integer or reciprocal of integer.\n"
+           ++ "(Window throughput = " ++ show windowThroughput ++ ")."
+      )
+    else if not stridesOK then
+      Left "Stride_x (_y) must divide image width (height)."
+    else if not pxPerClkOK then
+      Left "pixels/clk width must divide image width."
+    else if not originOK then
+      Left "Origin not okay." -- FIXME
+    else
+      Right lb
 
 -- | Create a constant generater producing the given token type and
 -- value. Values are passed as a 1D list (for bit values, 0 = False, 0

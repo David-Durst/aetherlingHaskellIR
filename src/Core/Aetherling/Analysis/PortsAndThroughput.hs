@@ -50,13 +50,20 @@ inPorts (LUT _) = oneInSimplePort T_Int
 
 inPorts (MemRead _) = []
 inPorts (MemWrite t) = [T_Port "I" 1 t 1 False]
--- since CPS includes both emitting and non-emitting times, and taking in
--- one input per clock, input sequence length equal to CPS
-inPorts lb@(LineBuffer p _ img t _) = [T_Port "I" (cps lb) parallelType 1 False]
-  where
-    parallelType = foldr (\pDim innerType -> T_Array pDim innerType) t p
 
-inPorts (LineBufferManifesto lb) = manifestoInPorts lb
+inPorts :: (LineBuffer lbData) =
+  let
+    (yPerClk, xPerClk) = lbPxPerClk lbData
+    inArea = yPerClk * xPerClk
+    (imgY, imgX) = lbImage lbData
+    imgArea = imgY * imgX
+    seqLen = imgArea `div` inArea
+    arrayToken = T_Array yPerClk (T_Array xPerClk (lbToken lbData))
+  in
+    if imgY `mod` yPerClk /= 0 || imgX `mod` xPerClk /= 0 then
+      error "px/clk width/height must divide image width/height."
+    else
+      [T_Port "I" seqLen arrayToken 1 False]
 
 inPorts (Constant_Int _) = []
 inPorts (Constant_Bit _) = []
@@ -134,20 +141,29 @@ outPorts (LUT _) = oneOutSimplePort T_Int
 
 outPorts (MemRead t) = oneOutSimplePort t
 outPorts (MemWrite _) = []
--- go back to (sLen - ((w `ceilDiv` p) - 1)) for out stream length when 
--- including warmup and shutdown
-outPorts lb@(LineBuffer p w img t _) = [T_Port "O" seqLen parallelStencilType 1 False]
-  where
-    -- make number of stencials equal to parallelism
-    -- first is just one stencil
-    singleStencilType =
-      foldr (\wDim innerType -> T_Array wDim innerType) t w
-    parallelStencilType =
-      foldr (\pDim innerType -> T_Array pDim innerType) singleStencilType p
-    -- seqLen is same as inputs, except with nothing on warmup inputs
-    seqLen = (pSeqLen $ head $ inPorts lb)
 
-outPorts (LineBufferManifesto lb) = manifestoOutPorts lb
+outPorts (LineBuffer lbData) = let
+    (yPerClk, xPerClk) = lbPxPerClk lb
+    (strideY, strideX) = lbStride lb
+    (imgY, imgX) = lbImage lb
+    (winY, winX) = lbWindow lb
+    strideArea = strideX * strideY
+    imgArea = imgX * imgY
+
+    -- The number of parallel window outputs needed.
+    parallelism = getParallelism lb
+
+    windowCount = div imgArea strideArea
+    seqLen = div windowCount parallelism
+    windowToken = T_Array winY $ T_Array winX (lbToken lb)
+    arrayToken = T_Array parallelism $ windowToken
+  in
+    if yPerClk /= 1 then
+      error "Expected pxPerClk to have height 1."
+    else if xPerClk `mod` strideArea /= 0 && strideArea `mod` xPerClk /= 0 then
+      error "Window throughput must be integer (or reciprocal of integer)."
+    else
+      [T_Port "O" seqLen arrayToken 1 False]
 
 outPorts (Constant_Int ints) = [T_Port "O" 1 (T_Array (length ints) T_Int) 1 False]
 outPorts (Constant_Bit bits) = [T_Port "O" 1 (T_Array (length bits) T_Bit) 1 False]
@@ -279,12 +295,15 @@ clocksPerSequence (LUT _) = combinationalCPS
 clocksPerSequence (MemRead _) = combinationalCPS 
 clocksPerSequence (MemWrite _) = combinationalCPS 
 
-clocksPerSequence (LineBuffer (pHd:[]) _ (imgHd:[]) t _) = imgHd `ceilDiv` pHd
-clocksPerSequence (LineBuffer (pHd:pTl) (_:wTl) (imgHd:imgTl) t bc) =
-  (imgHd `ceilDiv` pHd) * (cps $ LineBuffer pTl wTl imgTl t bc)
-clocksPerSequence (LineBuffer _ _ _ _ _) = -1
-
-clocksPerSequence (LineBufferManifesto lb) = manifestoCPS lb
+clocksPerSequence (LineBuffer lbData) = 
+  let
+    (imgY, imgX) = lbImage lbData
+    (yPerClk, xPerClk) = lbPxPerClk lbData
+  in
+    if imgY `mod` yPerClk /= 0 || imgX `mod` xPerClk /= 0 then
+      error "Need px/clk to divide image in both dimensions."
+    else
+      (imgY * imgX) `div` (yPerClk * xPerClk)
 
 clocksPerSequence (Constant_Int _) = combinationalCPS
 clocksPerSequence (Constant_Bit _) = combinationalCPS

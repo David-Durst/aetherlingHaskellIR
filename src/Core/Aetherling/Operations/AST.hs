@@ -40,20 +40,7 @@ data Op =
   | LUT [Int]
   | MemRead TokenType
   | MemWrite TokenType
-  -- | first arg is pixels per clock in each dimension. First value in list is
-  -- outer most dimension that iterating over (rows first, columns second in 2d
-  -- case). second arg is window width in each dimension. Same indexing order.
-  -- third arg is the size of the image. Saem indexing order. This is necessary
-  -- for internal buffer sizing
-  -- Last is the type of the pixel element
-  | LineBuffer {pxPerClock :: [Int], windowWidth :: [Int], image :: [Int],
-                lbInT :: TokenType, boundaryCondition :: BoundaryConditions}
-
-  -- Temporary line buffer op based on semantics in "The Line Buffer
-  -- Manifesto".  I need a working line buffer to make progress on my
-  -- work. Later when we refine our main line buffer to work I can go back
-  -- and port uses of LineBufferManifesto to the main line buffer.
-  | LineBufferManifesto ManifestoData
+  | LineBuffer {lbData :: LineBufferData}
 
   -- | Array is constant produced, int is sequence length
   | Constant_Int {intConstProduced :: [Int]}
@@ -130,20 +117,32 @@ data Op =
   | ReadyValid Op
   deriving (Eq, Show)
 
--- | The how to handle boundaries where LineBuffer emits invalid data.
--- this is here so that LineBuffer signature doesn't have warmup.
--- The warmup makes synchronously timing the circuit very difficult
--- as need downstream ops to have weird underutilization patterns
--- that are hard to automatically change in a speed up or slow down.
-data BoundaryConditions =
-  -- | Crop means to have the system automatically remove these values
-  -- from the output using an op at the end of the DAG
-  Crop
-  -- | KeepGarbage means to leave in the outputs during invalid clocks.
-  -- The user will handle them.
-  | KeepGarbage
-  deriving (Eq, Show)
+-- | first arg is pixels per clock in each dimension. First value in list is
+-- outer most dimension that iterating over (rows first, columns second in 2d
+-- case). second arg is window width in each dimension. Same indexing order.
+-- third arg is the size of the image. Same indexing order. This is necessary
+-- for internal buffer sizing. Fourth is how far apart each window is from
+-- the last one. Origin is the location of the window relative to the pixel
+-- that's being moved along the image. Last is the type of the pixel element
+data LineBufferData = LinebufferData {
+  lbPxPerClk :: (Int, Int),
+  lbWindow :: (Int, Int),
+  lbImage :: (Int, Int),
+  lbStride :: (Int, Int),
+  lbOrigin :: (Int, Int),
+  lbToken :: TokenType
+} deriving (Eq, Show)
 
+-- The number of parallel window outputs needed.
+getLinebufferParallelism :: LineBufferData -> Int
+getLinebufferParallelism lb =
+  let
+    (yPerClk, xPerClk) = lbPxPerClk lb
+    (strideY, strideX) = lbStride lb
+    strideArea = strideY * strideX
+  in
+    max 1 (div (xPerClk * yPerClk) strideArea)
+    
 data FailureType =
   ComposeFailure ComposeResult (Op, Op)
   | InvalidThroughputModification {attemptedMult :: Int, actualMult :: Int}
@@ -205,8 +204,7 @@ getChildOps (Geq) = []
 getChildOps (LUT _) = []
 getChildOps (MemRead _) = []
 getChildOps (MemWrite _) = []
-getChildOps (LineBuffer _ _ _ _ _) = []
-getChildOps (LineBufferManifesto _) = []
+getChildOps (LineBuffer _) = []
 getChildOps (Constant_Int _) = []
 getChildOps (Constant_Bit _) = []
 getChildOps (SequenceArrayRepack _ _ _ _) = []

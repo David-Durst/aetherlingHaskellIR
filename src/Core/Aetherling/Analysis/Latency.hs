@@ -49,9 +49,51 @@ sequentialLatency Geq = 0
 sequentialLatency (LUT _) = 0
 sequentialLatency (MemRead _) = 0
 sequentialLatency (MemWrite _) = 0
-sequentialLatency (LineBuffer _ _ _ _ _) = 0
-sequentialLatency (LineBufferManifesto manifestoData) =
-  manifestoRegLatency manifestoData
+-- Look at the origin to figure out what is the first window that the
+-- user wants. Now figure out when the lower-right pixel of that
+-- window will come in, and, in theory, that's our initial latency.
+-- Except, the line buffer may have parallel outputs (window
+-- throughput > 1), which means we have to wait until the
+-- lower-right pixel of the LAST window of the first batch will come in.
+-- Calculate when that is and in theory there's our latency.
+-- However this line buffer has not been realized in hardware yet,
+-- so there may be additional delays I'm not aware of yet.
+sequentialLatency (LineBuffer lbData) =
+  let
+    (yPerClk, xPerClk) = lbPxPerClk lbData
+    (originY, originX) = lbOrigin lbData
+    (windowY, windowX) = lbWindow lbData
+    (strideY, strideX) = lbStride lbData
+    (imgY, imgX) = lbImage lbData
+    parallelism = getParallelism lbData
+
+    -- First output window's lower-right coordinate.
+    (firstLower, firstRight) = (originY + windowY - 1, originX + windowX - 1)
+
+    -- Lower-right coordinate of the first batch of output windows'
+    -- last (rightmost) window. (Crystal clear if you think about it).
+    (lower, right) = (firstLower, firstRight + (parallelism-1)*strideX)
+    -- I believe that the current constraints guarantee that the
+    -- parallel output windows are all on the same row (so see that I
+    -- could just add some multiple of strideX). Check that assumption
+    -- at (1).
+
+    -- index of lower-right pixel in overall ordering of pixels
+    -- (left-to-right then top-to-bottom). Assume yPerClk = 1.
+    pixelIndex = imgX * lower + right
+
+    latency = (pixelIndex `div` xPerClk)
+  in
+    if originX > 0 || originX <= -windowX then
+      error "origin_x must be in (-window_x, 0]"
+    else if originY > 0 || originY <= -windowY then
+      error "origin_y must be in (-window_y, 0]"
+    else if yPerClk /= 1 then
+      error "yPerClk should be 1."
+    else if parallelism > (imgX `div` strideX) then -- (1)
+      error "Output windows not all on one row."
+    else
+      latency
 sequentialLatency (Constant_Int _) = 0
 sequentialLatency (Constant_Bit _) = 0
 sequentialLatency (SequenceArrayRepack (inSeqLen, _) (outSeqLen, _) cps_ _) =
