@@ -2,6 +2,9 @@ module Aetherling.Simulator.LineBuffer (
     simhlPreLB,
     simhlLineBuffer
 ) where
+import Aetherling.Analysis.PortsAndThroughput
+import Aetherling.Operations.AST
+import Aetherling.Operations.Types
 import Data.Array
 
 -- | Preprocessor pass implementation for LineBuffer.
@@ -10,18 +13,18 @@ import Data.Array
 -- buffer. The line buffer always produces the same output stream length.
 -- If the input stream is longer or shorter than expected, return an
 -- Just String warning, otherwise no warning.
-simhlPreLB :: LineBufferData -> (Maybe String, [Maybe Int])
+simhlPreLB :: LineBufferData -> [Maybe Int] -> (Maybe String, [Maybe Int])
 simhlPreLB lbData [Nothing] =
-  (Nothing, [Just $ pSeqLen $ head $ outPorts lbData])
+  (Nothing, [Just $ pSeqLen $ head $ outPorts $ LineBuffer lbData])
 simhlPreLB lbData [Just length] =
   let
-    expected_length = pSeqLen $ head $ outPorts lbData
+    expected_length = pSeqLen $ head $ outPorts $ LineBuffer lbData
     warning =
       if expected_length == length then Nothing
       else Just $ "Stream length (" ++ show length
                   ++ ") not as expected (" ++ show expected_length ++ ")."
   in
-    (warning, [Just $ pSeqLen $ head $ outPorts lbData])
+    (warning, [Just $ pSeqLen $ head $ outPorts $ LineBuffer lbData])
 
 simhlPreLB _ _ = error "Aetherling internal error: expected 1 input stream."
 
@@ -68,7 +71,7 @@ simhlLineBuffer lbData [inStr] =
     -- Now, we need to calculate the parallelism to know how many
     -- windows we emit per (logical) cycle. Then munch the arrays
     -- and pack them into the 4D output arrays.
-    parallelism = getParallelism lbData
+    parallelism = getLineBufferParallelism lbData
     pack :: [ValueType] -> [ValueType]
     pack [] = []
     pack windows =
