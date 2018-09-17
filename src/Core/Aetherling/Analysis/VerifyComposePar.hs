@@ -14,8 +14,8 @@ verifyComposeParTiming :: Op -> Maybe Op
 verifyComposeParTiming compose@(ComposePar ops) =
   let
     -- Filter out ops that have no inputs or no outputs.
-    theFilter :: Op -> Bool
-    theFilter op = inPorts op /= [] && outPorts op /= []
+    filterOpsWithoutPorts :: Op -> Bool
+    filterOpsWithoutPorts op = inPorts op /= [] && outPorts op /= []
     filteredOps = filter theFilter ops
     expected = sequentialLatency (head filteredOps)
 
