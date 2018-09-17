@@ -4,7 +4,7 @@ Description: This is the one module to import for users of the simulator.
 -}
 module Aetherling.Simulator.Simulator (
     simulateHighLevel,
-    simulateHighLevel',
+    simulateHighLevelWarnings,
     vBits,
     vInts,
     vBitArray,
@@ -76,19 +76,19 @@ simulateHighLevel :: Op -> [[ValueType]] -> [[ValueType]]
                   -> ( [[ValueType]], [[ValueType]] )
 simulateHighLevel op portInputs memoryInputs =
     let
-      (out, memOut, _) = simulateHighLevel' op portInputs memoryInputs
+      (out, memOut, _) = simulateHighLevelWarnings op portInputs memoryInputs
     in
       (out, memOut)
   
 -- | Identical to simulateHighLevel, except that we return a 3-tuple.
 -- The last entry is a warnings string, the first two are the port and
 -- memory outputs as before.
-simulateHighLevel' :: Op -> [[ValueType]] -> [[ValueType]]
-                  -> ( [[ValueType]], [[ValueType]], String )
+simulateHighLevelWarnings :: Op -> [[ValueType]] -> [[ValueType]]
+                          -> ( [[ValueType]], [[ValueType]], String )
 -- Check for type mismatches, then run the preprocessor
-simulateHighLevel' op _ _ | hasChildWithError op || isFailure op =
+simulateHighLevelWarnings op _ _ | hasChildWithError op || isFailure op =
   error $ "Op has error: " ++ show op
-simulateHighLevel' op portInputs memoryInputs =
+simulateHighLevelWarnings op portInputs memoryInputs =
     if simhlCheckInputs 0 (inPorts op) portInputs
     then
       let
