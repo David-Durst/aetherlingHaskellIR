@@ -123,6 +123,9 @@ composeSeqTokenTypeFailure op0 op1 =
 
 -- | This is for making ComposePar
 (|&|) :: Op -> Op -> Op
+-- | if failed in earlier step, keep propagating failures
+(|&|) cf@(Failure _) op1 = Failure $ ComposeFailure PriorFailure (op1, cf)
+(|&|) op0 cf@(Failure _) = Failure $ ComposeFailure PriorFailure (cf, op0)
 (|&|) op0 op1 | composeParFailure op0 op1 /= Nothing =
   case composeParFailure op0 op1 of
     Nothing -> error "Aetherling internal error: Missing ComposeFailure."
