@@ -284,7 +284,7 @@ composeTest26 =
 
 -- Check that ComposeSeq as child op still gets retimed correctly.
 lbLatency0 = manifestoLineBuffer (1,1) (2,2) (10,10) (1,1) (-1,-1) T_Int
-reshape27 = arrayReshape [tInts [1,1,2,2]] [T_Int, T_Int, T_Int, T_Int]
+reshape27 = arrayReshape [tInts [1,2,2]] [T_Int, T_Int, T_Int, T_Int]
 seq27 = lbLatency0 |>>=| reshape27
 seq27' = regInputs 22 lbLatency0 |>>=| reshape27
 composeTest27 =
@@ -342,7 +342,7 @@ composeTest31 =
 -- Retiming underutilized sequenceArrayRepack.
 repack32 = sequenceArrayRepack (3,4) (4,3) T_Int
 seq32a = scaleUtil (2%3) (repack32 |>>=| reduceOp 3 3 Add)
-seq32b = lbLatency22 |>>=| arrayReshape [tInts [1,1,3,3]] [tInts [9]]
+seq32b = lbLatency22 |>>=| arrayReshape [tInts [1,3,3]] [tInts [9]]
                      |>>=| regInputs 1 (reduceOp 9 9 Max)
 -- Manually underutil SequenceArrayRepack, Register to check scaleUtil.
 seq32a' = SequenceArrayRepack (3,4) (4,3) 6 T_Int
