@@ -13,7 +13,6 @@ import Aetherling.Operations.Properties
 import Aetherling.Analysis.Metrics
 import Aetherling.Analysis.PortsAndThroughput
 import Aetherling.Analysis.Phase
-import Aetherling.LineBufferManifestoModule
 import Data.Bool
 import Data.Ratio
 import Debug.Trace -- Temporary for sequentialLatency ReduceOp warning.
@@ -65,7 +64,7 @@ sequentialLatency (LineBuffer lbData) =
     (windowY, windowX) = lbWindow lbData
     (strideY, strideX) = lbStride lbData
     (imgY, imgX) = lbImage lbData
-    parallelism = getParallelism lbData
+    parallelism = getLineBufferParallelism lbData
 
     -- First output window's lower-right coordinate.
     (firstLower, firstRight) = (originY + windowY - 1, originX + windowX - 1)
@@ -200,7 +199,7 @@ maxCombPath (LUT _) = 1
 
 maxCombPath (MemRead _) = 1
 maxCombPath (MemWrite _) = 1
-maxCombPath (LineBuffer _ _ _ _ _) = 1
+maxCombPath (LineBuffer _) = 1
 maxCombPath (Constant_Int _) = 1
 maxCombPath (Constant_Bit _) = 1
 maxCombPath (SequenceArrayRepack _ _ _ _) = 1

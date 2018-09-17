@@ -38,7 +38,7 @@ appsMakeConvolution kernelRows shift (iY, iX) =
 
     -- Create windows of the input image the same size as the kernel
     windowsOp = arrayReshape [T_Int] [tInts[1,1]]
-          |>>=| manifestoLineBuffer (1,1) (kernelHeight, kernelWidth) (iY, iX)
+          |>>=| linebuffer2D (1,1) (kernelHeight, kernelWidth) (iY, iX)
                                     (1,1) (-kernelHeight+1, -kernelWidth+1) T_Int
           |>>=| arrayReshape [T_Array 1 tStencil] [tStencil]
   in

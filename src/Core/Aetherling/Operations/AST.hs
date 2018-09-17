@@ -7,7 +7,6 @@ for identifying errors in that tree.
 -}
 module Aetherling.Operations.AST where
 import Aetherling.Operations.Types
-import Aetherling.LineBufferManifestoModule
 import Data.Ratio
 
 -- | The operations that can be used to create dataflow DAGs in Aetherling
@@ -124,7 +123,7 @@ data Op =
 -- for internal buffer sizing. Fourth is how far apart each window is from
 -- the last one. Origin is the location of the window relative to the pixel
 -- that's being moved along the image. Last is the type of the pixel element
-data LineBufferData = LinebufferData {
+data LineBufferData = LineBufferData {
   lbPxPerClk :: (Int, Int),
   lbWindow :: (Int, Int),
   lbImage :: (Int, Int),
@@ -134,8 +133,8 @@ data LineBufferData = LinebufferData {
 } deriving (Eq, Show)
 
 -- The number of parallel window outputs needed.
-getLinebufferParallelism :: LineBufferData -> Int
-getLinebufferParallelism lb =
+getLineBufferParallelism :: LineBufferData -> Int
+getLineBufferParallelism lb =
   let
     (yPerClk, xPerClk) = lbPxPerClk lb
     (strideY, strideX) = lbStride lb

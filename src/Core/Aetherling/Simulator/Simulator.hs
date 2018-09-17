@@ -27,7 +27,6 @@ import Aetherling.Simulator.DuplicateOutputs
 import Aetherling.Simulator.MapReduce
 import Aetherling.Simulator.Memory
 import Aetherling.Simulator.State
-import Aetherling.LineBufferManifestoModule
 
 -- | See Core/Aetherling/Simulator/README.md for more thorough
 -- discussion.
