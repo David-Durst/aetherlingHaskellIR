@@ -437,7 +437,7 @@ simhlCase11 = SimhlTestCase
 -- Use a 1D line buffer to output the maximum of adjacent inputs (adjacent in time).
 simhlMaxAdjacentOp =
   ArrayReshape [T_Int] [T_Array 1 T_Int] |>>=|
-  LineBuffer [1] [2] [100] T_Int Crop |>>=|
+  linebuffer1D 1 2 100 1 0 T_Int |>>=|
   ArrayReshape [T_Array 1 (T_Array 2 T_Int)] [T_Int, T_Int] |>>=|
   Max
 simhlMaxAdjacentImpl :: [[ValueType]] -> [[ValueType]]
@@ -462,7 +462,7 @@ simhlXOr10Op =
   ArrayReshape [T_Bit] [T_Array 1 T_Bit] |>>=|
   sequenceArrayRepack (3, 1) (1, 3) T_Bit |>>=|
   underutil 3 (
-      LineBuffer [3] [10] [300] T_Bit Crop |>>=|
+      linebuffer1D 3 10 300 1 0 T_Bit |>>=|
       MapOp 3 (ReduceOp 10 10 XOr)
   ) |>>=|
   sequenceArrayRepack (1, 3) (3, 1) T_Bit |>>=|
@@ -489,7 +489,7 @@ simhlCase13 = SimhlTestCase
 -- inputs with a regular pattern (5*x + 7*y) and check that the
 -- outputs match that same pattern.
 simhlLineBufferOp =
-  LineBuffer [1, 2] [4, 3] [150, 100] T_Int Crop
+  linebuffer2D (1, 2) (4, 3) (150, 100) T_Int
 simhlLineBufferTestData =
       [[
         V_Array [ V_Array [V_Int (5*x + 7*y), V_Int (5*(x+1) + 7*y)] ]
