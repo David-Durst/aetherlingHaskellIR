@@ -118,15 +118,25 @@ mapBitAdapter rawOp t =
   error (show rawOp ++ " does not accept " ++ show t ++ " input.")
 
 
--- Functions for making a line buffer 
+-- Functions for making a line buffer
+
+-- | Make 1D line buffer. This is done by making a 2D line buffer,
+-- then using arrayReshape to give it a 1D interface.
 linebuffer1D :: Int -> Int -> Int -> Int -> Int -> TokenType -> Op
 linebuffer1D pxPerClk window image stride origin token =
-  case linebufferCheckAssumptions
-       (LineBufferData (1, pxPerClk) (1, window) (1, image) (1, stride)
-        (1, origin) token) of
-    Left message -> error message
-    Right lbData -> LineBuffer lbData
+  let
+    inputReshape =
+      arrayReshape [T_Array pxPerClk token] [T_Array 1 $ T_Array pxPerClk token]
+    LineBuffer lbData =
+      linebuffer2D (1,pxPerClk) (1,window) (1,image) (1,stride) (0,origin) token
+    parallelism = getLineBufferParallelism lbData
+    outputReshape =
+      arrayReshape [T_Array parallelism $ T_Array 1 $ T_Array window token]
+                   [T_Array parallelism $ T_Array window token]
+  in
+    inputReshape |>>=| LineBuffer lbData |>>=| outputReshape
 
+-- | Make 2D line buffer.
 linebuffer2D :: (Int, Int) -> (Int, Int) -> (Int, Int)
              -> (Int, Int) -> (Int, Int) -> TokenType
              -> Op
