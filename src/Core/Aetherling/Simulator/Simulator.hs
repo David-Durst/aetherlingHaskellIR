@@ -27,7 +27,7 @@ import Aetherling.Simulator.DuplicateOutputs
 import Aetherling.Simulator.MapReduce
 import Aetherling.Simulator.Memory
 import Aetherling.Simulator.State
-import Aetherling.LineBufferManifestoModule
+import Aetherling.Simulator.LineBuffer
 
 -- | See Core/Aetherling/Simulator/README.md for more thorough
 -- discussion.
@@ -291,8 +291,8 @@ simhlPre opStack@(NoOp _:_) inStrLens inState =
     simhlPreResult opStack inStrLens Nothing inState
 simhlPre opStack@(LineBuffer _ _ _ _ _:_) inStrLens inState =
     simhlPreLB opStack inStrLens inState
-simhlPre opStack@(LineBufferManifesto lb:_) inStrLens inState =
-  let (warning, outStrLens) = manifestoPreprocess lb inStrLens
+simhlPre opStack@(LineBuffer lbData:_) inStrLens inState =
+  let (warning, outStrLens) = simhlPreLB lbData inStrLens
   in simhlPreResult opStack outStrLens warning inState
 simhlPre (Constant_Int _:_) _ state = ([Nothing], state)
 simhlPre (Constant_Bit _:_) _ state = ([Nothing], state)
