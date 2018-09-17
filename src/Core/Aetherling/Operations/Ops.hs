@@ -11,7 +11,6 @@ import Aetherling.Operations.AST
 import Aetherling.Operations.Types
 import Aetherling.Operations.Compose
 import Aetherling.Operations.ReadyValid
-import Aetherling.LineBufferManifestoModule
 import Aetherling.Analysis.PortsAndThroughput
 import Aetherling.Analysis.Latency
 import Data.Ratio
@@ -124,18 +123,18 @@ linebuffer1D :: Int -> Int -> Int -> Int -> Int -> TokenType -> Op
 linebuffer1D pxPerClk window image stride origin token =
   case linebufferCheckAssumptions
        (LineBufferData (1, pxPerClk) (1, window) (1, image) (1, stride)
-        (1, origin) (1, token)) of
+        (1, origin) token) of
     Left message -> error message
-    Right lbData -> LineBufferManifesto lbData
+    Right lbData -> LineBuffer lbData
 
 linebuffer2D :: (Int, Int) -> (Int, Int) -> (Int, Int)
              -> (Int, Int) -> (Int, Int) -> TokenType
              -> Op
-linebuffer2d pxPerClk window image stride origin token =
+linebuffer2D pxPerClk window image stride origin token =
   case linebufferCheckAssumptions
        (LineBufferData pxPerClk window image stride origin token) of
     Left message -> error message
-    Right lbData -> LineBufferManifesto lbData
+    Right lbData -> LineBuffer lbData
 
 -- True iff the line buffer satisfies the requirements specified
 -- in The Line Buffer Manifesto. Returns Left String with error

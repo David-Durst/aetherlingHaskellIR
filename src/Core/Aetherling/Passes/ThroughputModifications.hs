@@ -161,11 +161,13 @@ attemptSpeedUp requestedMult op@(Constant_Bit _) = (MapOp requestedMult op, requ
 -- NOTE: increaseLBPxPerClock expects dimensions from innermost to outermost
 -- and LineBuffer stores them in the opposite order. Thus, they must be
 -- reversed when calling the helper function.
+{-
 attemptSpeedUp requestedMult (LineBuffer p w img t bc) =
   (LineBuffer (reverse reversedNewP) w img t bc, actualMult)
   where
     (reversedNewP, actualMult) =
       increaseLBPxPerClock (reverse p) (reverse img) requestedMult
+-}
 
 -- speeding up SequenceArrayRepack means handling streams with
 -- more bits per element of the stream.
@@ -405,11 +407,12 @@ attemptSlowDown requestedDiv op@(Constant_Bit _) =
 -- see decreaseLBPxPerClock for more information
 -- NOTE: decreaseLBPxPerClock expects dimensions from outermost to innermost
 -- which matches the order for LineBuffer.
+{-
 attemptSlowDown requestedDiv (LineBuffer p w img t bc) =
   (LineBuffer newP w img t bc, actualDiv)
   where
     (newP, actualDiv) = decreaseLBPxPerClock p img requestedDiv
-
+-}
 -- slowing down SequenceArrayRepack means handling streams with
 -- fewer bits per element of the stream.
 -- For example, attemptSlowDown 2 $ SequenceArrayRepack (4, 2) (2, 4) T_Int ==

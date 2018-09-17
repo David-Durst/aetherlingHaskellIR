@@ -19,7 +19,7 @@ appsMakeBoxBlur (iy,ix) (sy,sx) =
       ArrayReshape [T_Array 1 T_Int] [T_Int]
   in
     ArrayReshape [T_Int] [T_Array 1 $ T_Array 1 T_Int] |>>=|
-    LineBuffer [1,1] [sy,sx] [iy,ix] T_Int Crop |>>=|
+    LineBuffer (LineBufferData (1,1) (sy,sx) (iy,ix) (1, 1) (0, 0) T_Int) |>>=|
     ArrayReshape [T_Array 1 $ T_Array 1 stencil] [stencil] |>>=|
     ReduceOp sy sy (MapOp sx Add) |>>=|
     ReduceOp sx sx Add |>>=|

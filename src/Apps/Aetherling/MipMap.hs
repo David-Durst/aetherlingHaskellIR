@@ -115,8 +115,8 @@ presetSpeedLineBufferFactory :: Int ->
   ((Int,Int) -> (Int,Int) -> (Int,Int) -> (Int,Int) -> TokenType -> Op)
 presetSpeedLineBufferFactory speedLog2
   | speedLog2 >= 0 =
-    manifestoLineBuffer (1, 2^speedLog2)
+    linebuffer2D (1, 2^speedLog2)
   | otherwise =
     \window image stride origin token ->
       underutil (2^(-speedLog2)) $
-        manifestoLineBuffer (1,1) window image stride origin token
+        linebuffer2D (1,1) window image stride origin token

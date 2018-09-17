@@ -18,7 +18,6 @@ import Aetherling.Operations.Properties
 import Aetherling.Analysis.Metrics
 import Data.Bool
 import Data.Ratio
-import Aetherling.LineBufferManifestoModule
 import Debug.Trace
 
 -- | Compute the in ports of a module.
@@ -51,7 +50,7 @@ inPorts (LUT _) = oneInSimplePort T_Int
 inPorts (MemRead _) = []
 inPorts (MemWrite t) = [T_Port "I" 1 t 1 False]
 
-inPorts :: (LineBuffer lbData) =
+inPorts (LineBuffer lbData) =
   let
     (yPerClk, xPerClk) = lbPxPerClk lbData
     inArea = yPerClk * xPerClk
@@ -143,19 +142,19 @@ outPorts (MemRead t) = oneOutSimplePort t
 outPorts (MemWrite _) = []
 
 outPorts (LineBuffer lbData) = let
-    (yPerClk, xPerClk) = lbPxPerClk lb
-    (strideY, strideX) = lbStride lb
-    (imgY, imgX) = lbImage lb
-    (winY, winX) = lbWindow lb
+    (yPerClk, xPerClk) = lbPxPerClk lbData
+    (strideY, strideX) = lbStride lbData
+    (imgY, imgX) = lbImage lbData
+    (winY, winX) = lbWindow lbData
     strideArea = strideX * strideY
     imgArea = imgX * imgY
 
     -- The number of parallel window outputs needed.
-    parallelism = getParallelism lb
+    parallelism = getLineBufferParallelism lbData
 
     windowCount = div imgArea strideArea
     seqLen = div windowCount parallelism
-    windowToken = T_Array winY $ T_Array winX (lbToken lb)
+    windowToken = T_Array winY $ T_Array winX (lbToken lbData)
     arrayToken = T_Array parallelism $ windowToken
   in
     if yPerClk /= 1 then
