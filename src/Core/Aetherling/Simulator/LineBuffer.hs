@@ -2,6 +2,7 @@ module Aetherling.Simulator.LineBuffer (
     simhlPreLB,
     simhlLineBuffer
 ) where
+import Aetherling.Operations.Types
 import Data.Array
 
 -- | Preprocessor pass implementation for LineBuffer.
