@@ -127,7 +127,7 @@ manifestoOutPorts lb =
     windowCount = div imgArea strideArea
     seqLen = div windowCount parallelism
     windowToken = T_Array winY $ T_Array winX (lbToken lb)
-    arrayToken = T_Array 1 $ T_Array parallelism $ windowToken
+    arrayToken = T_Array parallelism $ windowToken
   in
     if yPerClk /= 1 then
       error "Expected pxPerClk to have height 1."
@@ -244,7 +244,7 @@ manifestoSimulate lb [inStr] =
     pack windows =
       let
         (theseWindows, laterWindows) = splitAt parallelism windows
-        thisOut = V_Array [ V_Array theseWindows ]
+        thisOut = V_Array theseWindows
         laterOut = pack laterWindows
       in
         thisOut:laterOut
