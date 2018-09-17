@@ -58,7 +58,7 @@ As mentioned the simulator does not concern itself with exact timing,
 so the lengths of the inner lists need not match. Example:
 
 ```haskell
-> add4stream = arrayReshape [T_Int] [tInts [1]] |>>=| ReduceOp 1 4 (addInts T_Int)
+> add4stream = arrayReshape [T_Int] [tInts [1]] |>>=| reduceOp 4 1 (addInts T_Int)
 > pipeline = (add4stream |&| underutil 4 (Shl 4)) |>>=| underutil 4 (maxInts T_Int)
 > :{
 | inputs =
