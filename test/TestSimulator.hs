@@ -1,5 +1,6 @@
 module TestSimulator where
 import Aetherling.Operations.AST
+import Aetherling.Operations.Ops
 import Aetherling.Operations.Compose
 import Aetherling.Operations.Types
 import Aetherling.Analysis.Metrics
@@ -20,13 +21,6 @@ import Test.Tasty.HUnit
 -- simulator more robust in the future.  I'm also not testing "abs"
 -- operator. I'm a little confused about what it's really supposed to
 -- do, since ints were all unsigned last I heard.
-
-
--- HACK We don't have a "no-op" operator yet, but we do have array
--- reshape so we can simulate no-op with an array reshape that doesn't
--- actually reshape anything.
-simhlNoOp :: [TokenType] -> Op
-simhlNoOp tokens = ArrayReshape tokens tokens
 
 -- Also some shorthand to create an op that boxes to/unboxes from 1-arrays.
 simhlBox :: TokenType -> Op
@@ -144,7 +138,7 @@ simhlMakeTestCases inRand (thisCase:cases) =
 -- comprehesions for dealing with the full sequence of input values.
 -- Later, I'll re-use simhlCombinational to automatically deal with it.
 -- If this test case passes, then simhlCombinational is trustworthy.
-vec4SubTimes8Op = MapOp 4 ((Sub T_Int) |>>=| (Shl 3 T_Int))
+vec4SubTimes8Op = MapOp 4 (Sub |>>=| (Shl 3))
 vec4SubTimes8Impl :: [[ValueType]] -> [[ValueType]]
                   -> ( [[ValueType]], [[ValueType]] )
 vec4SubTimes8Impl inSeqs _ =
@@ -195,12 +189,13 @@ simhlCombinational2 impl inStrs =
     |(outputNow, outputLater) <- zip outputsNow outputsLater]
 
 
--- ((a xor b) / (c|100)) >> 5
+-- (a xor b) / (c|100)
+or100 = (NoOp [T_Int] |&|
+         (Constant_Int [100] |>>=| ArrayReshape [T_Array 1 T_Int] [T_Int])
+        )
+        |>>=| OrInt
 simhlCase1Op =
-  (XOr T_Int |&| simhlNoOp [T_Int] |&| Constant_Int [100]) |>>=|
-  (ArrayReshape [T_Int, T_Int, T_Array 1 T_Int] [T_Int, T_Int, T_Int]) |>>=|
-  (simhlNoOp [T_Int] |&| Or T_Int) |>>=|
-  (Div T_Int)
+  (XOrInt |&| or100) |>>=| Div
 simhlCase1Combinational :: [ValueType] -> [ValueType]
 simhlCase1Combinational [V_Int a, V_Int b, V_Int c] =
   [V_Int ((a `xor` b) `div` (c .|. 100))]
@@ -214,9 +209,9 @@ simhlCase1 = SimhlTestCase
 
 -- Check if both entries of input array have the same parity
 simhlParityMatchOp =
-  (simhlNoOp [T_Int] |&| Constant_Int [1, 1] |&| simhlNoOp [T_Int]) |>>=|
+  (NoOp [T_Int] |&| Constant_Int [1, 1] |&| NoOp [T_Int]) |>>=|
   (ArrayReshape [T_Int, T_Array 2 T_Int, T_Int] [T_Int, T_Int, T_Int, T_Int]) |>>=|
-  (And T_Int |&| And T_Int) |>>=|
+  (AndInt |&| AndInt) |>>=|
   Eq
 simhlParityMatchCombinational :: [ValueType] -> [ValueType]
 simhlParityMatchCombinational [V_Int a, V_Int b] =
@@ -230,11 +225,11 @@ simhlCase2 = SimhlTestCase
   []
 
 -- Check that every entry of a 5-array is even.
--- This tests the combinational case of ReduceOp (par = numComb).
+-- This tests the combinational case of ReduceOp (par = numTokens).
 simhlAllEvenOp =
-  (simhlNoOp [T_Array 5 T_Int] |&| Constant_Int [1,1,1,1,1]) |>>=|
-  (And (T_Array 5 T_Int)   |&| Constant_Int [1]) |>>=|
-  (ReduceOp 5 5 (Or T_Int) |&| simhlUnbox T_Int) |>>=|
+  (NoOp [T_Array 5 T_Int] |&| Constant_Int [1,1,1,1,1]) |>>=|
+  (andInts (T_Array 5 T_Int) |&| Constant_Int [1]) |>>=|
+  (ReduceOp 5 5 OrInt |&| simhlUnbox T_Int) |>>=|
   (Neq)
   
 simhlAllEvenCombinational :: [ValueType] -> [ValueType]
@@ -270,28 +265,28 @@ simhlCase4 = SimhlTestCase
 -- NOTE: Since max is commutative/associative, we're not really testing
 -- SequenceArrayRepack here.
 simhlMul7Max15SpaceOp =
-  (Underutil 5 (ArrayReshape (replicate 15 T_Int) [T_Array 15 T_Int])) |>>=|
-  (SequenceArrayRepack (1, 15) (5, 3) T_Int |&| Underutil 5 (Constant_Int [7]))
+  (underutil 5 (ArrayReshape (replicate 15 T_Int) [T_Array 15 T_Int])) |>>=|
+  (sequenceArrayRepack (1, 15) (5, 3) T_Int |&| underutil 5 (Constant_Int [7]))
   |>>=|
-  (ReduceOp 3 15 (Max T_Int) |&| Underutil 5 (simhlUnbox T_Int))
+  (ReduceOp 15 3 Max |&| underutil 5 (simhlUnbox T_Int))
   |>>=|
-  Underutil 5 (Mul T_Int)
+  underutil 5 Mul
 simhlMul7Max15Combinational :: [ValueType] -> [ValueType]
 simhlMul7Max15Combinational inputs = [V_Int $ maximum [7*n | V_Int n <- inputs]]
 simhlCase5 = SimhlTestCase
   "Maximum of 15 integers, multiplied by 7, using a reduce that takes only \
         \3 inputs at a time. \
-        \(Tests ReduceOp, Max, SequenceArrayRepack, Underutil)."
+        \(Tests ReduceOp, Max, SequenceArrayRepack, LogicalUtil)"
   simhlMul7Max15SpaceOp
   (simhlCombinationalIgnoreMem simhlMul7Max15Combinational)
   199
   []
 
--- Same thing, but take 15 inputs sequentially.
+-- Same thing, but take 15 inputs sequentially, and test readyValid here.
 simhlMul7Max15TimeOp =
-  (simhlBox T_Int |&| Underutil 15 (Constant_Int [7])) |>>=|
-  (ReduceOp 1 15 (Max T_Int) |&| Underutil 15 (simhlUnbox T_Int)) |>>=|
-  Underutil 15 (Mul T_Int)
+  readyValid (simhlBox T_Int |&| underutil 15 (Constant_Int [7])) |>>=|
+  readyValid (ReduceOp 15 1 Max |&| underutil 15 (simhlUnbox T_Int)) |>>=|
+  readyValid (underutil 15 Mul)
 simhlMul7Max15TimeImpl :: [[ValueType]] -> [[ValueType]]
                        -> ( [[ValueType]], [[ValueType]] )
 simhlMul7Max15TimeImpl portInputs _ =
@@ -303,8 +298,8 @@ simhlMul7Max15TimeImpl portInputs _ =
   in
     ([doMax $ head portInputs], [])
 simhlCase6 = SimhlTestCase
-  "Similar to the other maximum times 7, but input is sequential. \
-        \(Tests ReduceOp, Max)"
+  "Similar to the other maximum times 7, but input is sequential and using \
+        \ready-valid timing. (Tests ReduceOp, Max, ReadyValid)"
   simhlMul7Max15TimeOp
   simhlMul7Max15TimeImpl
   150
@@ -312,7 +307,7 @@ simhlCase6 = SimhlTestCase
 
 -- A is at least 4 times B.
 simhlAtLeast4TimesOp =
-  (Ashr 2 T_Int |&| simhlNoOp [T_Int]) |>>=| Geq
+  (Ashr 2 |&| NoOp [T_Int]) |>>=| Geq
 simhlAtLeast4TimesCombinational :: [ValueType] -> [ValueType]
 simhlAtLeast4TimesCombinational [V_Int a, V_Int b] = [V_Bit (a >= 4*b)]
 simhlAtLeast4TimesCombinational _ = error "Aetherling test internal error: case 7"
@@ -327,24 +322,24 @@ simhlCase7 = SimhlTestCase
 -- Use de-morgan's law to turn this into a test for or, not.
 -- Also add a register just for fun.
 simhlVec7LessThanOp =
-  MapOp 7 Gt |>>=| ReduceOp 7 7 (Or T_Bit) |>>=| Delay 1 (Not T_Bit)
+  geq (T_Array 7 T_Int) |>>=| ReduceOp 7 7 Or |>>=| regOutputs 1 Not
 simhlVec7LessThanCombinational :: [ValueType] -> [ValueType]
 simhlVec7LessThanCombinational [V_Array xs, V_Array ys] =
-  [V_Bit $ all (\(x,y) -> x < y) $ zip [x | V_Int x <- xs] [y | V_Int y <- ys]]
+  [V_Bit $ all (uncurry (<)) $ zip [x | V_Int x <- xs] [y | V_Int y <- ys]]
 simhlVec7LessThanCombinational _ = error "Aetherling test internal error: case 8"
 simhlCase8 = SimhlTestCase
-  "7-vector 'less than' function. (Tests MapOp, Gt, ReduceOp, Or, Not)"
+  "7-vector 'less than' function. (Tests MapOp, Geq, ReduceOp, Or, Not)"
   simhlVec7LessThanOp
   (simhlCombinationalIgnoreMem simhlVec7LessThanCombinational)
-  125
+  405
   []
 
 -- Read two tapes of input, and output their sums and differences to
 -- memory, and their mins to an output port.
 simhlMemSumDiffMinOp =
-  (Delay 1 (DuplicateOutputs 3 (MemRead T_Int |&| MemRead T_Int))) |>>=|
-  (Delay 2 (Add T_Int |&| Sub T_Int |&| Min T_Int)) |>>=|
-  (MemWrite T_Int |&| MemWrite T_Int |&| simhlNoOp [T_Int])
+  (regInputs 1 (DuplicateOutputs 3 (MemRead T_Int |&| MemRead T_Int))) |>>=|
+  (regInputs 2 (Add |&| Sub |&| Min)) |>>=|
+  (MemWrite T_Int |&| MemWrite T_Int |&| NoOp [T_Int])
 simhlMemSumDiffMinImpl :: [[ValueType]] -> [[ValueType]]
                        -> ( [[ValueType]], [[ValueType]] )
 simhlMemSumDiffMinImpl _ inTapes | any null inTapes = ([[]], [[],[]])
@@ -359,9 +354,9 @@ simhlMemSumDiffMinImpl _ [xv:xvs, yv:yvs] =
     ([theMin:theMins], [theSum:theSums, theDiff:theDiffs])
 simhlMemSumDiffMinImpl _ _ = error "Aetherling test internal error: case 9"
 simhlCase9 = SimhlTestCase
-  "Read numbers from two memory inputs, output sums and differences to \
-  \memory, minimums to an output port. (Tests RegRetime, \
-  \DuplicateOutputs, MemRead, MemWrite, Add, Sub, Min)"
+  "Read from two memory inputs, output sums and differences to \
+  \memory, mins to an output port. (Tests \
+  \DuplicateOutputs, MemRead, MemWrite, Add, Sub, Min, Register)"
   simhlMemSumDiffMinOp
   simhlMemSumDiffMinImpl
   180
@@ -370,14 +365,14 @@ simhlCase9 = SimhlTestCase
 -- Outputs true iff each 4-sequence input (entered as 2 inputs over 2 cycles)
 -- is strictly increasing. Better test for SequenceArrayReshape and Lt.
 simhlStrictlyIncreasingOp =
-  SequenceArrayRepack (2,2) (1,4) T_Int |>>=|
-  Underutil 2 (
+  sequenceArrayRepack (2,2) (1,4) T_Int |>>=|
+  underutil 2 (
     ArrayReshape [T_Array 4 T_Int] [T_Int, T_Int, T_Int, T_Int] |>>=|
-    (simhlNoOp [T_Int] |&| DuplicateOutputs 2 (simhlNoOp [T_Int])
-    |&| DuplicateOutputs 2 (simhlNoOp [T_Int]) |&| simhlNoOp [T_Int]) |>>=|
+    (NoOp [T_Int] |&| DuplicateOutputs 2 (NoOp [T_Int])
+    |&| DuplicateOutputs 2 (NoOp [T_Int]) |&| NoOp [T_Int]) |>>=|
     (Lt |&| Lt |&| Lt) |>>=|
     ArrayReshape [T_Bit, T_Bit, T_Bit] [T_Array 3 T_Bit] |>>=|
-    ReduceOp 3 3 (And T_Bit)
+    ReduceOp 3 3 And
   )
 simhlStrictlyIncreasingImpl :: [[ValueType]] -> [[ValueType]]
                             -> ( [[ValueType]], [[ValueType]] )
@@ -393,7 +388,7 @@ simhlStrictlyIncreasingImpl _ _ = error "Aetherling test internal error: case 10
 simhlCase10 = SimhlTestCase
   "Read in 4-sequences of ints (2 at a time) and output true for every \
   \sequence that is strictly increasing, false otherwise. (Tests Lt, \
-  \SequenceArrayReshape)."
+  \SequenceArrayReshape)"
   simhlStrictlyIncreasingOp
   simhlStrictlyIncreasingImpl
   403 -- Not divisible by 2 on purpose -- should truncate extra input.
@@ -406,7 +401,8 @@ simhl4LaneCmpOp =
   (ArrayReshape [T_Int, T_Int, T_Int, T_Int] [T_Array 4 T_Int]
   |&| MapOp 4 (MemRead T_Int)) |>>=|
   (MapOp 4 (Leq) |&| Constant_Bit [False, True, False, True]) |>>=|
-  (MapOp 4 (XOr T_Bit |>>=| MemWrite T_Bit))
+  (MapOp 4 (XOr |>>=| MemWrite T_Bit))
+
 simhl4LaneCmpImpl :: [[ValueType]] -> [[ValueType]]
                   -> ( [[ValueType]], [[ValueType]] )
 simhl4LaneCmpImpl [in0, in1, in2, in3] [mem0, mem1, mem2, mem3] =
@@ -432,96 +428,17 @@ simhl4LaneCmpImpl _ _ = error "Aetherling test internal error: case 11"
 simhlCase11 = SimhlTestCase
   "Read from 4 ports and 4 memory tapes. Output 4 comparison results \
   \to 4 output memory tapes (lanes 0 & 2: <=, 1 & 3, >). \
-  \(Tests MemRead, MemWrite, Constant_Bit, Leq)."
+  \(Tests MemRead, MemWrite, Constant_Bit, Leq)"
   simhl4LaneCmpOp
   simhl4LaneCmpImpl
   280
   [(280, T_Int), (280, T_Int), (260, T_Int), (288, T_Int)] -- mismatch intended.
 
--- Use a 1D line buffer to output the maximum of adjacent inputs (adjacent in time).
-simhlMaxAdjacentOp =
-  ArrayReshape [T_Int] [T_Array 1 T_Int] |>>=|
-  LineBuffer [1] [2] [100] T_Int Crop |>>=|
-  ArrayReshape [T_Array 1 (T_Array 2 T_Int)] [T_Int, T_Int] |>>=|
-  Max T_Int
-simhlMaxAdjacentImpl :: [[ValueType]] -> [[ValueType]]
-                     -> ( [[ValueType]], [[ValueType]] )
-simhlMaxAdjacentImpl [inStr] _ =
-  let
-    intPairs = [(a,b) | (V_Int a, V_Int b) <- zip (tail inStr) (init inStr)]
-  in
-    ([[V_Int (max a b) | (a,b) <- intPairs]], [])
-simhlMaxAdjacentImpl _ _ = error "Aetherling test internal error: case 12"
-simhlCase12 = SimhlTestCase
-  "Use a 1D line buffer to output the maximum of adjacent inputs (adjacent \
-  \in time). (Tests LineBuffer, ArrayReshape, Max)."
-  simhlMaxAdjacentOp
-  simhlMaxAdjacentImpl
-  100
-  []
-
--- Use a 1D line buffer to output the xor of 10 adjacent inputs,
--- passed 3 at a time.
-simhlXOr10Op =
-  ArrayReshape [T_Bit] [T_Array 1 T_Bit] |>>=|
-  SequenceArrayRepack (3, 1) (1, 3) T_Bit |>>=|
-  Underutil 3 (
-      LineBuffer [3] [10] [300] T_Bit Crop |>>=|
-      MapOp 3 (ReduceOp 10 10 (XOr T_Bit))) |>>=|
-  SequenceArrayRepack (1, 3) (3, 1) T_Bit |>>=|
-  ArrayReshape [T_Array 1 T_Bit] [T_Bit]
-simhlXOr10Impl :: [[ValueType]] -> [[ValueType]]
-               -> ( [[ValueType]], [[ValueType]] )
-simhlXOr10Impl [inStr] _ =
-  let
-    getBools = \a -> [b | V_Bit b <- a]
-    everything = map (\n -> getBools (take 291 (drop n inStr))) [0..9]
-    groupsOfTen = transpose everything
-  in
-    ([[V_Bit (foldl1 xor a) | a <- groupsOfTen]], [])
-simhlXOr10Impl _ _ = error "Aetherling internal test error: case 13"
-simhlCase13 = SimhlTestCase
-  "Use a 1D line buffer to output the xor of groups of 10 adjacent inputs \
-  \(Tests LineBuffer, XOr)"
-  simhlXOr10Op
-  simhlXOr10Impl
-  300
-  []
-
--- A test for the 2D line buffer that breaks the mold. We just create
--- inputs with a regular pattern (5*x + 7*y) and check that the
--- outputs match that same pattern.
-simhlLineBufferOp =
-  LineBuffer [1, 2] [4, 3] [150, 100] T_Int Crop
-simhlLineBufferTestData =
-      [[
-        V_Array [ V_Array [V_Int (5*x + 7*y), V_Int (5*(x+1) + 7*y)] ]
-        | y <- [0..149], x <- [0, 2..98]
-      ]]
-simhlLineBufferExpected =
-  let
-    mkWindow xo yo = V_Array [ V_Array [
-                                 V_Int (5*(xo+xi) + 7*(yo+yi)) | xi <- [0..2]
-                               ] | yi <- [0..3]
-                     ]
-  in
-    (
-        [[
-            V_Array [ V_Array [ mkWindow x y, mkWindow (x+1) y ]]
-                              | y <- [0..146], x <- [0,2..96]
-        ]],
-        []
-    )
-simhlLineBufferCase =
-  testCase "2D LineBuffer Test" $
-           (simulateHighLevel simhlLineBufferOp simhlLineBufferTestData [])
-       @?= simhlLineBufferExpected
 
 simhlSeed = 1337
 
 simulatorTests = testGroup ("High level simulator tests, seed " ++ show simhlSeed)
-  $ simhlLineBufferCase:
-    simhlMakeTestCases (SimhlRand simhlSeed) [
+  $ simhlMakeTestCases (SimhlRand simhlSeed) [
       simhlCase0,
       simhlCase1,
       simhlCase2,
@@ -533,7 +450,5 @@ simulatorTests = testGroup ("High level simulator tests, seed " ++ show simhlSee
       simhlCase8,
       simhlCase9,
       simhlCase10,
-      simhlCase11,
-      simhlCase12,
-      simhlCase13
+      simhlCase11
     ]

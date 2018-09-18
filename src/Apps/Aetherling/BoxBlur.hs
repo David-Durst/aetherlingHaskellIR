@@ -1,5 +1,6 @@
 module Aetherling.BoxBlur where
 import Aetherling.Operations.AST
+import Aetherling.Operations.Ops
 import Aetherling.Operations.Compose
 import Aetherling.Operations.Types
 
@@ -14,12 +15,12 @@ appsMakeBoxBlur (iy,ix) (sy,sx) =
     stencil = T_Array sy $ T_Array sx T_Int
     divide =
       (ArrayReshape [T_Int] [T_Array 1 T_Int] |&| Constant_Int [sx*sy]) |>>=|
-      Div (T_Array 1 T_Int) |>>=|
+      divI (T_Array 1 T_Int) |>>=|
       ArrayReshape [T_Array 1 T_Int] [T_Int]
   in
     ArrayReshape [T_Int] [T_Array 1 $ T_Array 1 T_Int] |>>=|
-    LineBuffer [1,1] [sy,sx] [iy,ix] T_Int Crop |>>=|
+    LineBuffer (LineBufferData (1,1) (sy,sx) (iy,ix) (1, 1) (0, 0) T_Int) |>>=|
     ArrayReshape [T_Array 1 $ T_Array 1 stencil] [stencil] |>>=|
-    ReduceOp sy sy (MapOp sx (Add T_Int)) |>>=|
-    ReduceOp sx sx (Add T_Int) |>>=|
+    ReduceOp sy sy (MapOp sx Add) |>>=|
+    ReduceOp sx sx Add |>>=|
     divide

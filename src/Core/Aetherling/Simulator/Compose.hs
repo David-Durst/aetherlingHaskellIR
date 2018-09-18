@@ -1,10 +1,11 @@
 module Aetherling.Simulator.Compose where
+import Data.List
 import Aetherling.Operations.AST
 import Aetherling.Operations.Types
 import Aetherling.Analysis.PortsAndThroughput
 import Aetherling.Simulator.State
 
--- Simulator implementations for ComposeSeq and ComposePar.
+-- | Simulator implementation for ComposeSeq.
 simhlSeq :: Simhl -> Op -> [[ValueType]] -> SimhlState
          -> ( [[ValueType]], SimhlState )
 simhlSeq simhl (ComposeSeq []) inStrs state = error "ComposeSeq with empty [Op]"
@@ -14,6 +15,7 @@ simhlSeq simhl (ComposeSeq (op:ops)) inStrs inState =
     in simhl (ComposeSeq ops) nextInput nextState
 simhlSeq _ _ _ _ = error "Aetherling internal error: expected ComposeSeq"
 
+-- | Simulator implementation for ComposePar.
 simhlPar :: Simhl -> Op -> [[ValueType]] -> SimhlState
          -> ( [[ValueType]], SimhlState )
 simhlPar simhl (ComposePar []) inStrs state = ([], state)
@@ -27,8 +29,7 @@ simhlPar simhl (ComposePar (op:moreOps)) inStrs inState =
 simhlPar _ _ _ _ = error "Aetherling internal error: expected ComposePar"
 
 
--- Preprocessor pass implementations.
-
+-- | Preprocessor pass implementation for ComposeSeq.
 simhlPreSeq :: SimhlPre -> [Op] -> [Maybe Int] -> SimhlPreState
             -> ([Maybe Int], SimhlPreState)
 simhlPreSeq simhlPre opStack@(ComposeSeq []:_) _ _ =
@@ -41,9 +42,10 @@ simhlPreSeq simhlPre opStack@(ComposeSeq ops:_) inStrLens inState =
       f (fInStrLens, fInState) op =
         simhlPre (op:opStack) fInStrLens fInState
     in
-      foldl f (inStrLens, inState) ops
+      foldl' f (inStrLens, inState) ops
 simhlPreSeq _ _ _ _ = error "Aetherling internal error: expected ComposeSeq"
 
+-- | Preprocessor pass implementation for ComposePar.
 simhlPrePar :: SimhlPre -> [Op] -> [Maybe Int] -> SimhlPreState
             -> ([Maybe Int], SimhlPreState)
 simhlPrePar simhlPre opStack@(ComposePar ops:_) inStrLens inState =
@@ -60,7 +62,7 @@ simhlPrePar simhlPre opStack@(ComposePar ops:_) inStrLens inState =
         in
           (newInStrLens, oldOutStrLens++opOut, fOutState)
 
-      (_, outStrLens, outState) = foldl f (inStrLens, [], inState) ops
+      (_, outStrLens, outState) = foldl' f (inStrLens, [], inState) ops
     in
       (outStrLens, outState)
 simhlPrePar _ _ _ _ = error "Aetherling internal error: expected ComposePar"

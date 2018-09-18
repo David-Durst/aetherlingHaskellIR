@@ -1,5 +1,11 @@
-module Aetherling.Simulator.Arrays where
+module Aetherling.Simulator.Arrays (
+    simhlRepack,
+    simhlReshape,
+    simhlPreRepack,
+    simhlPreReshape
+) where
 import Data.Array
+import Data.List
 import Aetherling.Operations.AST
 import Aetherling.Operations.Types
 import Aetherling.Simulator.Combinational
@@ -8,14 +14,13 @@ import Aetherling.Simulator.State
 -- Simulator and preprocessor pass implementations for
 -- SequenceArrayRepack, ArrayReshape, and LineBuffer.
 
--- Reshape sequence of arrays through space and time.
+-- | Simulator implementation function for ArrayReshape (reshapes
+-- sequence of arrays through space and time).
 simhlRepack :: (Int,Int) -> (Int,Int) -> TokenType -> [[ValueType]]
             -> [[ValueType]]
 simhlRepack (inSeqLen, inWidth) (outSeqLen, outWidth) t [inStr] =
     if inSeqLen * inWidth /= outSeqLen * outWidth || inSeqLen * inWidth == 0
-    then error("Need product of sequence length and array width to be nonzero "
-           ++  "and equal in input and output. Simulating "
-           ++ show (SequenceArrayRepack (inSeqLen, inWidth) (outSeqLen, outWidth) t))
+    then error("Aetherling internal error: repack I/O throughput mismatch.")
     else
       let allInputs = simhlRepackUnpack inWidth inStr
       in [simhlRepackRepack outWidth allInputs]
@@ -42,7 +47,7 @@ simhlRepackRepack outWidth values =
       then (V_Array nowArray):(simhlRepackRepack outWidth futureValues)
       else []
 
--- Combinational device that decomposes arrays into fundamental types
+-- | Combinational device that decomposes arrays into fundamental types
 -- and puts them back together in a different order. This function
 -- takes an ArrayReshape Op and returns an implementation function
 -- suitable for simhlCombinational (list of in port values in one
@@ -57,15 +62,18 @@ simhlReshape _ _ =
 
 -- Take one instance of (possible nested) V_Arrays and a TokenType
 -- describing the intended type of the array, and recursively flatten
--- it down to a list of ValueType.
+-- it down to a list of ValueType. If we get a V_Unit in place
+-- of some array input, we need to make sure we generate N1*N2*...
+-- copies of the V_Unit, where N1, N2... are the dimensions of the array.
 -- Note: The line buffer depends on this function too.
 simhlSerializeArray :: TokenType -> ValueType -> [ValueType]
+simhlSerializeArray (T_Array 0 _) _ = []
 simhlSerializeArray (T_Array n t) V_Unit =
-    concat $ replicate n (simhlSerializeArray t V_Unit)
-simhlSerializeArray (T_Array n t) (V_Array array) =
-    concat $ map (simhlSerializeArray t) array
-simhlSerializeArray (T_Array _ _) value =
-    error "Aethering internal error: broken array serialization."
+    (simhlSerializeArray t V_Unit)
+     ++ simhlSerializeArray (T_Array (n-1) t) V_Unit
+simhlSerializeArray (T_Array n t) (V_Array (aHead:aTail)) =
+    (simhlSerializeArray t aHead)
+     ++ (simhlSerializeArray (T_Array (n-1) t) (V_Array aTail))
 simhlSerializeArray t value = [value]
 
 
@@ -77,7 +85,7 @@ simhlDeserializeArrays :: Op -> [ValueType]
 simhlDeserializeArrays (ArrayReshape inTypes outTypes) serialValues =
     let
       initTuple = (ArrayReshape inTypes outTypes, [], serialValues)
-      (_, result, _) = foldl simhlDeserializeLambda initTuple outTypes
+      (_, result, _) = foldl' simhlDeserializeLambda initTuple outTypes
     in
       result
 
@@ -125,90 +133,11 @@ simhlMunchArray op t (value:values) =
 simhlMunchArray op _ _ =
     error ("Aetherling internal error: broken munch for " ++ show op)
 
--- Line buffer simulator implementation.
---
--- For now I'm only simulating 1D and 2D linebuffers. There's some
--- important restrictions on pixels-per-clock UPDATE THIS IF/WHEN
--- THAT'S NO LONGER TRUE (including in simhlPre).  pixels-per-clock in
--- the 2D case is passed as a list of [width, height]. For now, height
--- must be 1, and width (for 1D + 2D) must divide both the image width
--- and 1 minus the window width. Justification: never "cross" a
--- no-output with-output boundary in a single cycle.
---
--- Implement by dumping all input data into a Haskell array
--- (representing the image being streamed in), making a list of output
--- windows from that array, and finally splitting that output list
--- into the [[ValueType]] output expected.
-simhlLineBuffer :: [Int] -> [Int] -> [Int] -> TokenType -> [[ValueType]] ->
-                BoundaryConditions -> [[ValueType]]
-simhlLineBuffer [1, pixW] [wH, wW] [iH, iW] t [inStr] bc =
-    let
-      -- Part 1: Make the 2D array.
-      -- Note that our array has indicies swapped compared to
-      -- typical width-height representation. Justification:
-      -- lexicographical order everywhere.
-      bounds = ((0,0), (iH-1, iW-1))
-      getValues = simhlSerializeArray (T_Array 1 (T_Array pixW t))
-      values = concat [getValues a | a <- inStr] ++ repeat V_Unit
-      the_array = listArray bounds values
-      
-      -- Split it up into windows
-      -- Make window with pixel (y,x) at lower-right.
-      mkWindow y x = V_Array [
-          V_Array [ the_array ! (y',x') | x' <- [x-wW+1..x] ]
-          | y' <- [y-wH+1..y]
-        ]
-      windows = [mkWindow y x | y <- [wH-1..iH-1], x <- [wW-1..iW-1]]
-      -- Munch the windows and pack them into a stream of output
-      -- arrays-of-arrays-of-arrays-of-arrays My understanding of the
-      -- 4D output is that the inner 2 dims correspond to the window
-      -- dimensions, and the outer 2 dims correspond to the pixel
-      -- inputs. So (i,j,k,l) would be the (row k, col l) pixel of the
-      -- window with the pixel inputted at position (row i, col j) at
-      -- its lower-right.
-      pack :: [ValueType] -> [ValueType]
-      pack w | length w <= pixW = [V_Array [ V_Array [a | a <- w]]]
-      pack w =
-        let
-          (these_windows, later_windows) = splitAt pixW w
-          this_array = V_Array [ V_Array [a | a <- these_windows]]
-          later_arrays = pack later_windows
-        in
-          this_array:later_arrays
-    in
-      [pack windows]
-simhlLineBuffer [pixW] [wW] [iW] t [inStr] bc =
-    let
-      bounds = (0, iW-1)
-      getValues = simhlSerializeArray (T_Array pixW t)
-      values = concat [getValues a | a <- inStr] ++ repeat V_Unit
-      the_array = listArray bounds values
-
-      mkWindow x = V_Array [ the_array ! x' | x' <- [x-wW+1..x] ]
-
-      windows = [mkWindow x | x <- [wW-1..iW-1] ]
-
-      pack :: [ValueType] -> [ValueType]
-      pack w | length w <= pixW = [V_Array [a | a <- w]]
-      pack w =
-        let
-          (these_windows, later_windows) = splitAt pixW w
-          this_array = V_Array [a | a <- these_windows]
-          later_arrays = pack later_windows
-        in
-          this_array:later_arrays
-    in
-      [pack windows]
-simhlLineBuffer _ _ _ _ _ _ =
-    error "Aetherling intenal error: Unexpected LineBuffer parameters"
-
-
--- Preprocessor pass implementations for ArrayReshape,
--- SequenceArrayRepack, and LineBuffer.
+-- | Preprocessor pass implementation for SequenceArrayRepack.
 simhlPreRepack :: [Op] -> [Maybe Int] -> SimhlPreState
                -> ([Maybe Int], SimhlPreState)
 simhlPreRepack
-      opStack@(SequenceArrayRepack (inSeqLen, inWidth) (outSeqLen, outWidth) t:_)
+      opStack@(SequenceArrayRepack (inSeqLen, inWidth) (outSeqLen, outWidth) _ t:_)
       inStrLens
       inState =
     if inSeqLen*inWidth /= outSeqLen*outWidth || inSeqLen*inWidth == 0 then
@@ -230,10 +159,10 @@ simhlPreRepack
         warning = warning' inStrLen
       in
         simhlPreResult opStack [outStrLen] warning inState
-
 simhlPreRepack _ _ _ =
     error "Aetherling internal error: expected SequenceArrayRepack"
 
+-- | Preprocessor pass implementation for ArrayReshape.
 simhlPreReshape :: [Op] -> [Maybe Int] -> SimhlPreState
                 -> ([Maybe Int], SimhlPreState)
 simhlPreReshape opStack@(ArrayReshape inTypes outTypes:_) inStrLens inState
@@ -250,55 +179,3 @@ simhlPreReshape opStack@(ArrayReshape inTypes outTypes:_) inStrLens inState
 simhlPreReshape _ _ _ =
     error "Aetherling internal error: expected ArrayReshape"
 
--- Check that the LineBuffer conforms to the restrictions commented on
--- in simhlLineBuffer.
-simhlPreLB :: [Op] -> [Maybe Int] -> SimhlPreState
-           -> ([Maybe Int], SimhlPreState)
-simhlPreLB opStack@(LineBuffer [pixW] [wW] [iW] t _:_) [inStrLen] inState =
-    if (wW-1) `mod` pixW /= 0 || iW `mod` pixW /= 0 || any (<=0) [pixW, wW, iW] then
-      error("1D LineBuffer requires all positive parameters and the width of \
-            \pxPerClock to divide both the image width and one minus the window \
-            \width, at\n"
-            ++ (simhlFormatOpStack opStack)
-           )
-    else
-      let
-        strLen = div (iW-wW+1) pixW
-        expectedInStrLen = div iW pixW
-        just Nothing = expectedInStrLen
-        just (Just i) = i
-        warning' =
-          if expectedInStrLen /= just inStrLen then
-            Just "Unexpected input stream length"
-          else
-            Nothing
-      in
-        simhlPreResult opStack [Just strLen] warning' inState
-
-simhlPreLB opStack@(LineBuffer [1, pixW] [wH, wW] [iH, iW] t _:_) [inStrLen] inState =
-    if (wW-1) `mod` pixW /= 0 || iW `mod` pixW /= 0 || any (<=0) [pixW, wH, wW, iH, iW] then
-      error("2D LineBuffer requires all positive parameters and the width of \
-            \pixPerClock to divide both the image width and one minus the window \
-            \width, at\n"
-            ++ (simhlFormatOpStack opStack)
-      )
-    else
-      let
-        strLen = div ((iH-wH+1)*(iW-wW+1)) pixW
-        expectedInStrLen = div (iH*iW) pixW
-        just Nothing = expectedInStrLen
-        just (Just i) = i
-        warning' =
-          if expectedInStrLen /= just inStrLen then
-            Just "Unexpected input stream length"
-          else
-            Nothing
-      in
-        simhlPreResult opStack [Just strLen] warning' inState
-
-simhlPreLB opStack@(LineBuffer pix w i t _:_) _ _ =
-    error("Only support 1D linebuffers, and 2D linebuffers \
-          \with pixel window of form [1,w], at\n"
-       ++ (simhlFormatOpStack opStack)
-    )
-simhlPreLB _ _ _ = error "Aetherling internal error: expected LineBuffer."

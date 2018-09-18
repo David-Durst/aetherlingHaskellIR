@@ -2,7 +2,7 @@
 Module: Aetherling.Analysis.Space
 Description: Analyzes ops' area on chip and utilization of that area.
 -}
-module Aetherling.Analysis.Space where
+module Aetherling.Analysis.Space (space, util) where
 import Aetherling.Operations.AST
 import Aetherling.Operations.Types
 import Aetherling.Analysis.Metrics
@@ -13,31 +13,38 @@ import Data.Ratio
 -- for wire space, only counting input wires, not outputs. This avoids
 -- double counting
 space :: Op -> OpsWireArea
-space (Add t) = OWA (len t) (2 * len t)
-space (Sub t) = space (Add t)
-space (Mul t) = OWA (mulSpaceTimeIncreaser * len t) wireArea
-  where OWA _ wireArea = space (Add t)
-space (Div t) = OWA (divSpaceTimeIncreaser * len t) wireArea
-  where OWA _ wireArea = space (Add t)
-space (Max t) = space (Add t)
-space (Min t) = space (Add t)
-space (Ashr _ t) = OWA (len t) (len t)
-space (Shl _ t) = space (Ashr 1 t)
-space (Abs t) = OWA (len t) (len t)
-space (Not t) = space (Abs t)
-space (And t) = space (Add t)
-space (Or t) = space (Add t)
-space (XOr t) = space (Add t)
-space Eq = space (Add T_Int)
-space Neq = space (Add T_Int)
-space Lt = space (Add T_Int)
-space Leq = space (Add T_Int)
-space Gt = space (Add T_Int)
-space Geq = space (Add T_Int)
+space Add = OWA (len T_Int) (2 * len T_Int)
+space Sub = space Add
+space Mul = OWA (mulSpaceTimeIncreaser * len T_Int) wireArea
+  where OWA _ wireArea = space Add
+space Div = OWA (divSpaceTimeIncreaser * len T_Int) wireArea
+  where OWA _ wireArea = space Add
+space Max = space Add
+space Min = space Add
+space (Ashr _) = OWA (len T_Int) (len T_Int)
+space (Shl shift)= space (Ashr shift)
+space Abs = OWA (len T_Int) (len T_Int)
+space Not = OWA (len T_Bit) (len T_Bit)
+space NotInt = space Abs
+space And = OWA (len T_Bit) (2 * len T_Bit)
+space AndInt = space Add
+space Or = space And
+space OrInt = space AndInt
+space XOr = space And
+space XOrInt = space AndInt
+space Eq = space Add
+space Neq = space Add
+space Lt = space Add
+space Leq = space Add
+space Gt = space Add
+space Geq = space Add
 space (LUT table) = OWA (len T_Int) (length table * len T_Int)
 
 space (MemRead t) = OWA (len t) (len t)
 space (MemWrite t) = OWA (len t) (len t)
+{-|
+-- need the counters and muxes for each rowbuffer, need to account for parallelism
+in area
 -- need registers for storing intermediate values
 -- registers account for wiring as some registers receive input wires,
 -- others get wires from other registers
@@ -50,12 +57,13 @@ space (LineBuffer (pHd:pTl) (wHd:wTl) (_:imgTl) t bc) =
   -- to account for more wires
   (rowbufferSpace (head imgTl `ceilDiv` head pTl) t |* (head pTl) |* (wHd - pHd)) 
 space (LineBuffer _ _ _ _ _) = addId
+-}
 space (Constant_Int consts) = OWA (len (T_Array (length consts) T_Int)) 0
 space (Constant_Bit consts) = OWA (len (T_Array (length consts) T_Bit)) 0
 
 -- may need a more accurate approximate, but most conservative is storing
 -- entire input.
-space (SequenceArrayRepack (inSeq, inWidth) (outSeq, outWidth) inType) =
+space (SequenceArrayRepack (inSeq, inWidth) (outSeq, outWidth) cps_ inType) =
   registerSpace [T_Array inWidth inType] |* inSeq
 
 -- just a pass through, so will get removed by CoreIR
@@ -69,23 +77,28 @@ space (MapOp par op) = (space op) |* par
 -- area of reduce is area of reduce tree, with area for register for partial
 -- results and counter for tracking iteration time if input is sequence of more
 -- than what is passed in one clock
-space (ReduceOp par numComb op) | par == numComb = (space op) |* (par - 1)
-space rOp@(ReduceOp par numComb op) =
+space (ReduceOp numTokens par op) | par == numTokens = (space op) |* (par - 1)
+space rOp@(ReduceOp numTokens par op) =
   reduceTreeSpace |+| (space op) |+| (registerSpace $ map pTType $ outPorts op)
-  |+| (counterSpace $ numComb * (denominator opThroughput) `ceilDiv` (numerator opThroughput))
+  |+| (counterSpace $ numTokens * (denominator opThroughput) `ceilDiv` (numerator opThroughput))
   where 
     reduceTreeSpace = space (ReduceOp par par op)
     -- need to be able to count all clocks in steady state, as that is when
     -- will be doing reset every nth
-    -- thus, divide numComb by throuhgput in steady state to get clocks for
-    -- numComb to be absorbed
+    -- thus, divide numTokens by throuhgput in steady state to get clocks for
+    -- numTokens to be absorbed
     -- only need throughput from first port as all ports have same throuhgput
     (PortThroughput _ opThroughput) = portThroughput op $ head $ inPorts op
 
 space (NoOp _) = addId
-space (Underutil denom op) = space op |+| counterSpace (denom * cps op)
-space (Delay dc op) = space op |+|
-  ((registerSpace $ map pTType $ outPorts op) |* dc)
+-- Note from Akeley: This doesn't seem like a reasonable approximation.
+-- For many underutil'd ops, we don't need to do anything at all.
+-- Furthermore ops with fractional underutil probably need more complicated
+-- counters and stuff than integer underutil ops.
+space thisOp@(LogicalUtil ratio childOp) =
+  space childOp |+| counterSpace (cps thisOp)
+space (Register n _ t) =
+  registerSpace [t] |* n
 
 space (ComposePar ops) = foldl (|+|) addId $ map space ops
 space (ComposeSeq ops) = foldl (|+|) addId $ map space ops
@@ -93,19 +106,23 @@ space (Failure _) = OWA (-1) (-1)
 
   
 util :: Op -> Float
-util (Add t) = 1
-util (Sub t) = 1
-util (Mul t) = 1
-util (Div t) = 1
-util (Max t) = 1
-util (Min t) = 1
-util (Ashr _ t) = 1
-util (Shl _ t) = 1
-util (Abs t) = 1
-util (Not t) = 1
-util (And t) = 1
-util (Or t) = 1
-util (XOr t) = 1
+util Add = 1
+util Sub = 1
+util Mul = 1
+util Div = 1
+util Max = 1
+util Min = 1
+util (Ashr _) = 1
+util (Shl _) = 1
+util Abs = 1
+util Not = 1
+util NotInt = 1
+util And = 1
+util AndInt = 1
+util Or = 1
+util OrInt = 1
+util XOr = 1
+util XOrInt = 1
 util Eq = 1
 util Neq = 1
 util Lt = 1
@@ -116,10 +133,11 @@ util (LUT _) = 1
 
 util (MemRead _) = 1
 util (MemWrite _) = 1
-util (LineBuffer _ _ _ _ _) = 1
+util (LineBuffer _) = 1
 util (Constant_Int _) = 1
 util (Constant_Bit _) = 1
-util (SequenceArrayRepack _ _ _) = 1
+util (SequenceArrayRepack (iSeqLen, _) (oSeqLen, _) cps_ _) =
+  (realToFrac (max oSeqLen iSeqLen)) / realToFrac cps_
 util (ArrayReshape _ _) = 1
 util (DuplicateOutputs _ _) = 1
 
@@ -127,9 +145,9 @@ util (MapOp _ op) = util op
 util (ReduceOp _ _ op) = util op
 
 util (NoOp _) = 1
-util (Underutil denom op) = util op / fromIntegral denom
+util (LogicalUtil ratio op) = util op * realToFrac ratio
 -- since pipelined, this doesn't affect clocks per stream
-util (Delay _ op) = util op
+util (Register _ utilRatio _) = realToFrac utilRatio
 
 util (ComposePar ops) = utilWeightedByArea ops
 util (ComposeSeq ops) = utilWeightedByArea ops

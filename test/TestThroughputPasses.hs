@@ -26,7 +26,7 @@ throughputTests = testGroup "verify all speed up and slowdown" [speedUp2xTests]
 
 speedUp2xTests = testGroup "verify speedup 2x"
   [
-    testCase "Add T_Int speedup" $ verifyNTimesSpeedup (Add T_Int) 2,
-    testCase "Add T_Bit speedup" $ verifyNTimesSpeedup (Add T_Bit) 2
+    testCase "Add (integer) speedup" $ verifyNTimesSpeedup Add 2,
+    testCase "XOr (bit) speedup" $ verifyNTimesSpeedup XOr 2
   ]
 
