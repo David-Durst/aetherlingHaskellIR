@@ -434,91 +434,11 @@ simhlCase11 = SimhlTestCase
   280
   [(280, T_Int), (280, T_Int), (260, T_Int), (288, T_Int)] -- mismatch intended.
 
--- Use a 1D line buffer to output the maximum of adjacent inputs (adjacent in time).
-simhlMaxAdjacentOp =
-  ArrayReshape [T_Int] [T_Array 1 T_Int] |>>=|
-  LineBuffer [1] [2] [100] T_Int Crop |>>=|
-  ArrayReshape [T_Array 1 (T_Array 2 T_Int)] [T_Int, T_Int] |>>=|
-  Max
-simhlMaxAdjacentImpl :: [[ValueType]] -> [[ValueType]]
-                     -> ( [[ValueType]], [[ValueType]] )
-simhlMaxAdjacentImpl [inStr] _ =
-  let
-    intPairs = [(a,b) | (V_Int a, V_Int b) <- zip (tail inStr) (init inStr)]
-  in
-    ([[V_Int (max a b) | (a,b) <- intPairs]], [])
-simhlMaxAdjacentImpl _ _ = error "Aetherling test internal error: case 12"
-simhlCase12 = SimhlTestCase
-  "Use a 1D line buffer to output the maximum of adjacent inputs (adjacent \
-  \in time). (Tests LineBuffer, ArrayReshape, Max)"
-  simhlMaxAdjacentOp
-  simhlMaxAdjacentImpl
-  100
-  []
-
--- Use a 1D line buffer to output the xor of 10 adjacent inputs,
--- passed 3 at a time.
-simhlXOr10Op =
-  ArrayReshape [T_Bit] [T_Array 1 T_Bit] |>>=|
-  sequenceArrayRepack (3, 1) (1, 3) T_Bit |>>=|
-  underutil 3 (
-      LineBuffer [3] [10] [300] T_Bit Crop |>>=|
-      MapOp 3 (ReduceOp 10 10 XOr)
-  ) |>>=|
-  sequenceArrayRepack (1, 3) (3, 1) T_Bit |>>=|
-  ArrayReshape [T_Array 1 T_Bit] [T_Bit]
-simhlXOr10Impl :: [[ValueType]] -> [[ValueType]]
-               -> ( [[ValueType]], [[ValueType]] )
-simhlXOr10Impl [inStr] _ =
-  let
-    getBools = \a -> [b | V_Bit b <- a]
-    everything = map (\n -> getBools (take 291 (drop n inStr))) [0..9]
-    groupsOfTen = transpose everything
-  in
-    ([[V_Bit (foldl1 xor a) | a <- groupsOfTen]], [])
-simhlXOr10Impl _ _ = error "Aetherling internal test error: case 13"
-simhlCase13 = SimhlTestCase
-  "Use a 1D line buffer to output the xor of groups of 10 adjacent inputs \
-  \(Tests LineBuffer, XOr)"
-  simhlXOr10Op
-  simhlXOr10Impl
-  300
-  []
-
--- A test for the 2D line buffer that breaks the mold. We just create
--- inputs with a regular pattern (5*x + 7*y) and check that the
--- outputs match that same pattern.
-simhlLineBufferOp =
-  LineBuffer [1, 2] [4, 3] [150, 100] T_Int Crop
-simhlLineBufferTestData =
-      [[
-        V_Array [ V_Array [V_Int (5*x + 7*y), V_Int (5*(x+1) + 7*y)] ]
-        | y <- [0..149], x <- [0, 2..98]
-      ]]
-simhlLineBufferExpected =
-  let
-    mkWindow xo yo = V_Array [ V_Array [
-                                 V_Int (5*(xo+xi) + 7*(yo+yi)) | xi <- [0..2]
-                               ] | yi <- [0..3]
-                     ]
-  in
-    (
-        [[
-            V_Array [ V_Array [ mkWindow x y, mkWindow (x+1) y ]]
-                              | y <- [0..146], x <- [0,2..96]
-        ]],
-        []
-    )
-simhlLineBufferCase =
-  testCase "2D LineBuffer Test" $
-           (simulateHighLevel simhlLineBufferOp simhlLineBufferTestData [])
-       @?= simhlLineBufferExpected
 
 simhlSeed = 1337
 
 simulatorTests = testGroup ("High level simulator tests, seed " ++ show simhlSeed)
-  $ simhlLineBufferCase:
-    simhlMakeTestCases (SimhlRand simhlSeed) [
+  $ simhlMakeTestCases (SimhlRand simhlSeed) [
       simhlCase0,
       simhlCase1,
       simhlCase2,
@@ -530,7 +450,5 @@ simulatorTests = testGroup ("High level simulator tests, seed " ++ show simhlSee
       simhlCase8,
       simhlCase9,
       simhlCase10,
-      simhlCase11,
-      simhlCase12,
-      simhlCase13
+      simhlCase11
     ]

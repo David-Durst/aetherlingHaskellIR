@@ -27,7 +27,7 @@ import Aetherling.Simulator.DuplicateOutputs
 import Aetherling.Simulator.MapReduce
 import Aetherling.Simulator.Memory
 import Aetherling.Simulator.State
-import Aetherling.LineBufferManifestoModule
+import Aetherling.Simulator.LineBuffer
 
 -- | See Core/Aetherling/Simulator/README.md for more thorough
 -- discussion.
@@ -183,10 +183,8 @@ simhl reshape@(ArrayReshape inTypes outTypes) inStrs state =
     (simhlCombinational (simhlReshape reshape) inStrs, state)
 simhl (MemRead t) inStrs state = simhlRead t inStrs state
 simhl (MemWrite t) inStrs state = simhlWrite inStrs state
-simhl (LineBuffer pixelRate windowSize imageSize t bc) inStrs state =
-    (simhlLineBuffer pixelRate windowSize imageSize t inStrs bc, state)
-simhl (LineBufferManifesto lb)  inStrs state =
-    (manifestoSimulate lb inStrs, state)
+simhl (LineBuffer lbData)  inStrs state =
+    (simhlLineBuffer lbData inStrs, state)
 simhl op@(DuplicateOutputs _ _) inStrs inState =
     simhlDuplicateOutputs simhl op inStrs inState
 simhl (MapOp par op) inStrs state = simhlMap simhl par op inStrs state
@@ -289,10 +287,8 @@ simhlPre opStack@(ReduceOp _ _ _:_) inStrLens inState =
     simhlPreReduce simhlPre opStack inStrLens inState
 simhlPre opStack@(NoOp _:_) inStrLens inState =
     simhlPreResult opStack inStrLens Nothing inState
-simhlPre opStack@(LineBuffer _ _ _ _ _:_) inStrLens inState =
-    simhlPreLB opStack inStrLens inState
-simhlPre opStack@(LineBufferManifesto lb:_) inStrLens inState =
-  let (warning, outStrLens) = manifestoPreprocess lb inStrLens
+simhlPre opStack@(LineBuffer lbData:_) inStrLens inState =
+  let (warning, outStrLens) = simhlPreLB lbData inStrLens
   in simhlPreResult opStack outStrLens warning inState
 simhlPre (Constant_Int _:_) _ state = ([Nothing], state)
 simhlPre (Constant_Bit _:_) _ state = ([Nothing], state)

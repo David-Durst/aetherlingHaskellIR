@@ -42,6 +42,9 @@ space (LUT table) = OWA (len T_Int) (length table * len T_Int)
 
 space (MemRead t) = OWA (len t) (len t)
 space (MemWrite t) = OWA (len t) (len t)
+{-|
+-- need the counters and muxes for each rowbuffer, need to account for parallelism
+in area
 -- need registers for storing intermediate values
 -- registers account for wiring as some registers receive input wires,
 -- others get wires from other registers
@@ -54,6 +57,7 @@ space (LineBuffer (pHd:pTl) (wHd:wTl) (_:imgTl) t bc) =
   -- to account for more wires
   (rowbufferSpace (head imgTl `ceilDiv` head pTl) t |* (head pTl) |* (wHd - pHd)) 
 space (LineBuffer _ _ _ _ _) = addId
+-}
 space (Constant_Int consts) = OWA (len (T_Array (length consts) T_Int)) 0
 space (Constant_Bit consts) = OWA (len (T_Array (length consts) T_Bit)) 0
 
@@ -129,7 +133,7 @@ util (LUT _) = 1
 
 util (MemRead _) = 1
 util (MemWrite _) = 1
-util (LineBuffer _ _ _ _ _) = 1
+util (LineBuffer _) = 1
 util (Constant_Int _) = 1
 util (Constant_Bit _) = 1
 util (SequenceArrayRepack (iSeqLen, _) (oSeqLen, _) cps_ _) =
