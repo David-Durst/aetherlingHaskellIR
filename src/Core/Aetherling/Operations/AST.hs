@@ -8,6 +8,7 @@ for identifying errors in that tree.
 module Aetherling.Operations.AST where
 import Aetherling.Operations.Types
 import Data.Ratio
+import GHC.Generics
 
 -- | The operations that can be used to create dataflow DAGs in Aetherling
 data Op =
@@ -114,7 +115,7 @@ data Op =
   -- Wraps the whole op with a ready-valid interface. Connections
   -- between child ops within the wrapped op are not affected.
   | ReadyValid Op
-  deriving (Eq, Show)
+  deriving (Eq, Show, Generic)
 
 -- | first arg is pixels per clock in each dimension. First value in list is
 -- outer most dimension that iterating over (rows first, columns second in 2d
@@ -130,7 +131,7 @@ data LineBufferData = LineBufferData {
   lbStride :: (Int, Int),
   lbOrigin :: (Int, Int),
   lbToken :: TokenType
-} deriving (Eq, Show)
+} deriving (Eq, Show, Generic)
 
 -- The number of parallel window outputs needed.
 getLineBufferParallelism :: LineBufferData -> Int
@@ -154,7 +155,7 @@ data FailureType =
   -- e.g. -- [tInts [3], T_Bit] becomes [T_Int, T_Int, T_Int, T_Bit]
   | ArrayReshapeTypeMismatch
       {flattenedInTokens :: [TokenType], flattenedOutTokens :: [TokenType]}
-  deriving (Eq, Show)
+  deriving (Eq, Show, Generic)
 
 data ComposeResult = 
   PriorFailure 
@@ -171,7 +172,7 @@ data ComposeResult =
   | SeqPortMismatch {outPortsThroughput :: [PortThroughput],
                      inPortsThroughput :: [PortThroughput]}
   | ComposeSuccess
-  deriving (Eq, Show)
+  deriving (Eq, Show, Generic)
 
 -- | debugging helper methods for parsing syntax tree
 -- get the ops contained inside other ops, for going down ComposeFailure trees

@@ -8,6 +8,7 @@ as it is a type used for comparing ports when composing sequences of ops.
 -}
 module Aetherling.Operations.Types where
 import Data.Ratio
+import GHC.Generics
 
 -- | An instance of this typeclass has a length of the number of bits to express
 -- the data in binary.
@@ -21,7 +22,7 @@ data TokenType =
   | T_Bit
   -- Int here is the length
   | T_Array Int TokenType
-  deriving (Eq, Show)
+  deriving (Eq, Show, Generic)
 
 -- Prettier way of expressing array token types.
 
@@ -93,7 +94,8 @@ valueTypeTail _ = error "valueTypeTail of non-array non-unit ValueType"
 -- if we want to match the throughputs of 2 ready-valid ops for
 -- performance (not correctness) reasons.
 data PortType = T_Port {pName :: [Char], pSeqLen :: Int,
-  pTType :: TokenType, pCTime :: Int, pReadyValid :: Bool} deriving (Show)
+  pTType :: TokenType, pCTime :: Int, pReadyValid :: Bool}
+  deriving (Show, Generic)
 
 instance Eq PortType where
   -- ignore names for equality, just check that all same
@@ -112,4 +114,4 @@ renamePorts templateName ports = snd $ foldl renameAndIncrementCounter (0, []) p
           (curCounter + 1, processedPorts ++ [T_Port (templateName ++ show curCounter) sLen tType pct rv])
 
 data PortThroughput = PortThroughput {throughputType :: TokenType, 
-  throughputTypePerClock :: Ratio Int} deriving (Show, Eq)
+  throughputTypePerClock :: Ratio Int} deriving (Show, Eq, Generic)

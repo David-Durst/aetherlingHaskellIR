@@ -24,6 +24,7 @@ dependencies:
 - base >= 4.7 && < 5
 - pretty-simple >= 2.1.0.0 && < 2.2.0.0
 - array >= 0.5.2.0 && < 0.6.0.0
+- aeson >= 1.2.4.0 && < 2.0.0.0
 
 ghc-options:
 - -fwarn-incomplete-patterns 
@@ -31,6 +32,8 @@ ghc-options:
 
 library:
   source-dirs: src/Core/
+  default-extensions:
+    - DeriveGeneric
 
 executables:
   AetherlingSTIR-Example-exe:
@@ -66,6 +69,20 @@ executables:
     source-dirs:
     - src/Apps/
     - src/AppMains/MipMap
+    ghc-options:
+    - -threaded
+    - -rtsopts
+    - -with-rtsopts=-N
+    - -O2
+    - -prof -fprof-auto
+    dependencies:
+    - AetherlingSTIR
+    - JuicyPixels >= 3.0
+    - bytestring >= 0.10
+  AetherlingSTIR-JsonOfAllOps-exe:
+    main:                Main.hs
+    source-dirs:
+    - src/AppMains/ProduceJsonOfAllOps
     ghc-options:
     - -threaded
     - -rtsopts
