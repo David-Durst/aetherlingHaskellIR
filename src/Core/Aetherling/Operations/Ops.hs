@@ -187,8 +187,8 @@ linebufferCheckAssumptions lb =
             && originX <= 0 && originX > -windowX
   in
     -- Check the yPerClk = 1 requirement.
-    if yPerClk /= 1 then
-      Left "Need pixels/clk to have height 1."
+    if yPerClk /= 1 && xPerClk < imgX then
+      Left "y pixels per clock must be 1 if not x pixels per clock is not a complete row."
     else if not allPositive then
       Left "Can't interpret non-positive parameters."
     else if not windowThroughputOK then
