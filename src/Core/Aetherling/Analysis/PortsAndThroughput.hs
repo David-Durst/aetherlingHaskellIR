@@ -58,11 +58,7 @@ inPorts (LineBuffer lbData) =
     imgArea = imgY * imgX
     seqLen = imgArea `div` inArea
     arrayToken = T_Array yPerClk (T_Array xPerClk (lbToken lbData))
-  in
-    if imgY `mod` yPerClk /= 0 || imgX `mod` xPerClk /= 0 then
-      error "px/clk width/height must divide image width/height."
-    else
-      [T_Port "I" seqLen arrayToken 1 False]
+  in [T_Port "I" seqLen arrayToken 1 False]
 
 inPorts (Constant_Int _) = []
 inPorts (Constant_Bit _) = []
@@ -156,13 +152,7 @@ outPorts (LineBuffer lbData) = let
     seqLen = div windowCount parallelism
     windowToken = T_Array winY $ T_Array winX (lbToken lbData)
     arrayToken = T_Array parallelism $ windowToken
-  in
-    if yPerClk /= 1 then
-      error "Expected pxPerClk to have height 1."
-    else if xPerClk `mod` strideArea /= 0 && strideArea `mod` xPerClk /= 0 then
-      error "Window throughput must be integer (or reciprocal of integer)."
-    else
-      [T_Port "O" seqLen arrayToken 1 False]
+  in [T_Port "O" seqLen arrayToken 1 False]
 
 outPorts (Constant_Int ints) = [T_Port "O" 1 (T_Array (length ints) T_Int) 1 False]
 outPorts (Constant_Bit bits) = [T_Port "O" 1 (T_Array (length bits) T_Bit) 1 False]

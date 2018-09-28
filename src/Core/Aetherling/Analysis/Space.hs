@@ -42,22 +42,22 @@ space (LUT table) = OWA (len T_Int) (length table * len T_Int)
 
 space (MemRead t) = OWA (len t) (len t)
 space (MemWrite t) = OWA (len t) (len t)
-{-|
+
 -- need the counters and muxes for each rowbuffer, need to account for parallelism
-in area
+-- in area
 -- need registers for storing intermediate values
 -- registers account for wiring as some registers receive input wires,
 -- others get wires from other registers
 -- add |+| counterSpace (p `ceilDiv` w) when accounting for warmup counter
-space (LineBuffer (pHd:[]) (wHd:[]) _ t _) = registerSpace [t] |* (pHd + wHd - 2)
--- unclear if this works in greater than 2d case, will come back for it later
-space (LineBuffer (pHd:pTl) (wHd:wTl) (_:imgTl) t bc) = 
-  (space (LineBuffer pTl wTl imgTl t bc) |* wHd) |+|
-  -- divide and muliplty by pTl (aka num cols) for banking rowbuffers for parallelism
-  -- to account for more wires
-  (rowbufferSpace (head imgTl `ceilDiv` head pTl) t |* (head pTl) |* (wHd - pHd)) 
-space (LineBuffer _ _ _ _ _) = addId
--}
+space (LineBuffer (LineBufferData (1, pX) (1,wX) _ _ _ t)) =
+  registerSpace [t] |* (pX + wX - 2)
+space (LineBuffer (LineBufferData (pY, pX) (wY, wX) (imgRows, imgCols) _ _ t)) = 
+  (space (LineBuffer
+          (LineBufferData (1, pX) (1, wX) (1, imgCols) (1, 1) (1,1) t)) |* wY) |+|
+  -- divide and muliplty by pX (aka num cols) for banking rowbuffers for parallelism
+  -- multiplty by 1 less than wY as need all but last row to have a rowbuffer
+  (rowbufferSpace (imgRows `ceilDiv` pX) t |* pX |* (wY - 1))
+
 space (Constant_Int consts) = OWA (len (T_Array (length consts) T_Int)) 0
 space (Constant_Bit consts) = OWA (len (T_Array (length consts) T_Bit)) 0
 

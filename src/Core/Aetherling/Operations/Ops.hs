@@ -12,7 +12,6 @@ import Aetherling.Operations.Types
 import Aetherling.Operations.Compose
 import Aetherling.Operations.ReadyValid
 import Aetherling.Analysis.PortsAndThroughput
-import Aetherling.Analysis.Latency
 import Data.Ratio
 
 -- SIMD arithmetic operators, pass an array type to automatically map the

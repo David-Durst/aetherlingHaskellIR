@@ -71,28 +71,30 @@ sequentialLatency (LineBuffer lbData) =
 
     -- Lower-right coordinate of the first batch of output windows'
     -- last (rightmost) window. (Crystal clear if you think about it).
-    (lower, right) = (firstLower, firstRight + (parallelism-1)*strideX)
-    -- I believe that the current constraints guarantee that the
-    -- parallel output windows are all on the same row (so see that I
-    -- could just add some multiple of strideX). Check that assumption
-    -- at (1).
+    -- If stride in a dimension is greater than px per clock, then just 1
+    -- output window in that dimension
+    -- divide by stride and then multiply back by it as stride (if less than parallelism)
+    -- just gets rid of output windows. This drops out windows (by subtracting 1)
+    -- after stride. meaning can be ready a cycle earlier (which is what)
+    -- circuit does
+    lastLower =
+      if strideY < yPerClk
+      then firstLower + (yPerClk `div` strideY - 1) * strideY
+      else firstLower
+    lastRight =
+      if strideX < xPerClk
+      then firstRight + (xPerClk `div` strideX - 1) * strideX
+      else firstRight
 
     -- index of lower-right pixel in overall ordering of pixels
-    -- (left-to-right then top-to-bottom). Assume yPerClk = 1.
-    pixelIndex = imgX * lower + right
+    -- (left-to-right then top-to-bottom)
+    -- need to min here as ready immediately if run off edge of image
+    -- add 1 in X dimension as 0 indexed indices and this is number of pixels
+    -- not adding 1 in y dimension as want all but last row to be completely full
+    numPixels = (min imgY lastLower) * imgX + (min lastRight imgX) + 1
 
-    latency = (pixelIndex `div` xPerClk)
-  in
-    if originX > 0 || originX <= -windowX then
-      error "origin_x must be in (-window_x, 0]"
-    else if originY > 0 || originY <= -windowY then
-      error "origin_y must be in (-window_y, 0]"
-    else if yPerClk /= 1 then
-      error "yPerClk should be 1."
-    else if parallelism > (imgX `div` strideX) then -- (1)
-      error "Output windows not all on one row."
-    else
-      latency
+    latency = (numPixels `div` (xPerClk * yPerClk)) - 1
+  in latency
 sequentialLatency (Constant_Int _) = 0
 sequentialLatency (Constant_Bit _) = 0
 sequentialLatency (SequenceArrayRepack (inSeqLen, _) (outSeqLen, _) cps_ _) =
